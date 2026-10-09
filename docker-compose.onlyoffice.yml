@@ -1,0 +1,37 @@
+# The document editing service used by Documents (ADR-030): OnlyOffice Document Server,
+# Community Edition. It is a separate program the app talks to, not part of the app itself.
+#
+# Start it (the first run downloads a large image):
+#   docker compose --env-file .env.local -f docker-compose.onlyoffice.yml up -d
+# Stop it:
+#   docker compose -f docker-compose.onlyoffice.yml down
+#
+# It needs these in .env.local, and the app needs the same values:
+#   ONLYOFFICE_URL=http://localhost:8080
+#   ONLYOFFICE_JWT_SECRET=<a long random string>      # openssl rand -hex 32
+#   APP_INTERNAL_URL=http://host.docker.internal:3000  # how this container reaches the app
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: meroidea_onlyoffice
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    environment:
+      # Every request between the app and this service is signed with this shared secret.
+      JWT_ENABLED: 'true'
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:?Set ONLYOFFICE_JWT_SECRET in .env.local}
+      JWT_HEADER: Authorization
+      # Local development only: lets the service fetch files from the app on this machine.
+      # Leave these out in production, where the app has a public address.
+      ALLOW_PRIVATE_IP_ADDRESS: 'true'
+      ALLOW_META_IP_ADDRESS: 'true'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_logs:/var/log/onlyoffice
+
+volumes:
+  onlyoffice_data:
+  onlyoffice_logs:

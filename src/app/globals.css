@@ -1,0 +1,206 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
+  --color-positive-text: var(--positive-text);
+  --color-info: var(--info);
+  --color-warning: var(--warning);
+  --color-warning-border: var(--warning-border);
+  --color-warning-text: var(--warning-text);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* docs/design-system.md: 12px cards, 8px inputs and buttons. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --radius-xl: var(--radius);
+  --radius-2xl: calc(var(--radius) + 4px);
+  --radius-3xl: calc(var(--radius) + 8px);
+  --radius-4xl: calc(var(--radius) + 12px);
+}
+
+/*
+ * Skydash default theme (docs/design-system.md). A tenant's brand colour overrides --primary
+ * (and its readable foreground) at runtime; components use these semantic tokens, never hex.
+ * Coral, cornflower and periwinkle fail AA as small text: use them for fills, icons and chart
+ * marks, and --destructive-text / --positive-text for words.
+ */
+:root {
+  --background: #f5f7ff;
+  --foreground: #1f2937;
+  --card: #ffffff;
+  --card-foreground: #1f2937;
+  --popover: #ffffff;
+  --popover-foreground: #1f2937;
+  --primary: #4b49ac;
+  --primary-foreground: #ffffff;
+  --secondary: color-mix(in srgb, #98bdff 22%, #ffffff);
+  --secondary-foreground: #1f2937;
+  --muted: #eef1fa;
+  --muted-foreground: #5b6474;
+  --accent: color-mix(in srgb, #98bdff 22%, #ffffff);
+  --accent-foreground: #4b49ac;
+  --destructive: #f3797e;
+  --destructive-text: #c2383f;
+  --positive-text: #3159c9;
+  --info: #7978e9;
+  /* Amber for alerts and stale records; text shade passes AA on the fill (7.9:1). */
+  /* Dotted grid on the public website; decorative, never carries meaning. */
+  --dot: #cfd4e6;
+  --warning: #fff6e0;
+  --warning-border: #f2c36b;
+  --warning-text: #6b4200;
+  --border: #e3e7f2;
+  --input: #d5dbea;
+  --ring: #4b49ac;
+  --chart-1: #4b49ac;
+  --chart-2: #98bdff;
+  --chart-3: #7da0fa;
+  --chart-4: #7978e9;
+  --chart-5: #f3797e;
+  --radius: 12px;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1f2937;
+  --sidebar-primary: #4b49ac;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: color-mix(in srgb, #98bdff 22%, #ffffff);
+  --sidebar-accent-foreground: #4b49ac;
+  --sidebar-border: #e3e7f2;
+  --sidebar-ring: #4b49ac;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background leading-normal text-foreground;
+  }
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* Scroll-triggered entrance used by <Reveal>. Kept in CSS so it can be switched off
+   for prefers-reduced-motion and for readers without scripting. */
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) rotate(var(--reveal-tilt, 0deg)) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+}
+
+@layer components {
+  .reveal {
+    opacity: 0;
+  }
+  .reveal[data-visible='true'] {
+    animation: reveal-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--reveal-delay, 0ms);
+  }
+  @media (prefers-reduced-motion: reduce), (scripting: none) {
+    .reveal,
+    .reveal[data-visible='true'] {
+      opacity: 1;
+      animation: none;
+    }
+  }
+}
+
+/* Looping logo strip: the list is duplicated, so -50% lands exactly on the second copy. */
+@keyframes marquee-loop {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@layer components {
+  .marquee {
+    animation: marquee-loop 42s linear infinite;
+  }
+  .group:hover .marquee {
+    animation-play-state: paused;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee {
+      animation: none;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+    }
+  }
+}
+
+/* Privacy blur (screen-share mode). Only hides pixels; the data is still in the page, so it is
+   never a substitute for server-side masking. */
+@layer components {
+  html[data-privacy='on'] [data-sensitive] {
+    filter: blur(6px);
+    user-select: none;
+  }
+  @media print {
+    html[data-privacy='on'] [data-sensitive] {
+      visibility: hidden;
+    }
+  }
+}
+
+/* Printing an invoice or a payslip: only the document, not the application around it. */
+@media print {
+  [data-slot='sidebar'],
+  [data-slot='sidebar-gap'],
+  [data-slot='sidebar-container'],
+  [data-slot='sidebar-inset'] > header,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}

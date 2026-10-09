@@ -1,0 +1,11 @@
+.next/
+node_modules/
+drizzle/
+supabase/
+docs/
+.claude/
+blanxer_ui_design.md
+package-lock.json
+playwright-report/
+test-results/
+next-env.d.ts
