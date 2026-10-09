@@ -288,6 +288,13 @@
       "when": 1791524193458,
       "tag": "0040_reviews_helpdesk_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791526881603,
+      "tag": "0041_pin_set_updated_at_search_path",
+      "breakpoints": true
     }
   ]
 }
