@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -42,13 +43,30 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Start Supabase (database, auth, API gateway)
-        run: npx supabase start --exclude studio,imgproxy,realtime,storage-api,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+      - name: Start Supabase (database, auth, storage, API gateway)
+        run: npx supabase start --exclude studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+      # The tests talk to Auth and Storage as well as Postgres, so they need the keys this
+      # throwaway local stack prints. They are generated per run and are not real secrets.
+      - name: Point the tests at the local Supabase
+        run: |
+          npx supabase status -o env > "$RUNNER_TEMP/supabase.env"
+          value() { grep "^$1=" "$RUNNER_TEMP/supabase.env" | cut -d= -f2- | tr -d '"'; }
+          secret="$(value SECRET_KEY)"
+          echo "::add-mask::$secret"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$(value API_URL)"
+            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(value PUBLISHABLE_KEY)"
+            echo "SUPABASE_SECRET_KEY=$secret"
+          } >> "$GITHUB_ENV"
       - run: npm run db:migrate
       - run: npm run test:db
 
+  # Not run automatically yet. These browser tests were written for self-serve sign-up, which was
+  # replaced by onboarding from the platform console (ADR-029), and they need a running Supabase
+  # stack. Until they are rewritten, start them by hand from the Actions tab.
   e2e:
     name: Playwright
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
