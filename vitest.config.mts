@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => ({
         test: {
           name: 'db',
           include: ['tests/db/**/*.test.ts'],
+          setupFiles: ['tests/support/env.ts'],
           environment: 'node',
           fileParallelism: false,
           testTimeout: 30_000,
