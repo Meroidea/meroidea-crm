@@ -339,7 +339,8 @@ Keeping contracts in hiring avoids a second, weaker path to employing someone.
 
 **Consequences.** Applicants are not emailed by the system. Stages are fixed, not configurable.
 Deleting an applicant removes their résumé from storage. The hourly cap is per job, not per
-visitor, because no rate-limit store is in the stack.
+visitor, because no rate-limit store is in the stack. *(Superseded by ADR-039: a per-sender limit
+now sits alongside the per-job cap, counted in Postgres.)*
 
 ## ADR-035 — Projects, task time and productivity
 
@@ -392,3 +393,64 @@ queue with clear ownership.
 on the ticket page. Targets are not business-hours aware and nothing is escalated automatically;
 overdue tickets are flagged in the queue. All staff with `tickets.work` see all tickets.
 
+
+## ADR-038 — Feature switches enforced by the database too
+
+**Decision.** A switched-off feature is hidden by Postgres, not only by `loadTenantContext`.
+Migration `0043` adds `app.permission_feature(perm)` (the SQL twin of `FAMILY_FEATURE` in
+`src/lib/features.ts`) and `app.feature_enabled(tenant, feature)`. `app.has_permission` now
+returns false for a permission whose feature is off, and `app.my_context` returns only live
+grants. Every table that belongs to exactly one feature carries a restrictive `feature_switch`
+policy, so its rows can be neither read nor written while the feature is off. Tables shared
+across features (`employees`, `rosters`, `roster_shifts`, `payslips`, `time_entries`, `tasks`,
+`activities`, `projects`) are left to `has_permission` and the application, because hiding them
+would break a feature that is still on. The same migration makes `app.my_context` return the
+feature list, support flag, clock-in location and team members, so building a request's context
+is one query in one transaction instead of three.
+
+**Why.** Every other rule in the design has a second layer in the database. Before this, a
+service that forgot `requirePermission` would have exposed a switched-off module's data.
+
+**Consequences.** A new permission family must be added to both `FAMILY_FEATURE` and
+`app.permission_feature` (in a new migration); `tests/db/hardening.test.ts` fails if they differ.
+A new table owned by one feature gets a `feature_switch` policy in its RLS migration. Pages that
+read a feature's tables must check the feature first, as Settings now does for the pipeline.
+
+## ADR-039 — Per-sender limits and capped bodies on public forms
+
+**Decision.** Each public form keeps its hourly ceiling across all senders (raised to 200
+tickets per form, 200 reviews per link, 100 applications per job) and adds a per-sender limit of
+5 an hour. Senders are counted in `public_rate_limits`: fixed one-hour windows keyed by the form
+and an HMAC of the sender's address (key derived from the server secret), incremented with one
+atomic upsert. Old windows are swept on about one call in fifty. The address comes from
+`clientAddress()` (`x-vercel-forwarded-for`, then `x-real-ip`, then the first `x-forwarded-for`
+hop, valid IPs only). Every public route reads its body through `readBodyWithLimit()`, which
+stops at the limit whatever `Content-Length` says, so a chunked request cannot get past the cap.
+Over-limit requests get `RATE_LIMITED` and HTTP 429.
+
+**Why.** A per-form ceiling alone let one script use up a business's allowance and lock its
+real customers out. Rejecting a request by its declared length alone let a chunked upload
+(which declares none) through.
+
+**Consequences.** A distributed flood from many addresses can still reach a form's ceiling;
+add a challenge such as Cloudflare Turnstile if that is ever seen. Off Vercel, the proxy in
+front must overwrite the forwarding headers, or a sender can choose its own address. People
+behind one shared address share its limit.
+
+## ADR-040 — Rotating the staff details encryption key
+
+**Decision.** Field ciphertext now names its key: `v2.<key id>.<iv>.<tag>.<body>`, where the key
+id is a truncated SHA-256 fingerprint. `HR_ENCRYPTION_KEY` seals all new values;
+`HR_ENCRYPTION_KEYS_PREVIOUS` (comma-separated) may only read. Original `v1` values, which name
+no key, are read by trying each key, with GCM authentication picking the right one. The platform
+console shows how many staff records are still on an older key and has a "Re-encrypt now"
+control (`src/modules/hiring/key-rotation.ts`). It re-seals each row in its own transaction,
+leaves values no configured key can open untouched, and writes a `platform` audit row per
+business.
+
+**Why.** A key that cannot be replaced has to stay valid forever, even after a suspected leak
+or a staff change.
+
+**Consequences.** To rotate: add the old key to `HR_ENCRYPTION_KEYS_PREVIOUS`, set the new key,
+deploy, re-encrypt from `/platform`, confirm nothing is pending, then remove the old key.
+Removing it before re-encrypting makes those values unreadable.

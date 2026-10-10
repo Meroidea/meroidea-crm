@@ -9,7 +9,8 @@ import { AppError } from '@/lib/errors';
 import { featureForPermission, isFeatureKey, type FeatureKey } from '@/lib/features';
 import type { Grant, PermissionKey } from '@/lib/permissions/catalog';
 import { resolveLabels, type Labels } from '@/lib/tenant/labels';
-import { withAuthedSession, withRls, type SessionClaims } from '@/server/db/with-rls';
+import { withAuthedSession, type SessionClaims } from '@/server/db/with-rls';
+import { getPlatformAdmin } from '@/server/platform';
 import { createSupabaseServerClient } from '@/server/supabase/server';
 
 /** Names the business a multi-business person has open. */
@@ -60,11 +61,18 @@ type ContextRow = {
   tenant_labels: unknown;
   tenant_settings: unknown;
   grants: Record<string, string>;
+  tenant_features: string[] | null;
+  is_support: boolean;
+  location_latitude: string | null;
+  location_longitude: string | null;
+  clock_radius_metres: number;
+  team_user_ids: string[] | null;
 };
 
 /**
- * Builds the context for an already-verified user. Separate from the cookie-reading
- * getTenantContext() so services can be exercised in DB tests with a real session.
+ * Builds the context for an already-verified user in one database round trip
+ * (app.my_context). Separate from the cookie-reading getTenantContext() so services can be
+ * exercised in DB tests with a real session.
  */
 export async function loadTenantContext(
   claims: SessionClaims,
@@ -77,50 +85,16 @@ export async function loadTenantContext(
   const row = rows[0];
   if (!row) return null;
 
-  const extras = (await withRls({ claims, tenantId: row.tenant_id }, (tx) =>
-    tx.execute(sql`
-      select t.features, m.is_support,
-        t.location_latitude, t.location_longitude, t.clock_radius_metres
-      from tenants t
-      join tenant_memberships m on m.tenant_id = t.id and m.id = ${row.membership_id}
-      where t.id = ${row.tenant_id}`),
-  )) as unknown as {
-    features: string[];
-    is_support: boolean;
-    location_latitude: string | null;
-    location_longitude: string | null;
-    clock_radius_metres: number;
-  }[];
-  const features = (extras[0]?.features ?? []).filter(isFeatureKey);
+  const features = (row.tenant_features ?? []).filter(isFeatureKey);
 
-  // A grant only counts while its feature is switched on for the business, so pages, menus and
-  // actions that check a permission all follow the switch without knowing about it.
+  // The database already leaves out grants whose feature is switched off (ADR-038). Checking
+  // again here keeps pages, menus and actions correct even if the two catalogs ever drift.
   const grants = new Map<PermissionKey, Grant>();
   for (const [permission, scope] of Object.entries(row.grants ?? {})) {
     const feature = featureForPermission(permission);
     if (feature && !features.includes(feature)) continue;
     grants.set(permission as PermissionKey, scope === 'true' ? true : (scope as Grant));
   }
-
-  const teamRows = (await withRls({ claims, tenantId: row.tenant_id }, (tx) =>
-    tx.execute(sql`
-      select distinct m.user_id
-      from tenant_memberships m
-      where m.tenant_id = ${row.tenant_id}
-        and m.status = 'active'
-        and (
-          m.user_id = ${claims.sub}
-          or m.team_id in (
-            select own.team_id from tenant_memberships own
-            where own.tenant_id = ${row.tenant_id} and own.user_id = ${claims.sub}
-              and own.team_id is not null
-          )
-          or m.team_id in (
-            select t.id from teams t
-            where t.tenant_id = ${row.tenant_id} and t.manager_user_id = ${claims.sub}
-          )
-        )`),
-  )) as unknown as { user_id: string }[];
 
   return {
     userId: claims.sub,
@@ -130,9 +104,9 @@ export async function loadTenantContext(
     roleKey: row.role_key,
     roleName: row.role_name,
     grants,
-    teamUserIds: teamRows.map((teamRow) => teamRow.user_id),
+    teamUserIds: row.team_user_ids ?? [claims.sub],
     claims,
-    isSupport: extras[0]?.is_support ?? false,
+    isSupport: row.is_support,
     tenant: {
       name: row.tenant_name,
       slug: row.tenant_slug,
@@ -145,11 +119,11 @@ export async function loadTenantContext(
       labels: resolveLabels(row.tenant_labels),
       settings: (row.tenant_settings ?? {}) as Record<string, unknown>,
       clockLocation:
-        extras[0]?.location_latitude && extras[0].location_longitude
+        row.location_latitude !== null && row.location_longitude !== null
           ? {
-              latitude: Number(extras[0].location_latitude),
-              longitude: Number(extras[0].location_longitude),
-              radiusMetres: extras[0].clock_radius_metres,
+              latitude: Number(row.location_latitude),
+              longitude: Number(row.location_longitude),
+              radiusMetres: row.clock_radius_metres,
             }
           : null,
     },
@@ -178,7 +152,8 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
 /** For pages: sends anyone without a workspace back to sign-in, and a suspended business to a notice. */
 export async function requireTenantContext(): Promise<TenantContext> {
   const ctx = await getTenantContext();
-  if (!ctx) redirect('/login');
+  // A platform owner with no workspace of their own belongs in the console, not back at sign-in.
+  if (!ctx) redirect((await getPlatformAdmin()) ? '/platform' : '/login');
   if (ctx.tenant.status === 'suspended' && !ctx.isSupport) redirect('/suspended');
   return ctx;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Copy, LifeBuoy, LogOut, MapPin, Pause, Play } from 'lucide-react';
+import { Check, Copy, KeyRound, LifeBuoy, LogOut, MapPin, Pause, Play } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import {
   createBusinessAction,
   endSupportAccessAction,
+  reencryptPayrollDetailsAction,
   setBusinessFeaturesAction,
   setBusinessStatusAction,
   startSupportAccessAction,
@@ -469,5 +470,84 @@ export function SupportBanner({
         <LogOut aria-hidden /> Leave
       </Button>
     </div>
+  );
+}
+
+/**
+ * The state of the key that seals staff tax, bank and super numbers, and the one control needed
+ * to finish a key rotation (ADR-040).
+ */
+export function EncryptionKeyPanel({
+  configured,
+  currentKeyId,
+  previousKeys,
+  pending,
+}: {
+  configured: boolean;
+  currentKeyId: string | null;
+  previousKeys: number;
+  pending: number;
+}) {
+  const router = useRouter();
+  const [note, setNote] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const reencrypt = () =>
+    startTransition(async () => {
+      const result = await reencryptPayrollDetailsAction();
+      if (!result.ok) {
+        setNote(result.error.message);
+        return;
+      }
+      const { reencrypted, failed } = result.data;
+      setNote(
+        failed > 0
+          ? `Re-encrypted ${reencrypted}. ${failed} could not be opened with any configured key and were left unchanged — keep the previous keys set until they are resolved.`
+          : `Re-encrypted ${reencrypted}. Nothing is left on an old key, so the previous keys can now be removed.`,
+      );
+      router.refresh();
+    });
+
+  return (
+    <section className="rounded-xl border bg-card p-5">
+      <h2 className="flex items-center gap-2 font-medium">
+        <KeyRound aria-hidden className="size-4" /> Staff details encryption
+      </h2>
+      {!configured ? (
+        <p className="mt-1 text-sm text-muted-foreground">
+          No key is set, so new hires cannot submit tax, bank or super details. Set{' '}
+          <code>HR_ENCRYPTION_KEY</code> in the server environment.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Current key <code>{currentKeyId}</code>
+            {previousKeys > 0 &&
+              ` · ${previousKeys} previous ${previousKeys === 1 ? 'key' : 'keys'} still readable`}
+            {' · '}
+            {pending === 0
+              ? 'every stored value uses the current key.'
+              : `${pending} staff ${pending === 1 ? 'record' : 'records'} still on an older key.`}
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            To rotate: put the old key in <code>HR_ENCRYPTION_KEYS_PREVIOUS</code>, set the new one
+            as <code>HR_ENCRYPTION_KEY</code>, deploy, re-encrypt here, then remove the old key.
+          </p>
+          <Button
+            className="mt-4"
+            variant="outline"
+            disabled={isPending || pending === 0}
+            onClick={reencrypt}
+          >
+            Re-encrypt now
+          </Button>
+        </>
+      )}
+      {note && (
+        <p role="status" className="mt-3 text-sm text-muted-foreground">
+          {note}
+        </p>
+      )}
+    </section>
   );
 }

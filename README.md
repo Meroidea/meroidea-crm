@@ -60,23 +60,25 @@ Then set yourself up as the platform owner:
 
 Optional pieces, each described in `.env.example`:
 
-- `HR_ENCRYPTION_KEY` — required before storing tax, bank or super details.
+- `HR_ENCRYPTION_KEY` — required before storing tax, bank or super details. To rotate it, see
+  ADR-040 in [`docs/decisions.md`](docs/decisions.md): the old key goes in
+  `HR_ENCRYPTION_KEYS_PREVIOUS` while `/platform` re-encrypts.
 - `RESEND_API_KEY` and `EMAIL_FROM` — to send email. Without them nothing is sent, and links
   (contracts, password setup, ticket pages) are shown for you to pass on.
 - OnlyOffice — `docker compose -f docker-compose.onlyoffice.yml up -d` for document editing.
 
 ## Commands
 
-| Command                                                       | Does                                                        |
-| ------------------------------------------------------------- | ----------------------------------------------------------- |
-| `npm run dev`                                                 | Development server                                          |
-| `npm run lint` / `npm run typecheck` / `npm run format:check` | Static checks                                               |
-| `npm run test:unit`                                           | Pure logic tests, no database                               |
-| `npm run test:db`                                             | Tests against the local Supabase database (must be running) |
-| `npm test`                                                    | Unit and database tests                                     |
-| `npm run test:e2e`                                            | Playwright (`npx playwright install chromium` once)         |
-| `npm run db:generate`                                         | Generate a migration from `src/db/schema`                   |
-| `npm run db:migrate`                                          | Apply migrations                                            |
+| Command                                                       | Does                                                                       |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `npm run dev`                                                 | Development server                                                         |
+| `npm run lint` / `npm run typecheck` / `npm run format:check` | Static checks                                                              |
+| `npm run test:unit`                                           | Pure logic tests, no database                                              |
+| `npm run test:db`                                             | Tests against the local Supabase database (must be running)                |
+| `npm test`                                                    | Unit and database tests                                                    |
+| `npm run test:e2e`                                            | Playwright against local Supabase (`npx playwright install chromium` once) |
+| `npm run db:generate`                                         | Generate a migration from `src/db/schema`                                  |
+| `npm run db:migrate`                                          | Apply migrations                                                           |
 
 ## Layout
 

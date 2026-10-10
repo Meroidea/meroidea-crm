@@ -7,6 +7,7 @@ import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm';
 import { auditLogs, jobApplicants, jobOpenings, tenants } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { adminDb } from '@/server/db/admin';
+import { enforceRateLimit } from '@/server/rate-limit';
 import { removeObject, writeObject } from '@/server/storage';
 
 import { matchesResume, MAX_RESUME_BYTES, RESUME_FORMATS, resumeExtension } from './resumes';
@@ -19,8 +20,12 @@ import type { ApplicantFields } from './schemas';
  * open job's public wording and writes a new application (same pattern as ADR-026).
  */
 
-/** Applications one job accepts per hour, so a script cannot flood a business. */
-const HOURLY_LIMIT = 40;
+/**
+ * Applications one sender may make to a job per hour, and applications one job accepts per hour
+ * from everyone together. The per-sender limit stops one script using up the job's ceiling.
+ */
+const SENDER_HOURLY_LIMIT = 5;
+const HOURLY_LIMIT = 100;
 
 export type PublicOpening = {
   title: string;
@@ -51,6 +56,8 @@ async function openingByToken(token: string) {
         isNull(jobOpenings.deletedAt),
         // A suspended business takes no applications; a trial or active one does.
         ne(tenants.status, 'suspended'),
+        // Nor does one whose recruitment feature has been switched off (ADR-029).
+        sql`'recruitment' = any(${tenants.features})`,
       ),
     )
     .limit(1);
@@ -78,9 +85,19 @@ export async function submitApplication(
   token: string,
   fields: ApplicantFields,
   resume: { name: string; bytes: Buffer } | null,
+  sender: string | null,
 ): Promise<void> {
   const opening = await openingByToken(token);
   if (!opening) throw new AppError('NOT_FOUND', 'This job is no longer taking applications.');
+  await enforceRateLimit(
+    {
+      bucket: `recruitment:${opening.id}`,
+      subject: sender,
+      limit: SENDER_HOURLY_LIMIT,
+      windowSeconds: 3600,
+    },
+    'You have sent several applications already. Please try again later.',
+  );
   const db = adminDb();
 
   const [recent] = await db
@@ -94,7 +111,10 @@ export async function submitApplication(
       ),
     );
   if ((recent?.total ?? 0) >= HOURLY_LIMIT) {
-    throw new AppError('CONFLICT', 'This job is receiving a lot of applications. Try again later.');
+    throw new AppError(
+      'RATE_LIMITED',
+      'This job is receiving a lot of applications. Try again later.',
+    );
   }
 
   const email = fields.email.toLowerCase();

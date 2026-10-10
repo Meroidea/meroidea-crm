@@ -18,8 +18,10 @@ chooses its features, and hands the login over. That admin adds staff and sets t
 their own way. Businesses never see each other. The platform owner can list every business,
 change its features, suspend it, and enter it through audited support access.
 
-A permission whose feature is switched off counts as not granted (`loadTenantContext`), so new
-features must add their permission family to `src/lib/features.ts`.
+A permission whose feature is switched off counts as not granted, in `loadTenantContext` and in
+the database (ADR-038). A new feature must add its permission family to `src/lib/features.ts`
+and to `app.permission_feature` (new migration), and each table it alone owns gets a
+restrictive `feature_switch` policy.
 
 Target clients, by configuration and never by forking code: restaurants, grocery stores, retail
 shops, education and migration consultancies, small service businesses.
@@ -43,6 +45,8 @@ Read the relevant doc before working on a module. If code and docs disagree, sto
 Next.js (App Router) · TypeScript strict · Tailwind · shadcn/ui · Lucide · Supabase
 (Postgres, Auth, Storage, pg_cron) · Drizzle ORM + Drizzle Kit · Zod · React Hook Form ·
 TanStack Table · dnd-kit · Recharts · Papa Parse · Vitest · Playwright.
+TanStack Table and Recharts are approved but not installed yet: add them when a screen first
+needs them, not before.
 
 One separate service is approved: OnlyOffice Document Server, for editing documents (ADR-030).
 

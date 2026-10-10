@@ -52,6 +52,10 @@ const eslintConfig = defineConfig([
       'src/modules/platform/service.ts',
       // Saves coming back from the document editing server: a verified webhook, no session.
       'src/modules/files/editor-save.ts',
+      // Re-sealing payroll details onto a new key, across businesses, for platform owners (ADR-040).
+      'src/modules/hiring/key-rotation.ts',
+      // Per-sender counters for the public forms; no tenant data, no session (ADR-039).
+      'src/server/rate-limit.ts',
     ],
     rules: { 'no-restricted-imports': 'off' },
   },

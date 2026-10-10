@@ -7,6 +7,8 @@ export const APP_ERROR_CODES = [
   'VALIDATION',
   'CONFLICT',
   'DUPLICATE',
+  /** Too many requests from one sender or to one public form; try again later. */
+  'RATE_LIMITED',
   'INTERNAL',
 ] as const;
 

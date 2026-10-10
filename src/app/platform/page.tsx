@@ -7,12 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BUSINESS_TYPES, FEATURES } from '@/lib/features';
 import { formatCalendarDate } from '@/lib/format';
+import { payrollKeyStatus } from '@/modules/hiring/key-rotation';
+import { EncryptionKeyPanel } from '@/modules/platform/components/platform-tools';
 import { listBusinesses } from '@/modules/platform/service';
 import { requirePlatformAdmin } from '@/server/platform';
 
 export default async function PlatformPage() {
   const admin = await requirePlatformAdmin();
-  const businesses = await listBusinesses(admin);
+  const [businesses, keys] = await Promise.all([listBusinesses(admin), payrollKeyStatus(admin)]);
   const typeLabel = (key: string | null) =>
     BUSINESS_TYPES.find((type) => type.key === key)?.label ?? key ?? 'Not set';
 
@@ -72,6 +74,12 @@ export default async function PlatformPage() {
           ))}
         </ul>
       )}
+      <EncryptionKeyPanel
+        configured={keys.configured}
+        currentKeyId={keys.currentKeyId}
+        previousKeys={keys.previousKeyIds.length}
+        pending={keys.pending}
+      />
     </div>
   );
 }
