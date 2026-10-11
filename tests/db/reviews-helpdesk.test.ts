@@ -39,6 +39,8 @@ import { withRls } from '@/server/db/with-rls';
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
 
 const stamp = Date.now();
+/** A documentation address (RFC 5737) standing in for the customer's browser. */
+const SENDER = '192.0.2.10';
 const mail = (name: string) => `${name}-${stamp}@example.com`;
 
 let alphaTenant: string;
@@ -111,8 +113,13 @@ describe('customer reviews', () => {
         customerEmail: mail('RITA'),
         contactAllowed: true,
       }),
+      SENDER,
     );
-    await submitReview(token, review(2, { comment: 'Slow service', contactAllowed: true }));
+    await submitReview(
+      token,
+      review(2, { comment: 'Slow service', contactAllowed: true }),
+      '192.0.2.11',
+    );
     const rows = await listReviews(owner);
     expect(rows).toHaveLength(2);
     const rita = rows.find((row) => row.rating === 5)!;
@@ -167,7 +174,7 @@ describe('customer reviews', () => {
       isActive: false,
     });
     expect(await getPublicReviewLink(token)).toBeNull();
-    expect(await code(submitReview(token, review(4)))).toBe('NOT_FOUND');
+    expect(await code(submitReview(token, review(4), SENDER))).toBe('NOT_FOUND');
     await saveReviewLink(owner, {
       id: link!.id,
       name: link!.name,
@@ -177,7 +184,7 @@ describe('customer reviews', () => {
     await adminDb().execute(
       sql`update tenants set features = array_remove(features, 'reviews') where id = ${alphaTenant}`,
     );
-    expect(await code(submitReview(token, review(4)))).toBe('NOT_FOUND');
+    expect(await code(submitReview(token, review(4), SENDER))).toBe('NOT_FOUND');
     await adminDb().execute(
       sql`update tenants set features = array_append(features, 'reviews') where id = ${alphaTenant}`,
     );
@@ -328,6 +335,21 @@ describe('helpdesk', () => {
     expect(await getPublicForm(formToken)).toEqual({ businessName: owner.tenant.name });
   });
 
+  it('one sender cannot use up the form; another customer still gets through', async () => {
+    const ask = (name: string) =>
+      publicTicketSchema.parse({
+        requesterName: name,
+        requesterEmail: mail(name.replace(/\s/g, '-')),
+        subject: 'Hello',
+        description: 'Is anyone there?',
+      });
+    const flooder = '192.0.2.200';
+    for (let n = 0; n < 5; n++) await submitPublicTicket(formToken, ask(`Bot ${n}`), flooder);
+    expect(await code(submitPublicTicket(formToken, ask('Bot 6'), flooder))).toBe('RATE_LIMITED');
+    const real = await submitPublicTicket(formToken, ask('Real Customer'), '192.0.2.201');
+    expect(await getPublicTicket(real.ticketToken)).toMatchObject({ status: 'open' });
+  });
+
   it('a customer raises a ticket from the form and can follow it', async () => {
     const input = publicTicketSchema.parse({
       requesterName: 'Nico New',
@@ -335,7 +357,7 @@ describe('helpdesk', () => {
       subject: 'Do you cater?',
       description: 'Looking for catering for forty people in March.',
     });
-    const created = await submitPublicTicket(formToken, input);
+    const created = await submitPublicTicket(formToken, input, SENDER);
     const view = await getPublicTicket(created.ticketToken);
     expect(view).toMatchObject({
       number: created.number,
@@ -351,7 +373,7 @@ describe('helpdesk', () => {
 
     await setFormOpen(owner, false);
     expect(await getPublicForm(formToken)).toBeNull();
-    expect(await code(submitPublicTicket(formToken, input))).toBe('NOT_FOUND');
+    expect(await code(submitPublicTicket(formToken, input, SENDER))).toBe('NOT_FOUND');
   });
 
   it('only a manager deletes a ticket', async () => {

@@ -61,13 +61,14 @@ jobs:
       - run: npm run db:migrate
       - run: npm run test:db
 
-  # Not run automatically yet. These browser tests were written for self-serve sign-up, which was
-  # replaced by onboarding from the platform console (ADR-029), and they need a running Supabase
-  # stack. Until they are rewritten, start them by hand from the Actions tab.
+  # Browser tests against a production build and a throwaway local Supabase: the platform owner
+  # onboards a business from the console and its admin signs in (ADR-029).
   e2e:
     name: Playwright
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      DATABASE_URL_DIRECT: postgresql://postgres:postgres@127.0.0.1:54322/postgres
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -75,6 +76,22 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Start Supabase (database, auth, storage, API gateway)
+        run: npx supabase start --exclude studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+      # Same throwaway keys as the database job. They are also needed at build time, because
+      # Next.js writes the NEXT_PUBLIC_ values into the browser bundle.
+      - name: Point the app at the local Supabase
+        run: |
+          npx supabase status -o env > "$RUNNER_TEMP/supabase.env"
+          value() { grep "^$1=" "$RUNNER_TEMP/supabase.env" | cut -d= -f2- | tr -d '"'; }
+          secret="$(value SECRET_KEY)"
+          echo "::add-mask::$secret"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$(value API_URL)"
+            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(value PUBLISHABLE_KEY)"
+            echo "SUPABASE_SECRET_KEY=$secret"
+          } >> "$GITHUB_ENV"
+      - run: npm run db:migrate
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run test:e2e

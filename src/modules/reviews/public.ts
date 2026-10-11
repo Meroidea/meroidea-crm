@@ -5,6 +5,7 @@ import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm';
 import { auditLogs, contacts, customerReviews, reviewLinks, tenants } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { adminDb } from '@/server/db/admin';
+import { enforceRateLimit } from '@/server/rate-limit';
 
 import type { SubmitReviewInput } from './schemas';
 
@@ -15,8 +16,12 @@ import type { SubmitReviewInput } from './schemas';
  * and writes only a new review (ADR-036).
  */
 
-/** Reviews one link accepts per hour, so a script cannot flood a business. */
-const HOURLY_LIMIT = 60;
+/**
+ * Reviews one sender may leave through a link per hour, and reviews one link accepts per hour
+ * from everyone together. The per-sender limit stops one script using up the link's ceiling.
+ */
+const SENDER_HOURLY_LIMIT = 5;
+const HOURLY_LIMIT = 200;
 
 async function linkByToken(token: string) {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return null;
@@ -49,9 +54,22 @@ export async function getPublicReviewLink(
   return row ? { prompt: row.prompt, businessName: row.businessName } : null;
 }
 
-export async function submitReview(token: string, input: SubmitReviewInput): Promise<void> {
+export async function submitReview(
+  token: string,
+  input: SubmitReviewInput,
+  sender: string | null,
+): Promise<void> {
   const link = await linkByToken(token);
   if (!link) throw new AppError('NOT_FOUND', 'This review page is no longer available.');
+  await enforceRateLimit(
+    {
+      bucket: `reviews:${link.id}`,
+      subject: sender,
+      limit: SENDER_HOURLY_LIMIT,
+      windowSeconds: 3600,
+    },
+    'Thank you — you have already sent several reviews. Please try again later.',
+  );
   const db = adminDb();
 
   const [recent] = await db
@@ -65,7 +83,10 @@ export async function submitReview(token: string, input: SubmitReviewInput): Pro
       ),
     );
   if ((recent?.total ?? 0) >= HOURLY_LIMIT) {
-    throw new AppError('CONFLICT', 'We are receiving a lot of reviews right now. Try again later.');
+    throw new AppError(
+      'RATE_LIMITED',
+      'We are receiving a lot of reviews right now. Try again later.',
+    );
   }
 
   // Tie the review to the customer's record when the business already knows that email.

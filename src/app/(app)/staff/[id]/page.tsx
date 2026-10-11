@@ -369,6 +369,12 @@ export default async function StaffProfilePage({ params, searchParams }: PagePro
                     items={checkOffer(ctx.tenant.country, contract).warnings}
                   />
                 )}
+                {contract.status === 'draft' && (
+                  <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                    This wording is a starting template, not legal advice, and has not been reviewed
+                    by a lawyer for your business. Have it checked before you rely on it.
+                  </p>
+                )}
                 {contract.status === 'accepted' && (
                   <p className="text-sm">
                     Accepted by <span className="font-medium">{contract.acceptedName}</span> on{' '}
