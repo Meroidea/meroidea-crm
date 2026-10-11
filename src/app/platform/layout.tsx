@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
+import { DotBackground } from '@/components/layout/dot-background';
 import { requirePlatformAdmin } from '@/server/platform';
 
 export const metadata: Metadata = {
@@ -11,7 +12,8 @@ export const metadata: Metadata = {
 export default async function PlatformLayout({ children }: { children: ReactNode }) {
   const admin = await requirePlatformAdmin();
   return (
-    <div className="min-h-svh">
+    <div className="relative isolate min-h-svh">
+      <DotBackground />
       <header className="flex h-14 items-center gap-4 border-b bg-card px-4 sm:px-8">
         <Link href="/platform" className="flex items-center gap-2 font-semibold">
           <span className="flex size-7 items-center justify-center rounded-md bg-primary text-sm text-primary-foreground">
