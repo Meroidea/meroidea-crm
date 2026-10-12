@@ -35,6 +35,7 @@ test('the platform owner onboards a business, and its admin gets a workspace wit
   await signIn(page, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
   await expect(page).toHaveURL(/\/platform$/, { timeout: 30_000 });
   await expect(page.getByRole('heading', { level: 1, name: 'Businesses' })).toBeVisible();
+  await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
 
   await page.getByRole('link', { name: 'Onboard a business' }).click();
   await expect(page).toHaveURL(/\/platform\/new$/);
@@ -57,6 +58,8 @@ test('the platform owner onboards a business, and its admin gets a workspace wit
   await signIn(page, adminEmail, temporaryPassword!);
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
   await expect(page.getByText(company).first()).toBeVisible();
+  // The workspace sits on the same dotted background as the public site.
+  await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
 
   if (testInfo.project.name === 'mobile-375') {
     await page.getByRole('button', { name: 'Toggle Sidebar' }).first().click();
@@ -77,6 +80,7 @@ test('the platform owner onboards a business, and its admin gets a workspace wit
   // The console does not exist as far as a business's own people can tell.
   const response = await page.goto('/platform');
   expect(response?.status()).toBe(404);
+  await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
 });
 
 test('a wrong password is refused without revealing whether the account exists', async ({

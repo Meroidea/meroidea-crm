@@ -29,3 +29,15 @@ test('public pages never scroll sideways', async ({ page }) => {
     expect(overflow, `${path} overflows horizontally`).toBeLessThanOrEqual(0);
   }
 });
+
+test('every public page and the 404 page sit on the dotted background', async ({ page }) => {
+  for (const path of ['/', '/login', '/forgot-password', '/signup']) {
+    await page.goto(path);
+    await expect(page.locator('[data-slot="dot-background"]'), path).toHaveCount(1);
+  }
+
+  const response = await page.goto('/this-page-does-not-exist');
+  expect(response?.status()).toBe(404);
+  await expect(page.getByRole('heading', { name: 'This page could not be found' })).toBeVisible();
+  await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
+});

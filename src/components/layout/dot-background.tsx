@@ -11,6 +11,7 @@ export function DotBackground({ className }: { className?: string }) {
   return (
     <div
       aria-hidden
+      data-slot="dot-background"
       className={cn('pointer-events-none fixed inset-0 -z-20 print:hidden', className)}
     >
       <div className="absolute inset-0 [background-image:radial-gradient(var(--dot)_1px,transparent_1px)] [background-size:20px_20px]" />
