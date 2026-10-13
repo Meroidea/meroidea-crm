@@ -1,3 +1,10 @@
+import {
+  awardInterpreter,
+  type AwardPay,
+  type AwardPayLine,
+  type AwardWarning,
+} from '@/modules/awards';
+
 import { dayKind, loadingFor, shiftCostCents, type DayKind } from './rules';
 import type { RosterLeave, RosterRates, RosterRules, RosterShift } from './types';
 
@@ -70,4 +77,103 @@ export function shiftWarnings(
     warnings.push('No accepted hourly contract, so this shift is not costed.');
   }
   return warnings;
+}
+
+export type ShiftCosting = {
+  /** Null when the shift is vacant or the person has no hourly contract rate. */
+  cents: number | null;
+  /** `award`: worked out by the award's rules. `rate`: hours × rate × the day's loading. */
+  basis: 'award' | 'rate';
+  lines: AwardPayLine[];
+  warnings: AwardWarning[];
+};
+
+type CostedShift = Pick<
+  RosterShift,
+  'id' | 'userId' | 'date' | 'startTime' | 'endTime' | 'breakMinutes' | 'paidMinutes'
+>;
+
+/** One person's pay under their award for every shift they have in the roster period. */
+export function awardPayFor(
+  userId: string,
+  shifts: CostedShift[],
+  rates: RosterRates,
+  holidays: ReadonlySet<string>,
+  weeks: number,
+  /** Given when `shifts` are hours actually worked: what the person was rostered for each day. */
+  rosteredMinutesByDate?: Record<string, number>,
+): AwardPay | null {
+  const person = rates[userId];
+  const interpreter = awardInterpreter(person?.award?.code);
+  if (!person?.award || !interpreter) return null;
+  return interpreter.pay({
+    employment: person.award.employment,
+    schedule: person.award.schedule,
+    agreedHourly: person.hourly,
+    under18: person.award.under18,
+    publicHolidays: holidays,
+    weeks,
+    ...(rosteredMinutesByDate ? { rosteredMinutesByDate } : {}),
+    shifts: shifts
+      .filter((shift) => shift.userId === userId)
+      .map((shift) => ({
+        id: shift.id,
+        date: shift.date,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        unpaidBreakMinutes: shift.breakMinutes,
+      })),
+  });
+}
+
+/**
+ * What every shift on the roster costs. Someone whose award has written-down rules is costed
+ * by them across their whole week, because overtime depends on their other shifts; everyone
+ * else is costed shift by shift from their rate and the day's loading.
+ */
+export function costRoster(
+  shifts: CostedShift[],
+  rates: RosterRates,
+  rules: RosterRules,
+  holidays: ReadonlySet<string>,
+  weeks: number,
+  /** Given when `shifts` are hours actually worked: each person's rostered minutes by day. */
+  rosteredByUser?: Record<string, Record<string, number>>,
+): Map<string, ShiftCosting> {
+  const costs = new Map<string, ShiftCosting>();
+  const people = new Set(shifts.flatMap((shift) => shift.userId ?? []));
+  const awardPay = new Map<string, AwardPay>();
+  for (const userId of people) {
+    const pay = awardPayFor(
+      userId,
+      shifts,
+      rates,
+      holidays,
+      weeks,
+      rosteredByUser ? (rosteredByUser[userId] ?? {}) : undefined,
+    );
+    if (pay) awardPay.set(userId, pay);
+  }
+  for (const shift of shifts) {
+    const pay = shift.userId ? awardPay.get(shift.userId) : undefined;
+    if (pay) {
+      costs.set(shift.id, {
+        cents: pay.costByShift[shift.id] ?? 0,
+        basis: 'award',
+        lines: pay.lines.filter((line) => line.shiftId === shift.id),
+        // A warning about the person's whole week is shown on each of their shifts.
+        warnings: pay.warnings.filter(
+          (warning) => warning.shiftId === shift.id || warning.shiftId === null,
+        ),
+      });
+    } else {
+      costs.set(shift.id, {
+        cents: costOfShift(shift, rates, rules, holidays).cents,
+        basis: 'rate',
+        lines: [],
+        warnings: [],
+      });
+    }
+  }
+  return costs;
 }

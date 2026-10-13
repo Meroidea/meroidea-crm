@@ -166,6 +166,13 @@ export default async function StaffProfilePage({ params, searchParams }: PagePro
                 {displayName}
               </h1>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Badge
+                  variant="outline"
+                  className="tabular-nums"
+                  title="Assigned when hired; it never changes"
+                >
+                  Employee ID {employee.employeeNumber}
+                </Badge>
                 <Badge variant="outline" className={status.className}>
                   {status.label}
                 </Badge>

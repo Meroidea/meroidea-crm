@@ -1,0 +1,2 @@
+ALTER TABLE "employees" ADD COLUMN "employee_number" integer NOT NULL GENERATED ALWAYS AS IDENTITY (sequence name "employees_employee_number_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 100001 CACHE 1);--> statement-breakpoint
+ALTER TABLE "employees" ADD CONSTRAINT "employees_employee_number_key" UNIQUE("employee_number");

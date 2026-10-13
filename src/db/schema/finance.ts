@@ -14,6 +14,9 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import type { PayslipLine } from '@/modules/payroll/lines';
+import type { EmployerSnapshot } from '@/modules/settings/business';
+
 import { employees } from './hiring';
 import { rosters } from './roster';
 import { tenants } from './tenancy';
@@ -103,6 +106,8 @@ export const payslips = pgTable(
     /** Printed as written: employer name, business number and address. */
     employerDetails: text(),
     employeeName: text().notNull(),
+    /** The person's Employee ID, kept on the payslip; null on payslips made before it existed. */
+    employeeNumber: integer(),
     positionTitle: text(),
     /** Worked time after breaks, in minutes, summed from the roster's shifts. */
     minutes: integer().notNull(),
@@ -115,6 +120,14 @@ export const payslips = pgTable(
     superAmount: numeric({ precision: 14, scale: 2 }).notNull(),
     superFundName: text(),
     currency: char({ length: 3 }).notNull(),
+    /** The employee's own count of payslips: 1 for their first. Null on older payslips. */
+    number: integer(),
+    /** The business as it described itself when the payslip was made. Null on older payslips. */
+    employer: jsonb().$type<EmployerSnapshot>(),
+    employmentType: text(),
+    classification: text(),
+    /** What the pay is made up of: hours at each rate, and allowances. Empty on older payslips. */
+    lines: jsonb().$type<PayslipLine[]>().notNull().default([]),
     /** The shifts paid: [{ date, start, end, minutes }]. */
     shifts: jsonb().notNull().default([]),
     releasedAt: timestamp({ withTimezone: true }),

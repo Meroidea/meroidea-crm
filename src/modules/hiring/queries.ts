@@ -16,6 +16,7 @@ export async function listEmployees(ctx: TenantContext): Promise<EmployeeListRow
     tx
       .select({
         id: employees.id,
+        employeeNumber: employees.employeeNumber,
         firstName: employees.firstName,
         lastName: employees.lastName,
         email: employees.email,
@@ -47,6 +48,7 @@ export async function listEmployees(ctx: TenantContext): Promise<EmployeeListRow
     if (latest.has(row.id)) continue;
     latest.set(row.id, {
       id: row.id,
+      employeeNumber: row.employeeNumber,
       fullName: `${row.firstName} ${row.lastName}`,
       email: row.email,
       status: row.status,
@@ -121,6 +123,7 @@ export async function getEmployee(ctx: TenantContext, id: string): Promise<Emplo
 
     return {
       id: employee.id,
+      employeeNumber: employee.employeeNumber,
       firstName: employee.firstName,
       lastName: employee.lastName,
       email: employee.email,

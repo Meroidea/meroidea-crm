@@ -323,6 +323,41 @@
       "when": 1791886758909,
       "tag": "0045_contract_award_rate_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791888243537,
+      "tag": "0046_time_entry_shift_link",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791889844585,
+      "tag": "0047_employee_number",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791889848293,
+      "tag": "0048_employee_number_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791889935260,
+      "tag": "0049_payslip_employee_number",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791890637291,
+      "tag": "0050_payslip_lines_employer",
+      "breakpoints": true
     }
   ]
 }

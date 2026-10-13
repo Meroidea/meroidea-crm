@@ -1,3 +1,7 @@
+import type { EmployerSnapshot } from '@/modules/settings/business';
+
+import type { PayslipLine } from './lines';
+
 export type PayslipShift = { date: string; start: string; end: string; minutes: number };
 
 export type PayslipRow = {
@@ -18,12 +22,45 @@ export type PayslipRow = {
 };
 
 export type PayslipDetail = PayslipRow & {
+  /** Null on payslips made before Employee IDs existed. */
+  employeeNumber: number | null;
   employerDetails: string | null;
   positionTitle: string | null;
   superRate: string;
   superFundName: string | null;
   shifts: PayslipShift[];
+  /** The employee's own count of payslips; null on payslips made before it was kept. */
+  number: number | null;
+  /** The business as it described itself when the payslip was made. */
+  employer: EmployerSnapshot | null;
+  employmentType: string | null;
+  classification: string | null;
+  /** What the pay is made up of. Empty on payslips made before lines were kept. */
+  lines: PayslipLine[];
+  yearToDate: YearToDate;
 };
+
+/** Totals from the start of the financial year up to and including this payslip. */
+export type YearToDate = {
+  /** The first day of the financial year the payment date falls in. */
+  from: string;
+  gross: string;
+  taxWithheld: string;
+  net: string;
+  superAmount: string;
+  /** Amount so far this year for each line title on this payslip. */
+  byLine: Record<string, string>;
+};
+
+/**
+ * The first day of the financial year a payment falls in: 1 July in Australia, otherwise
+ * 1 January.
+ */
+export function financialYearStart(paymentDate: string, country: string | null): string {
+  const year = Number(paymentDate.slice(0, 4));
+  if (country !== 'AU') return `${year}-01-01`;
+  return paymentDate.slice(5) >= '07-01' ? `${year}-07-01` : `${year - 1}-07-01`;
+}
 
 export type PayRunRoster = {
   id: string;

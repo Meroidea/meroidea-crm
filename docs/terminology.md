@@ -35,6 +35,7 @@ UI via `tenants.labels`, but the **code name never changes**.
 | **Inventory item** | Something the workspace keeps in stock, with a running quantity on hand in a unit of the tenant's choosing. | — | — |
 | **Stock movement** | One change to an item's quantity: received, used, wasted, a correction, or a stocktake. Never edited or removed. | — | — |
 | **Employee** | A person the workspace has hired or offered work to. Not a login: an employee may never sign in. | — | — |
+| **Employee ID** | The number the system gives an employee when they are hired. Unique, never reused and never changed: it is how one employee is told from another, whatever their name. | — | — |
 | **Department** | A named group of employees. The tenant decides what it stands for: department, division, site. | — | — |
 | **Employment contract** | The terms offered to an employee, frozen once sent and accepted through a one-time link. | — | — |
 | **Roster** | A week or a fortnight of planned shifts for the workspace. A draft until published. | — | — |

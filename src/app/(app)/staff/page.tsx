@@ -162,6 +162,7 @@ export default async function StaffPage({ searchParams }: PageProps<'/staff'>) {
                           {person.displayName}
                         </span>
                         <span className="block truncate text-sm text-muted-foreground">
+                          <span className="tabular-nums">ID {person.employeeNumber}</span> ·{' '}
                           {person.positionTitle ?? 'No position yet'}
                           {person.employmentType &&
                             ` · ${EMPLOYMENT_TYPE_LABELS[person.employmentType]}`}

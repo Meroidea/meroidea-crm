@@ -9,6 +9,8 @@ import { getPipelineConfig } from '@/modules/pipelines/queries';
 import { LeadSourceList, LostReasonList } from '@/modules/settings/components/settings-lists';
 import { StageEditor } from '@/modules/settings/components/stage-editor';
 import { TeamTable } from '@/modules/settings/components/team-table';
+import { readBusinessDetails } from '@/modules/settings/business';
+import { BusinessForm } from '@/modules/settings/components/business-form';
 import { WorkspaceForm } from '@/modules/settings/components/workspace-form';
 import { getSettingsLists } from '@/modules/settings/queries';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
@@ -29,6 +31,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   const params = await searchParams;
   const tab = TABS.find((candidate) => candidate.key === params.tab)?.key ?? 'general';
   const [lists, pipeline] = await Promise.all([getSettingsLists(ctx), getPipelineConfig(ctx)]);
+  const business = readBusinessDetails(ctx.tenant.settings);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
@@ -72,6 +75,28 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
                     timezone: ctx.tenant.timezone,
                     currency: ctx.tenant.currency,
                     country: ctx.tenant.country ?? '',
+                  }}
+                />
+              </CardContent>
+              <CardHeader className="border-t pt-6">
+                <CardTitle>Business details</CardTitle>
+                <CardDescription>
+                  Printed on payslips made from now on. Payslips already made keep what they were
+                  given.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <BusinessForm
+                  workspaceName={ctx.tenant.name}
+                  australian={ctx.tenant.country === 'AU'}
+                  initial={{
+                    legalName: business.legalName ?? '',
+                    businessNumber: business.businessNumber ?? '',
+                    address: business.address ?? '',
+                    phone: business.phone ?? '',
+                    email: business.email ?? '',
+                    website: business.website ?? '',
+                    payrollContact: business.payrollContact ?? '',
                   }}
                 />
               </CardContent>

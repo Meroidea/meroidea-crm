@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { costOfShift, shiftWarnings } from '@/modules/roster/insights';
+import { buildRateSchedule } from '@/modules/hiring/award-rates';
+import { costOfShift, costRoster, shiftWarnings } from '@/modules/roster/insights';
 import { rosterEmail } from '@/modules/roster/notify';
 import {
   autoBreaks,
@@ -14,6 +15,8 @@ import {
   unpaidMinutes,
 } from '@/modules/roster/rules';
 import type { RosterRules } from '@/modules/roster/types';
+
+import rows from '../fixtures/fwc-award-rows.json';
 
 const rules: RosterRules = {
   loadings: { saturday: 1.25, sunday: 1.5, publicHoliday: 2.5 },
@@ -167,5 +170,63 @@ describe('the roster email', () => {
 
   it('tells someone with no shifts left that they have none', () => {
     expect(rosterEmail({ ...base, shifts: [] }).text).toContain('You have no shifts');
+  });
+});
+
+describe('costing a roster for someone under an award with written-down rules', () => {
+  const schedule = buildRateSchedule({
+    awardCode: 'MA000119',
+    classificationRef: 'x',
+    employment: 'casual',
+    payRate: rows.restaurantLevel1Adult.payRate,
+    penalties: rows.restaurantLevel1Adult.penalties,
+    allowances: rows.restaurantAllowances,
+    today: '2026-10-13',
+  });
+  const rates = {
+    a: {
+      hourly: '33.05',
+      loadings: {},
+      award: { code: 'MA000119', employment: 'casual' as const, schedule, under18: false },
+    },
+    b: { hourly: '30.00', loadings: {} },
+  };
+  const shift = (
+    id: string,
+    userId: string | null,
+    date: string,
+    startTime: string,
+    endTime: string,
+  ) => ({
+    id,
+    userId,
+    date,
+    startTime,
+    endTime,
+    breakMinutes: 30,
+    paidMinutes: 480,
+  });
+
+  it('uses the award for them and plain rate × loading for everyone else', () => {
+    const week = ['12', '13', '14', '15', '16'].map((day) =>
+      shift(`a${day}`, 'a', `2026-10-${day}`, '09:00', '17:30'),
+    );
+    const costs = costRoster(
+      [
+        ...week,
+        shift('b1', 'b', '2026-10-14', '09:00', '17:30'),
+        shift('v', null, '2026-10-14', '09:00', '17:30'),
+      ],
+      rates,
+      rules,
+      holidays,
+      1,
+    );
+    // Eight ordinary hours at the casual rate of $33.05.
+    expect(costs.get('a12')).toMatchObject({ basis: 'award', cents: 8 * 3305 });
+    // The fifth day takes them past 38 hours, so its last two hours are overtime.
+    expect(costs.get('a16')?.lines.map((line) => line.kind)).toEqual(['ordinary', 'overtime']);
+    expect(costs.get('b1')).toMatchObject({ basis: 'rate', cents: 24000, lines: [] });
+    expect(costs.get('v')).toMatchObject({ basis: 'rate', cents: null });
   });
 });

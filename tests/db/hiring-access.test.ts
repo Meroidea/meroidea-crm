@@ -14,6 +14,7 @@ import {
   submitPayrollDetails,
 } from '@/modules/hiring/public';
 import { getEmployee, listEmployees } from '@/modules/hiring/queries';
+import { listStaff } from '@/modules/hiring/staff-queries';
 import {
   acceptOfferSchema,
   createHireSchema,
@@ -366,5 +367,67 @@ describe('reading award rates again for a contract', () => {
     const created = await createHire(owner, hire({ email: mail('award-typed') }));
     // The contract names an award but no classification from the pay database to look up.
     await expectCode(() => refreshAwardRates(owner, created.contractId), 'CONFLICT');
+  });
+});
+
+describe('the Employee ID', () => {
+  const failure = async (run: () => Promise<unknown>): Promise<string> => {
+    try {
+      await run();
+    } catch (error) {
+      const wrapped = error as { message?: string; cause?: { message?: string } };
+      return `${wrapped.message ?? ''} ${wrapped.cause?.message ?? ''}`;
+    }
+    return 'nothing refused it';
+  };
+
+  it('is given to every new hire by the database, each one different', async () => {
+    const first = await createHire(owner, hire({ email: mail('id-first') }));
+    const second = await createHire(owner, hire({ email: mail('id-second') }));
+    expect(first.employeeNumber).toBeGreaterThanOrEqual(100001);
+    expect(second.employeeNumber).toBeGreaterThan(first.employeeNumber);
+    expect((await getEmployee(owner, first.employeeId))?.employeeNumber).toBe(first.employeeNumber);
+  });
+
+  it('is never shared with another business’s employee', async () => {
+    const ours = await createHire(owner, hire({ email: mail('id-ours') }));
+    const theirs = await createHire(outsider, hire({ email: mail('id-theirs') }));
+    expect(theirs.employeeNumber).not.toBe(ours.employeeNumber);
+    // Looking our number up from their workspace finds nobody.
+    const found = await listStaff(outsider, { view: 'all', q: String(ours.employeeNumber) });
+    expect(found.rows).toEqual([]);
+  });
+
+  it('finds exactly one person when searched for', async () => {
+    const hired = await createHire(owner, hire({ email: mail('id-search') }));
+    const found = await listStaff(owner, { view: 'all', q: String(hired.employeeNumber) });
+    expect(found.rows.map((row) => row.id)).toEqual([hired.employeeId]);
+  });
+
+  it('cannot be chosen, changed or drawn again, even past the service', async () => {
+    const hired = await createHire(owner, hire({ email: mail('id-fixed') }));
+    const asOwner = await failure(() =>
+      withRls(owner, (tx) =>
+        tx.execute(
+          sql`update employees set employee_number = 999999 where id = ${hired.employeeId}`,
+        ),
+      ),
+    );
+    expect(asOwner).toMatch(/can only be updated to DEFAULT|cannot be changed/i);
+    // The privileged connection cannot either: not to a chosen value, not to a fresh one.
+    const redrawn = await failure(() =>
+      adminDb().execute(
+        sql`update employees set employee_number = default where id = ${hired.employeeId}`,
+      ),
+    );
+    expect(redrawn).toMatch(/cannot be changed/i);
+    const chosen = await failure(() =>
+      withRls(owner, (tx) =>
+        tx.execute(sql`insert into employees (tenant_id, employee_number, first_name, last_name, email)
+                       values (${alphaTenant}, 5, 'Pat', 'Chosen', ${mail('id-chosen')})`),
+      ),
+    );
+    expect(chosen).toMatch(/GENERATED ALWAYS|cannot insert/i);
+    expect((await getEmployee(owner, hired.employeeId))?.employeeNumber).toBe(hired.employeeNumber);
   });
 });

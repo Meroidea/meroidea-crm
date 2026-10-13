@@ -8,7 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { addDaysToDate, instantToZoned, mondayOf, zonedToday } from '@/lib/dates';
 import { formatCalendarDate } from '@/lib/format';
-import { cn } from '@/lib/utils';
 import { listActiveMembers } from '@/modules/members/queries';
 import { dayParts, formatHours } from '@/modules/roster/hours';
 import {
@@ -16,7 +15,9 @@ import {
   EntryActions,
   EntryButton,
 } from '@/modules/timesheets/components/timesheet-tools';
+import { ApprovalViews, TimesheetViewNav } from '@/modules/timesheets/components/approval-views';
 import { workedMinutes } from '@/modules/timesheets/minutes';
+import { getTimesheetPeriod } from '@/modules/timesheets/period';
 import { getOpenEntry, listTimeEntries, type TimeEntryRow } from '@/modules/timesheets/queries';
 import { ENTRY_STATUS_LABELS, timesheetParamsSchema } from '@/modules/timesheets/schemas';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
@@ -116,9 +117,20 @@ export default async function TimesheetsPage({ searchParams }: PageProps<'/times
   requirePermission(ctx, 'timesheets.clock');
   const canManage = hasPermission(ctx, 'timesheets.manage');
   const params = timesheetParamsSchema.parse(await searchParams);
-  const view = canManage ? (params.view ?? 'mine') : 'mine';
   const timezone = ctx.tenant.timezone;
   const today = zonedToday(timezone);
+  if (canManage && (params.view === 'day' || params.view === 'period')) {
+    return (
+      <ApprovalViews
+        view={params.view}
+        show={params.show ?? 'all'}
+        period={await getTimesheetPeriod(ctx, params.date ?? today)}
+        currency={ctx.tenant.currency}
+        today={today}
+      />
+    );
+  }
+  const view = canManage && params.view === 'team' ? 'team' : 'mine';
   const weekStart = mondayOf(params.week ?? today);
   const weekEnd = addDaysToDate(weekStart, 6);
 
@@ -182,28 +194,7 @@ export default async function TimesheetsPage({ searchParams }: PageProps<'/times
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {canManage ? (
-          <nav aria-label="Timesheet views" className="flex gap-1">
-            {[
-              ['mine', 'My time'],
-              ['team', 'Team'],
-            ].map(([key, label]) => (
-              <Link
-                key={key}
-                href={href({ view: key })}
-                aria-current={view === key ? 'page' : undefined}
-                className={cn(
-                  'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground',
-                  view === key && 'bg-accent font-medium text-foreground',
-                )}
-              >
-                {label}
-              </Link>
-            ))}
-          </nav>
-        ) : (
-          <span />
-        )}
+        {canManage ? <TimesheetViewNav view={view} /> : <span />}
         <div className="flex items-center gap-1">
           <Button asChild variant="ghost" size="icon" aria-label="Previous week">
             <Link href={href({ week: addDaysToDate(weekStart, -7) })}>

@@ -719,6 +719,7 @@ A person hired or offered work. Separate from `users`/memberships: `user_id` is 
 they are later given a login.
 ```sql
 id, tenant_id,
+employee_number integer not null generated always as identity (start 100001)  -- the Employee ID; unique across the platform; a trigger refuses any change (migrations 0047, 0048)
 user_id     uuid                       -- nullable
 first_name, last_name text not null    -- legal names, as on the contract
 preferred_name text                    -- shown in lists instead, when set
@@ -949,6 +950,11 @@ status        payslip_status not null default 'draft'   -- draft | released
 period_start, period_end, payment_date date not null
 employer_details text                  -- as printed
 employee_name text not null, position_title text
+employee_number integer             -- the Employee ID at the time; null on payslips older than migration 0049
+number integer                      -- the employee's own count of payslips (1 for their first); null on older payslips
+employer jsonb                      -- the business as it described itself when the payslip was made: { name, legalName, businessNumber, address, phone, email, website, payrollContact }
+employment_type text, classification text
+lines jsonb not null default '[]'   -- what the pay is made up of: [{ title, kind, minutes, units, rate, multiplier, amount, superable, clause }]; gross is their sum
 minutes       integer not null         -- worked time after breaks
 hourly_rate   numeric(14,2) not null   -- from the accepted contract
 gross         numeric(14,2) not null   -- round(hourly_rate * minutes / 60, 2), computed in SQL
@@ -1023,6 +1029,7 @@ service. Balances and accrual are not calculated: the page shows approved days p
 
 ```sql
 time_entries  id, tenant_id, user_id
+              shift_id uuid                 -- fk (tenant_id, shift_id) -> roster_shifts; the rostered shift the time was worked against, set on the daily approval screen
               clock_in timestamptz, clock_out timestamptz   -- null while clocked in; out > in
               break_minutes int (0–720), note
               source                -- clock | manual

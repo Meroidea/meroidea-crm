@@ -14,7 +14,8 @@ import {
   rosters,
   workforceSettings,
 } from '@/db/schema';
-import { instantToZoned } from '@/lib/dates';
+import { instantToZoned, zonedToday } from '@/lib/dates';
+import { awardInterpreter } from '@/modules/awards';
 import { dayLoadings } from '@/modules/hiring/award-rates';
 import { hasFeature, hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
@@ -246,7 +247,13 @@ export async function getRosterRules(ctx: TenantContext): Promise<RosterRules> {
  * only for whoever manages employee records, so everyone else gets null and sees no cost.
  */
 export async function listRosterRates(ctx: TenantContext): Promise<RosterRates | null> {
-  if (!hasPermission(ctx, 'rosters.manage') || !hasPermission(ctx, 'employees.manage')) return null;
+  if (!hasPermission(ctx, 'rosters.manage')) return null;
+  return listPayRates(ctx);
+}
+
+/** Pay rates for costing hours, for whoever manages employee records; null for anyone else. */
+export async function listPayRates(ctx: TenantContext): Promise<RosterRates | null> {
+  if (!hasPermission(ctx, 'employees.manage')) return null;
   const rows = await withRls(ctx, (tx) =>
     tx
       .select({
@@ -254,6 +261,9 @@ export async function listRosterRates(ctx: TenantContext): Promise<RosterRates |
         payBasis: employmentContracts.payBasis,
         payRate: employmentContracts.payRate,
         rateSchedule: employmentContracts.rateSchedule,
+        awardCode: employmentContracts.awardCode,
+        employmentType: employmentContracts.employmentType,
+        dateOfBirth: employees.dateOfBirth,
       })
       .from(employmentContracts)
       .innerJoin(
@@ -276,16 +286,30 @@ export async function listRosterRates(ctx: TenantContext): Promise<RosterRates |
   );
   const rates: RosterRates = {};
   const seen = new Set<string>();
+  const today = zonedToday(ctx.tenant.timezone);
   for (const row of rows) {
     // Newest contract first: an annual salary there means roster hours are not what is paid.
     if (!row.userId || seen.has(row.userId)) continue;
     seen.add(row.userId);
-    if (row.payBasis === 'hourly') {
-      rates[row.userId] = {
-        hourly: row.payRate,
-        loadings: dayLoadings(row.rateSchedule?.dayRates ?? null),
-      };
-    }
+    if (row.payBasis !== 'hourly') continue;
+    const schedule = row.rateSchedule;
+    rates[row.userId] = {
+      hourly: row.payRate,
+      loadings: dayLoadings(schedule?.dayRates ?? null),
+      ...(schedule && row.employmentType !== 'contractor' && awardInterpreter(row.awardCode)
+        ? {
+            award: {
+              code: schedule.awardCode,
+              employment: row.employmentType,
+              schedule,
+              // Eighteen years before today, as a date: anyone born after it is under 18.
+              under18: row.dateOfBirth
+                ? row.dateOfBirth > `${Number(today.slice(0, 4)) - 18}${today.slice(4)}`
+                : false,
+            },
+          }
+        : {}),
+    };
   }
   return rates;
 }

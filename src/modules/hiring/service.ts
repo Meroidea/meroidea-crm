@@ -34,7 +34,13 @@ export const payrollBinding = (tenantId: string, employeeId: string, field: stri
 export async function createHire(
   ctx: TenantContext,
   input: CreateHireInput,
-): Promise<{ employeeId: string; contractId: string; warnings: string[] }> {
+): Promise<{
+  employeeId: string;
+  /** The Employee ID the database gave the new hire. */
+  employeeNumber: number;
+  contractId: string;
+  warnings: string[];
+}> {
   requirePermission(ctx, 'employees.manage');
   const contractor = input.employmentType === 'contractor';
 
@@ -97,7 +103,7 @@ export async function createHire(
         createdBy: ctx.userId,
         updatedBy: ctx.userId,
       })
-      .returning({ id: employees.id });
+      .returning({ id: employees.id, employeeNumber: employees.employeeNumber });
     if (!employee) throw new AppError('INTERNAL', 'Could not save the new hire.');
 
     const [contract] = await tx
@@ -127,12 +133,18 @@ export async function createHire(
       // The warnings shown at the time are part of the record of what the admin decided.
       context: {
         contractId: contract.id,
+        employeeNumber: employee.employeeNumber,
         employmentType: input.employmentType,
         rateSource,
         warnings,
       },
     });
-    return { employeeId: employee.id, contractId: contract.id, warnings };
+    return {
+      employeeId: employee.id,
+      employeeNumber: employee.employeeNumber,
+      contractId: contract.id,
+      warnings,
+    };
   });
 }
 

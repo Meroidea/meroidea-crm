@@ -1,0 +1,1 @@
+ALTER TABLE "payslips" ADD COLUMN "employee_number" integer;

@@ -87,7 +87,7 @@ and work in `/platform`; inside a business they hold a temporary Owner seat mark
 | `timeoff.request` | | Ask for leave, see and withdraw your own requests |
 | `timeoff.manage` | | See everyone's requests, approve or decline, cancel approved leave, enter leave for someone else, manage leave types. Enforced again by RLS on `leave_requests` |
 | `timesheets.clock` | | Clock in and out, add your own time by hand, see your own entries |
-| `timesheets.manage` | | See, correct, approve and reject everyone's time; needed with `payroll.manage` to pay from timesheets. Enforced again by RLS on `time_entries` |
+| `timesheets.manage` | | See, correct, approve and reject everyone's time, day by day against the roster; type what was worked when nobody clocked in; see the pay period and export approved time (pay figures only with `employees.manage`); needed with `payroll.manage` to pay from timesheets. Enforced again by RLS on `time_entries` |
 | `recruitment.manage` | | Create and open jobs, read applicants and their résumés, move, rate, note and delete them. Enforced again by RLS |
 | `projects.view` | | See projects and tasks, move your own tasks, time your own tasks |
 | `projects.manage` | | Create and edit projects and tasks, assign people, move any task, see everyone's logged time |

@@ -1,6 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  foreignKey,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
+import { rosterShifts } from './roster';
 import { tenants } from './tenancy';
 
 /**
@@ -15,6 +25,8 @@ export const timeEntries = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
     userId: uuid().notNull(),
+    /** The rostered shift this time was worked against, when it was recorded against one. */
+    shiftId: uuid(),
     clockIn: timestamp({ withTimezone: true }).notNull(),
     /** Null while the person is still clocked in. */
     clockOut: timestamp({ withTimezone: true }),
@@ -39,6 +51,11 @@ export const timeEntries = pgTable(
     index('time_entries_person_idx')
       .on(table.tenantId, table.userId, table.clockIn)
       .where(sql`${table.deletedAt} is null`),
+    foreignKey({
+      columns: [table.tenantId, table.shiftId],
+      foreignColumns: [rosterShifts.tenantId, rosterShifts.id],
+      name: 'time_entries_tenant_shift_fk',
+    }),
     index('time_entries_period_idx')
       .on(table.tenantId, table.clockIn)
       .where(sql`${table.deletedAt} is null`),

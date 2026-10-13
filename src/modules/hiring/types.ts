@@ -5,6 +5,8 @@ export type ContractStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'withd
 
 export type EmployeeListRow = {
   id: string;
+  /** The Employee ID: assigned at hire, never changed. */
+  employeeNumber: number;
   fullName: string;
   email: string;
   status: 'pending' | 'active' | 'ended';
@@ -59,6 +61,8 @@ export type PayrollSummary = {
 
 export type EmployeeDetail = {
   id: string;
+  /** The Employee ID: assigned at hire, never changed. */
+  employeeNumber: number;
   firstName: string;
   lastName: string;
   email: string;
@@ -121,6 +125,8 @@ export type ContractSummary = {
 
 export type StaffRow = {
   id: string;
+  /** The Employee ID: assigned at hire, never changed. */
+  employeeNumber: number;
   /** Preferred name when there is one, otherwise first and last. */
   displayName: string;
   email: string;

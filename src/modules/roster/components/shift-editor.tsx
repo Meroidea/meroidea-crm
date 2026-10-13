@@ -24,7 +24,7 @@ import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { copyShiftAction, deleteShiftAction, saveShiftAction } from '@/modules/roster/actions';
 import { formatHours } from '@/modules/roster/hours';
-import { costOfShift, leaveOn, shiftWarnings } from '@/modules/roster/insights';
+import { awardPayFor, costOfShift, leaveOn, shiftWarnings } from '@/modules/roster/insights';
 import {
   autoBreaks,
   centsToAmount,
@@ -62,6 +62,7 @@ export function ShiftEditor({
   rates,
   currency,
   today,
+  weeks,
   onClose,
 }: {
   rosterId: string;
@@ -77,6 +78,8 @@ export function ShiftEditor({
   rates: RosterRates | null;
   currency: string;
   today: string;
+  /** Weeks in the roster, which sets the weekly ordinary-hours limit under an award. */
+  weeks: number;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -145,6 +148,52 @@ export function ShiftEditor({
     [rules.holidays],
   );
   const cost = rates ? costOfShift({ userId, date, paidMinutes }, rates, rules, holidays) : null;
+  // Under an award with written-down rules, the shift is paid in the light of the person's
+  // other shifts this period, so it is worked out with this one as it currently stands.
+  const DRAFT_ID = editing?.id ?? 'new-shift';
+  const award = useMemo(() => {
+    if (!rates || !userId || length <= 0) return null;
+    const others = shifts.filter((shift) => shift.id !== editing?.id);
+    const pay = awardPayFor(
+      userId,
+      [
+        ...others,
+        {
+          id: DRAFT_ID,
+          userId,
+          date,
+          startTime,
+          endTime,
+          breakMinutes: length - paidMinutes,
+          paidMinutes,
+        },
+      ],
+      rates,
+      holidays,
+      weeks,
+    );
+    if (!pay) return null;
+    return {
+      cents: pay.costByShift[DRAFT_ID] ?? 0,
+      lines: pay.lines.filter((line) => line.shiftId === DRAFT_ID),
+      warnings: pay.warnings.filter(
+        (warning) => warning.shiftId === DRAFT_ID || warning.shiftId === null,
+      ),
+    };
+  }, [
+    rates,
+    userId,
+    length,
+    shifts,
+    editing?.id,
+    DRAFT_ID,
+    date,
+    startTime,
+    endTime,
+    paidMinutes,
+    holidays,
+    weeks,
+  ]);
   const warnings = shiftWarnings(
     {
       userId,
@@ -472,7 +521,31 @@ export function ShiftEditor({
                 {length > 0 ? formatHours(paidMinutes) : '—'}
                 {overnight && <span className="font-normal text-muted-foreground"> +1 day</span>}
               </dd>
-              {cost && (
+              {award && (
+                <>
+                  {award.lines.map((line) => (
+                    <div key={`${line.kind}|${line.label}`} className="contents">
+                      <dt className="text-muted-foreground">
+                        {line.label}
+                        <span className="block text-xs">
+                          {line.minutes === null
+                            ? `${formatMoney(line.rate, currency)} each`
+                            : `${formatHours(line.minutes)} at ${formatMoney(line.rate, currency)}`}{' '}
+                          · cl {line.clause}
+                        </span>
+                      </dt>
+                      <dd className="text-right tabular-nums" data-sensitive>
+                        {formatMoney(centsToAmount(line.cents), currency)}
+                      </dd>
+                    </div>
+                  ))}
+                  <dt className="font-medium">Cost under the award</dt>
+                  <dd className="text-right font-medium tabular-nums" data-sensitive>
+                    {formatMoney(centsToAmount(award.cents), currency)}
+                  </dd>
+                </>
+              )}
+              {cost && !award && (
                 <>
                   <dt className="text-muted-foreground">Day</dt>
                   <dd className="text-right tabular-nums">
@@ -501,8 +574,26 @@ export function ShiftEditor({
               />
             </Field>
 
-            {warnings.length > 0 && (
+            {award && (
+              <p className="text-xs text-muted-foreground">
+                Worked out from the award’s rules and the Fair Work Commission’s rates, taking this
+                person’s other shifts into account. Lines show the award minimum; the total keeps
+                any margin their agreed rate has over it. Check it before relying on it for pay.
+              </p>
+            )}
+            {(warnings.length > 0 || (award?.warnings.length ?? 0) > 0) && (
               <ul className="flex flex-col gap-1 rounded-lg border border-warning-border bg-warning px-3 py-2 text-sm text-warning-text">
+                {award?.warnings.map((warning) => (
+                  <li
+                    key={`${warning.clause}|${warning.message}`}
+                    className="flex items-start gap-2"
+                  >
+                    <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                    <span>
+                      {warning.message} <span className="opacity-80">(cl {warning.clause})</span>
+                    </span>
+                  </li>
+                ))}
                 {warnings.map((warning) => (
                   <li key={warning} className="flex items-start gap-2">
                     <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />

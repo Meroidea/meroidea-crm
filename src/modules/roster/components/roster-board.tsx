@@ -45,7 +45,7 @@ import { ShiftCard } from '@/modules/roster/components/shift-card';
 import { ShiftEditor, type ShiftDraft } from '@/modules/roster/components/shift-editor';
 import { TeamsSheet } from '@/modules/roster/components/teams-sheet';
 import { dayParts, formatHours } from '@/modules/roster/hours';
-import { costOfShift, leaveOn, shiftWarnings } from '@/modules/roster/insights';
+import { costRoster, leaveOn, shiftWarnings } from '@/modules/roster/insights';
 import { centsToAmount } from '@/modules/roster/rules';
 import type {
   RemovedShift,
@@ -173,30 +173,38 @@ export function RosterBoard({
   const figures = useMemo(() => {
     const holidays = new Set(holidayOf.keys());
     const cents = new Map<string, number | null>();
+    const awardWarnings = new Map<string, number>();
     const minutes = { day: new Map<string, number>(), person: new Map<string, number>() };
     const money = { day: new Map<string, number>(), person: new Map<string, number>() };
     const add = (map: Map<string, number>, key: string, value: number) =>
       map.set(key, (map.get(key) ?? 0) + value);
     let totalMinutes = 0;
     let totalCents = 0;
+    // Costed over every shift, not only the ones on screen: overtime depends on the whole week.
+    const costing = rates ? costRoster(shifts, rates, rules, holidays, dayCount / 7) : null;
     for (const shift of visible) {
       const who = shift.userId ?? VACANT;
       totalMinutes += shift.paidMinutes;
       add(minutes.day, shift.date, shift.paidMinutes);
       add(minutes.person, who, shift.paidMinutes);
-      if (!rates) continue;
-      const cost = costOfShift(shift, rates, rules, holidays).cents;
+      if (!costing) continue;
+      const costed = costing.get(shift.id);
+      const cost = costed?.cents ?? null;
       cents.set(shift.id, cost);
+      awardWarnings.set(shift.id, costed?.warnings.length ?? 0);
       if (cost === null) continue;
       totalCents += cost;
       add(money.day, shift.date, cost);
       add(money.person, who, cost);
     }
-    return { cents, minutes, money, totalMinutes, totalCents };
-  }, [visible, rates, rules, holidayOf]);
+    return { cents, awardWarnings, minutes, money, totalMinutes, totalCents };
+  }, [shifts, visible, rates, rules, holidayOf, dayCount]);
 
   const warningsOf = (shift: RosterShift) =>
-    canManage ? shiftWarnings(shift, { leave, today, rates }).length : 0;
+    canManage
+      ? shiftWarnings(shift, { leave, today, rates }).length +
+        (figures.awardWarnings.get(shift.id) ?? 0)
+      : 0;
   const money = (cents: number) => formatMoney(centsToAmount(cents), currency);
 
   const published = roster.status === 'published';
@@ -578,6 +586,7 @@ export function RosterBoard({
           rates={rates}
           currency={currency}
           today={today}
+          weeks={dayCount / 7}
           onClose={() => setDraft(null)}
         />
       )}

@@ -1,3 +1,5 @@
+import type { AwardEmployment, AwardRateSchedule } from '@/modules/hiring/award-rates';
+
 import type { BreakRule, Loadings, ShiftBreak, TeamColor } from './rules';
 
 export type RosterSummary = {
@@ -76,5 +78,15 @@ export type RosterRules = {
  * contract. `loadings` come from the person's award where it publishes a whole-day rate, and
  * take the place of the workspace's own loading for that kind of day.
  */
-export type RosterRate = { hourly: string; loadings: Partial<Loadings> };
+export type RosterRate = {
+  hourly: string;
+  loadings: Partial<Loadings>;
+  /** Set when the person's award has written-down rules, so their shifts are paid by them. */
+  award?: {
+    code: string;
+    employment: AwardEmployment;
+    schedule: AwardRateSchedule;
+    under18: boolean;
+  };
+};
 export type RosterRates = Record<string, RosterRate>;

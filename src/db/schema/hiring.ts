@@ -66,6 +66,13 @@ export const employees = pgTable(
     tenantId: uuid()
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
+    /**
+     * The Employee ID: given by the database when the person is hired, never reused and never
+     * changed. It is how one employee is told from another, whatever happens to their name.
+     */
+    employeeNumber: integer()
+      .notNull()
+      .generatedAlwaysAsIdentity({ name: 'employees_employee_number_seq', startWith: 100001 }),
     /** Set once the person is given a login; nothing requires one. */
     userId: uuid(),
     firstName: text().notNull(),
@@ -92,6 +99,7 @@ export const employees = pgTable(
   },
   (table) => [
     unique('employees_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('employees_employee_number_key').on(table.employeeNumber),
     index('employees_tenant_status_idx')
       .on(table.tenantId, table.status)
       .where(sql`${table.deletedAt} is null`),

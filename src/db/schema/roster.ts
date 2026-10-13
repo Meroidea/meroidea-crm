@@ -134,6 +134,7 @@ export const rosterShifts = pgTable(
     deletedAt: timestamp({ withTimezone: true }),
   },
   (table) => [
+    unique('roster_shifts_tenant_id_id_key').on(table.tenantId, table.id),
     index('roster_shifts_roster_idx')
       .on(table.tenantId, table.rosterId)
       .where(sql`${table.deletedAt} is null`),

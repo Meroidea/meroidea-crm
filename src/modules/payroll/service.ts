@@ -12,13 +12,26 @@ import {
   timeEntries,
   users,
 } from '@/db/schema';
-import { addDaysToDate, instantToZoned, zonedDateToInstant } from '@/lib/dates';
+import {
+  addDaysToDate,
+  daysBetweenDates,
+  instantToZoned,
+  zonedDateToInstant,
+  zonedToday,
+} from '@/lib/dates';
 import { AppError } from '@/lib/errors';
+import { awardInterpreter } from '@/modules/awards';
+import { dayLoadings } from '@/modules/hiring/award-rates';
+import { getRosterRules } from '@/modules/roster/queries';
+import { centsToAmount, ORDINARY_LOADINGS } from '@/modules/roster/rules';
+import type { RosterRules } from '@/modules/roster/types';
+import { employerSnapshot } from '@/modules/settings/business';
 import { audit } from '@/server/audit';
 import { hasFeature, hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 
 import type { AuthoriseRosterInput } from './schemas';
+import { payslipLinesFor, type WorkedShift } from './lines';
 import type { PayslipShift, SkippedPerson } from './types';
 
 /**
@@ -36,6 +49,9 @@ export async function authoriseRoster(
   input: AuthoriseRosterInput,
 ): Promise<{ created: number; skipped: SkippedPerson[] }> {
   requirePermission(ctx, 'payroll.manage');
+  const rules: RosterRules = hasPermission(ctx, 'rosters.view')
+    ? await getRosterRules(ctx)
+    : { loadings: ORDINARY_LOADINGS, breakRules: [], holidays: [] };
   return withRls(ctx, async (tx) => {
     const [roster] = await tx
       .select()
@@ -62,6 +78,14 @@ export async function authoriseRoster(
     }
 
     const timezone = ctx.tenant.timezone;
+    const holidays = new Set(rules.holidays.map((holiday) => holiday.day));
+    const weeks = Math.max(
+      1,
+      Math.round((daysBetweenDates(roster.startsOn, roster.endsOn) + 1) / 7),
+    );
+    // Anyone born after this date is under 18 today.
+    const today = zonedToday(timezone);
+    const adultBornBy = `${Number(today.slice(0, 4)) - 18}${today.slice(4)}`;
     const shifts =
       input.hoursFrom === 'timesheets'
         ? await approvedTimeFor(tx, ctx, roster.startsOn, roster.endsOn)
@@ -93,21 +117,56 @@ export async function authoriseRoster(
     }
 
     const worked = new Map<string, { minutes: number; shifts: PayslipShift[] }>();
-    for (const shift of shifts) {
+    const workedShifts: WorkedShift[] = [];
+    for (const [index, shift] of shifts.entries()) {
       if (!shift.userId) continue;
       const minutes =
         Math.round((shift.endsAt.getTime() - shift.startsAt.getTime()) / 60_000) -
         shift.breakMinutes;
       const start = instantToZoned(timezone, shift.startsAt);
+      const end = instantToZoned(timezone, shift.endsAt).time;
       const entry = worked.get(shift.userId) ?? { minutes: 0, shifts: [] };
       entry.minutes += minutes;
-      entry.shifts.push({
-        date: start.date,
-        start: start.time,
-        end: instantToZoned(timezone, shift.endsAt).time,
-        minutes,
-      });
+      entry.shifts.push({ date: start.date, start: start.time, end, minutes });
       worked.set(shift.userId, entry);
+      workedShifts.push({
+        id: String(index),
+        userId: shift.userId,
+        date: start.date,
+        startTime: start.time,
+        endTime: end,
+        breakMinutes: shift.breakMinutes,
+        paidMinutes: minutes,
+      });
+    }
+    // When paying worked time, a part-timer's overtime turns on what they were rostered for.
+    const rosteredByUser: Record<string, Record<string, number>> = {};
+    if (input.hoursFrom === 'timesheets') {
+      const rostered = await tx
+        .select({
+          userId: rosterShifts.userId,
+          startsAt: rosterShifts.startsAt,
+          endsAt: rosterShifts.endsAt,
+          breakMinutes: rosterShifts.breakMinutes,
+        })
+        .from(rosterShifts)
+        .where(
+          and(
+            eq(rosterShifts.tenantId, ctx.tenantId),
+            eq(rosterShifts.rosterId, roster.id),
+            isNull(rosterShifts.deletedAt),
+            isNotNull(rosterShifts.userId),
+          ),
+        );
+      for (const shift of rostered) {
+        if (!shift.userId) continue;
+        const days = (rosteredByUser[shift.userId] ??= {});
+        const { date } = instantToZoned(timezone, shift.startsAt);
+        const minutes =
+          Math.round((shift.endsAt.getTime() - shift.startsAt.getTime()) / 60_000) -
+          shift.breakMinutes;
+        days[date] = (days[date] ?? 0) + minutes;
+      }
     }
     const userIds = [...worked.keys()];
 
@@ -183,7 +242,40 @@ export async function authoriseRoster(
       const entry = worked.get(userId);
       if (!entry) continue;
 
-      const gross = sql`round(${contract.payRate}::numeric * ${entry.minutes}::numeric / 60, 2)`;
+      const schedule = contract.rateSchedule;
+      const pay = payslipLinesFor({
+        userId,
+        shifts: workedShifts,
+        rates: {
+          [userId]: {
+            hourly: contract.payRate,
+            loadings: dayLoadings(schedule?.dayRates ?? null),
+            ...(schedule &&
+            contract.employmentType !== 'contractor' &&
+            awardInterpreter(contract.awardCode)
+              ? {
+                  award: {
+                    code: schedule.awardCode,
+                    employment: contract.employmentType,
+                    schedule,
+                    under18: employee.dateOfBirth ? employee.dateOfBirth > adultBornBy : false,
+                  },
+                }
+              : {}),
+          },
+        },
+        rules,
+        holidays,
+        weeks,
+        ...(input.hoursFrom === 'timesheets'
+          ? { rosteredMinutesByDate: rosteredByUser[userId] ?? {} }
+          : {}),
+      });
+      const gross = centsToAmount(pay.grossCents);
+      const [{ issued = 0 } = {}] = await tx
+        .select({ issued: sql<number>`count(*)::int` })
+        .from(payslips)
+        .where(and(eq(payslips.tenantId, ctx.tenantId), eq(payslips.employeeId, employee.id)));
       await tx.insert(payslips).values({
         tenantId: ctx.tenantId,
         rosterId: roster.id,
@@ -194,13 +286,20 @@ export async function authoriseRoster(
         paymentDate: input.paymentDate,
         employerDetails: input.employerDetails,
         employeeName: `${employee.firstName} ${employee.lastName}`,
+        employeeNumber: employee.employeeNumber,
         positionTitle: contract.positionTitle,
         minutes: entry.minutes,
         hourlyRate: contract.payRate,
         gross,
         net: gross,
         superRate: input.superRate,
-        superAmount: sql`round(${gross} * ${input.superRate}::numeric / 100, 2)`,
+        // Super is on ordinary time earnings, so overtime is left out of it.
+        superAmount: sql`round(${centsToAmount(pay.superableCents)}::numeric * ${input.superRate}::numeric / 100, 2)`,
+        number: issued + 1,
+        employer: employerSnapshot(ctx.tenant),
+        employmentType: contract.employmentType,
+        classification: contract.classification,
+        lines: pay.lines,
         superFundName: funds.find((fund) => fund.employeeId === employee.id)?.superFundName ?? null,
         currency: contract.currency,
         shifts: entry.shifts,

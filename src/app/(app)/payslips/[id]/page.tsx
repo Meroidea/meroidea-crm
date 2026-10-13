@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { z } from 'zod';
 
 import { PrintButton } from '@/components/data/print-button';
+import { zonedToday } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { PayslipDocument } from '@/modules/payroll/components/payslip-document';
 import { getPayslip } from '@/modules/payroll/queries';
@@ -20,7 +21,7 @@ export default async function PayslipPage({ params }: PageProps<'/payslips/[id]'
   const payroll = hasPermission(ctx, 'payroll.manage');
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
           <Link
@@ -38,7 +39,11 @@ export default async function PayslipPage({ params }: PageProps<'/payslips/[id]'
           <PrintButton />
         </div>
       </div>
-      <PayslipDocument payslip={payslip} />
+      <PayslipDocument
+        payslip={payslip}
+        printedOn={zonedToday(ctx.tenant.timezone)}
+        businessNumberLabel={ctx.tenant.country === 'AU' ? 'ABN' : 'Business no.'}
+      />
     </div>
   );
 }

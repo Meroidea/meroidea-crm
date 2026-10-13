@@ -12,13 +12,18 @@ import {
   workspaceSchema,
 } from './schemas';
 import * as settingsService from './service';
-import { updateWorkspace } from './workspace';
+import { businessDetailsSchema } from './business';
+import { updateBusinessDetails, updateWorkspace } from './workspace';
 
 const PATHS = ['/settings', '/pipeline', '/opportunities', '/dashboard'];
 
 export const updateWorkspaceAction = authedAction(
   { permission: 'settings.manage', input: workspaceSchema, revalidate: ['/'] },
   (ctx, input) => updateWorkspace(ctx, input),
+);
+export const updateBusinessDetailsAction = authedAction(
+  { permission: 'settings.manage', input: businessDetailsSchema, revalidate: ['/'] },
+  (ctx, input) => updateBusinessDetails(ctx, input),
 );
 export const updateStageAction = authedAction(
   { permission: 'settings.manage', input: updateStageSchema, revalidate: PATHS },

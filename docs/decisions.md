@@ -467,3 +467,163 @@ Groups of rates are matched to casual or permanent employment by the Commission'
 group title, which holds for the awards tested (restaurant, hospitality, retail, fast food,
 clerks) but is a reading of text, so the source wording is always shown beside the figure.
 
+## ADR-040 — Award rules are written down award by award, from the award's text
+
+**Decision.** For an award whose rules have been encoded, Meroidea works out what each rostered
+shift pays under the award. The first is the Restaurant Industry Award 2020 (MA000119), in
+`src/modules/awards/ma000119.ts`, written from the Fair Work Commission's consolidated text
+incorporating amendments to 1 July 2026. Each rule carries its clause number, and every pay line
+shown names the clause it applies.
+
+- The file holds **rules, never rates**. Dollar figures come from the person's rate schedule
+  (ADR-039), found by the Commission's own wording. If a rate the rules need is not published,
+  nothing is worked out and the screen says which rate is missing.
+- A person's shifts are costed **together for the roster period**, because overtime depends on
+  their other shifts. Applied: ordinary, Saturday, Sunday and public holiday rates by the hour
+  worked (cl 24.2), with the change of rate at midnight; the extra amounts for 10 pm to midnight
+  and midnight to 6 am, per hour or part, on ordinary Monday to Friday hours (cl 24.2); overtime
+  past 11.5 ordinary hours in a day (12 for a casual) or 38 a week averaged over the roster
+  cycle, in the two bands of Table 7 (cl 10.13, 11.2, 11.5, 23); the casual 2-hour minimum
+  (cl 11.3); the public holiday minimum payment (cl 24.4(a), (b)); and the split shift allowance
+  (cl 21.3).
+- **Rostering limits are warnings**, not blocks: meal breaks (cl 16.2), part-time and full-time
+  daily minimums (cl 10.7(b), 15.1(a)), 10 hours between days (cl 15.1(e)), the 12-hour spread of
+  a split day (cl 15.1(g)), under-18 shift length (cl 13.3), two days off for a part-timer
+  (cl 10.7(c)).
+- Someone paid above the award keeps that margin on every rate in the cost; nobody is costed
+  below the award. The award minimum is kept alongside.
+- Staff under any other award, or none, are costed as before (ADR-038, ADR-039).
+
+**Readings of the text that a reviewer should confirm.**
+1. Every hour worked on a public holiday is paid at the public holiday rate, including hours
+   that would otherwise be overtime: Table 7 has no public holiday row and its note points to
+   clause 24.
+2. The late-evening and night amounts are not added to overtime hours (cl 24.1) or to weekend
+   and public holiday hours (Table 8 limits them to Monday to Friday).
+3. The daily limit counts all shifts that start on the same day; a shift that runs past
+   midnight is one day's work for that limit, but each hour is paid at the rate of the calendar
+   day it falls on.
+4. With no recorded time for the meal break, it is assumed to fall in the middle of the shift.
+5. The weekly limit is 38 hours times the number of weeks in the roster (one or two).
+
+6. On hours actually worked, a part-timer is paid overtime for time beyond what they were
+   rostered for that day, and for all of a day they were not rostered on (cl 10.13(b)(iii)). A
+   written agreement to vary their hours is not recorded, so it is not taken into account.
+
+**Not applied**, and listed on the interpreter (`notApplied`): rostered days off, the break
+after overtime and time off instead, the four-week limits, meal, tool and clothing allowances,
+the missed-meal-break penalty, part-day and substituted public holidays, annualised wages,
+apprentice conditions, and juniors serving liquor.
+
+**Consequences.** This is a calculation aid, not legal advice. The award text must be re-read
+when the Commission varies the award; `textAsAt` records what it was written from. Payslips do
+not use it yet (ADR-028 still describes them). Each further award is its own file and its own
+review.
+
+## ADR-041 — Timesheets are approved day by day against the roster
+
+**Decision.** Someone with `timesheets.manage` approves time on a daily screen
+(`/timesheets?view=day`). Each row is one published rostered shift, or one stretch of recorded
+time with no shift. A person's clocked time is paired with their shift (the nearest start when
+there are several); a manager can correct it or, where nobody clocked in, type what was worked,
+then approve it. Time recorded this way is linked to the shift (`time_entries.shift_id`).
+Each row shows worked against rostered hours and, for whoever may see pay, the cost of each
+under the same rules as the roster (ADR-038 to ADR-040), now on hours actually worked.
+
+A pay period screen (`/timesheets?view=period`) covers the roster's period for the day, or the
+calendar week when no roster covers it: per person, rostered and approved hours, gross from
+approved time, and what still stands in the way (time waiting, finished shifts with nothing
+recorded, people still clocked in). Approved time can be exported as a CSV file, one line per
+rate it was paid at, with the award clause; the export is audited.
+
+**Why.** Approving a week's list of entries does not show what was planned, so overruns and
+no-shows were invisible. Costing worked hours with the award's rules is also the only place a
+part-timer's overtime beyond their roster can be seen.
+
+**Consequences.** Typing time for a day is manager-only, which keeps the workplace location
+rule for clocking intact (ADR-033). Correcting an entry sends it back to waiting unless it is
+approved in the same step. Rostered shifts are read under the roster's own access rules, so a
+person who manages timesheets but may not see everyone's roster sees others' time as "not
+rostered". Breaks on recorded time are a single unpaid figure. The export is CSV, not an Excel
+workbook, and is not a payroll file for any particular accounting system. **Payslips are still
+drafted on the Payroll screen as approved hours × the agreed rate (ADR-028, ADR-032): the award
+figures on these screens are not yet what a payslip is made from.**
+
+**Addendum (Excel workbook export).** The pay period can also be exported as an Excel workbook
+laid out like the timesheet export of the rostering tool the owner's clients already use:
+Overview (name, employee ID, gross wage, age, then hours per pay rate and counts of flat
+amounts), Details (start, break and end for each day), By Team, By Shift Award Tag, By Comments,
+a sheet per day and a sheet per person. `src/modules/timesheets/workbook.ts` arranges the
+figures and `src/server/xlsx.ts` writes the file without a spreadsheet library (the stack rule;
+compare ADR-027). Differences from that tool's file, by design: the file is `.xlsx`, not the old
+binary `.xls`; pay columns are named for the award's own rates ("Ordinary hours", "Saturday",
+"Overtime, …") rather than that tool's pay categories; the location column is the business's
+name, since locations are not modelled; Employee ID is present but empty, since payroll numbers
+are not kept; the break on the Details sheet is a length, since break times are not recorded;
+By Shift Award Tag lists people only. Gross wage, age and pay columns are left out for anyone
+who does not manage employee records.
+
+## ADR-042 — Every employee has an Employee ID the database assigns and nobody can change
+
+**Decision.** `employees.employee_number` is an identity column the database always generates,
+starting at 100001. It is assigned the moment the employee record is created at hire, by every
+path that can create one, because the database does it rather than the application. No value can
+be supplied on insert, and a trigger (`app.keep_employee_number`) refuses any later change,
+including drawing a new one, for every role including the privileged connection. Numbers are
+never reused: a removed employee keeps theirs.
+
+It is shown as **Employee ID** on the staff list, the staff profile, the hiring list and
+payslips (kept on the payslip as it was at the time), fills the Employee ID column of the
+timesheet workbook, and a staff search made only of digits looks a person up by it.
+
+**Why.** Names change and repeat; a person needs one identifier that payroll, timesheets and the
+people themselves can rely on. Letting the database assign it means there is no screen, import or
+script that can forget to, and making it unchangeable in the database means no later feature can
+weaken that by accident.
+
+**Consequences.** The sequence is shared by the whole platform, so IDs are unique everywhere but
+a business's own IDs are not consecutive, and the size of the gaps hints at how many people other
+businesses have hired. Employees that existed before this were numbered in the order the database
+held them, not by hire date. A business cannot bring its own numbering from another system; if
+that is needed it should be a separate, editable "payroll reference" field, not this one. The
+internal `id` (uuid) remains what tables reference.
+
+## ADR-043 — Payslips are made of pay lines, carry the employer's details, and show the year to date
+
+**Amends** ADR-028 (gross was hours × rate), ADR-032 and the payslip note in ADR-038 to ADR-041.
+
+**Decision.**
+- **Pay lines.** A pay run turns each person's hours (rostered, or approved timesheet time)
+  into lines with `src/modules/payroll/lines.ts`: under an award with written-down rules, the
+  award's own lines (ordinary hours, Saturday, Sunday, public holiday, overtime bands, minimum
+  payments, the split shift allowance and late amounts) from the engine in ADR-040; otherwise
+  hours at the agreed rate, with the workspace's Saturday, Sunday and public-holiday loading
+  (ADR-038). **Gross pay is the sum of the lines.** Each line of hours is settled once on its
+  total, so hours × rate equals the amount shown.
+- **Super** is the chosen percentage of ordinary time earnings: every line except overtime.
+- **The employer's details** are kept per business (`tenants.settings.business`: name on
+  documents, business number, address, phone, email, website, payroll contact; edited under
+  Settings by someone with `settings.manage`, ABN checked in Australia) and copied onto each
+  payslip when it is made, so a later change never rewrites a payslip already issued.
+- Each payslip also keeps the employee's **Employee ID**, their **payslip number** (their own
+  count), employment type and classification.
+- **Year to date** is worked out when the payslip is read: this payslip plus the released ones
+  before it in the same financial year (from 1 July in Australia, otherwise 1 January), in
+  total and per line.
+- The payslip is laid out for print on one A4 page in the ordinary case: employer, employee and
+  pay details, payments, deductions, employer super, net pay, year to date, and the time the
+  pay covers.
+
+**Why.** The owner's clients are used to payslips that show what the pay is made of, the
+business it came from and running totals for the year. A single "hours × rate" figure also hid
+weekend, public holiday and overtime rates that the roster and timesheets already show.
+
+**Consequences.** Payslips for staff under the Restaurant Industry Award now depend on the six
+readings of that award listed in ADR-040, which should be confirmed by a qualified person
+before a business relies on them for pay. Tax is still typed in, not calculated. Leave is not
+paid, accrued or shown. There is no logo upload yet: the payslip shows the business's initial.
+Payslips made before this have no lines, employer details or number; they are shown as one line
+of hours at their hourly rate, with the employer text typed at the time. Treating all
+non-overtime lines as ordinary time earnings for super is a simplification an accountant
+should confirm (expense-type allowances, when they are added, will need excluding).
+

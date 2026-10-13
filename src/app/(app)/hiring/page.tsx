@@ -83,6 +83,7 @@ export default async function HiringPage() {
                         {person.fullName}
                       </span>
                       <span className="block truncate text-sm text-muted-foreground">
+                        <span className="tabular-nums">ID {person.employeeNumber}</span> ·{' '}
                         {person.positionTitle ?? '—'}
                         {person.employmentType &&
                           ` · ${EMPLOYMENT_TYPE_LABELS[person.employmentType]}`}

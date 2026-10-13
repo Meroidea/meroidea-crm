@@ -1,1158 +1,1158 @@
 {
- "restaurantLevel1Adult": {
-  "payRate": {
-   "classification_fixed_id": 4548,
-   "base_pay_rate_id": "BR93437",
-   "base_rate": 1004.9,
-   "base_rate_type": "Weekly",
-   "calculated_rate": 26.44,
-   "calculated_rate_type": "Hourly",
-   "classification": "Level 1",
-   "parent_classification_name": "Food and beverage attendant grade 1; Kitchen attendant grade 1",
-   "classification_level": 2,
-   "employee_rate_type_code": "AD",
-   "operative_from": "2026-07-01",
-   "operative_to": null
+  "restaurantLevel1Adult": {
+    "payRate": {
+      "classification_fixed_id": 4548,
+      "base_pay_rate_id": "BR93437",
+      "base_rate": 1004.9,
+      "base_rate_type": "Weekly",
+      "calculated_rate": 26.44,
+      "calculated_rate_type": "Hourly",
+      "classification": "Level 1",
+      "parent_classification_name": "Food and beverage attendant grade 1; Kitchen attendant grade 1",
+      "classification_level": 2,
+      "employee_rate_type_code": "AD",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    "penalties": [
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 52.88,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 52.88,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - First 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 39.66,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - First 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 39.66,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 125.0,
+        "penalty_calculated_value": 33.05,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 100.0,
+        "penalty_calculated_value": 26.44,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 225.0,
+        "penalty_calculated_value": 59.49,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 250.0,
+        "penalty_calculated_value": 66.1,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday - time added to annual leave by agreement",
+        "rate": 125.0,
+        "penalty_calculated_value": 33.05,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Rostered day off - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 52.88,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 150.0,
+        "penalty_calculated_value": 39.66,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 125.0,
+        "penalty_calculated_value": 33.05,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 52.88,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 52.88,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - First 2 hours",
+        "rate": 175.0,
+        "penalty_calculated_value": 46.27,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - First 2 hours",
+        "rate": 175.0,
+        "penalty_calculated_value": 46.27,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday",
+        "rate": 150.0,
+        "penalty_calculated_value": 39.66,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Sunday - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 52.88,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Sunday - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 52.88,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday - Introductory to Level 2",
+        "rate": 150.0,
+        "penalty_calculated_value": 39.66,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday - Level 3 to 6",
+        "rate": 175.0,
+        "penalty_calculated_value": null,
+        "base_pay_rate_id": "BR93437",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      }
+    ]
   },
-  "penalties": [
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 52.88,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 52.88,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - First 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 39.66,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - First 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 39.66,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 125.0,
-    "penalty_calculated_value": 33.05,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 100.0,
-    "penalty_calculated_value": 26.44,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 225.0,
-    "penalty_calculated_value": 59.49,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 250.0,
-    "penalty_calculated_value": 66.1,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday - time added to annual leave by agreement",
-    "rate": 125.0,
-    "penalty_calculated_value": 33.05,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Rostered day off - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 52.88,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 150.0,
-    "penalty_calculated_value": 39.66,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 125.0,
-    "penalty_calculated_value": 33.05,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 52.88,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 52.88,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - First 2 hours",
-    "rate": 175.0,
-    "penalty_calculated_value": 46.27,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - First 2 hours",
-    "rate": 175.0,
-    "penalty_calculated_value": 46.27,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday",
-    "rate": 150.0,
-    "penalty_calculated_value": 39.66,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Sunday - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 52.88,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Sunday - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 52.88,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday - Introductory to Level 2",
-    "rate": 150.0,
-    "penalty_calculated_value": 39.66,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday - Level 3 to 6",
-    "rate": 175.0,
-    "penalty_calculated_value": null,
-    "base_pay_rate_id": "BR93437",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   }
-  ]
- },
- "restaurantLevel4Adult": {
-  "payRate": {
-   "classification_fixed_id": 4566,
-   "base_pay_rate_id": "BR93440",
-   "base_rate": 1119.1,
-   "base_rate_type": "Weekly",
-   "calculated_rate": 29.45,
-   "calculated_rate_type": "Hourly",
-   "classification": "Level 4",
-   "parent_classification_name": "Food and beverage attendant grade 4 (tradesperson); Cook grade 3 (tradesperson); Clerical grade 3; Storeperson grade 3",
-   "classification_level": 5,
-   "employee_rate_type_code": "AD",
-   "operative_from": "2026-07-01",
-   "operative_to": null
+  "restaurantLevel4Adult": {
+    "payRate": {
+      "classification_fixed_id": 4566,
+      "base_pay_rate_id": "BR93440",
+      "base_rate": 1119.1,
+      "base_rate_type": "Weekly",
+      "calculated_rate": 29.45,
+      "calculated_rate_type": "Hourly",
+      "classification": "Level 4",
+      "parent_classification_name": "Food and beverage attendant grade 4 (tradesperson); Cook grade 3 (tradesperson); Clerical grade 3; Storeperson grade 3",
+      "classification_level": 5,
+      "employee_rate_type_code": "AD",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    "penalties": [
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 58.9,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 58.9,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - First 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 44.18,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - First 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 44.18,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 100.0,
+        "penalty_calculated_value": 29.45,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 125.0,
+        "penalty_calculated_value": 36.81,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 250.0,
+        "penalty_calculated_value": 73.63,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 225.0,
+        "penalty_calculated_value": 66.26,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday - time added to annual leave by agreement",
+        "rate": 125.0,
+        "penalty_calculated_value": 36.81,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Rostered day off - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 58.9,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 150.0,
+        "penalty_calculated_value": 44.18,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 125.0,
+        "penalty_calculated_value": 36.81,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 58.9,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 58.9,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - First 2 hours",
+        "rate": 175.0,
+        "penalty_calculated_value": 51.54,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Saturday - First 2 hours",
+        "rate": 175.0,
+        "penalty_calculated_value": 51.54,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday",
+        "rate": 150.0,
+        "penalty_calculated_value": 44.18,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Sunday - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 58.9,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014overtime rates",
+        "penalty_description": "Sunday - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 58.9,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday - Introductory to Level 2",
+        "rate": 150.0,
+        "penalty_calculated_value": null,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday - Level 3 to 6",
+        "rate": 175.0,
+        "penalty_calculated_value": 51.54,
+        "base_pay_rate_id": "BR93440",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      }
+    ]
   },
-  "penalties": [
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 58.9,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 58.9,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - First 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 44.18,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - First 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 44.18,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 100.0,
-    "penalty_calculated_value": 29.45,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 125.0,
-    "penalty_calculated_value": 36.81,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 250.0,
-    "penalty_calculated_value": 73.63,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 225.0,
-    "penalty_calculated_value": 66.26,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday - time added to annual leave by agreement",
-    "rate": 125.0,
-    "penalty_calculated_value": 36.81,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Rostered day off - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 58.9,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 150.0,
-    "penalty_calculated_value": 44.18,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 125.0,
-    "penalty_calculated_value": 36.81,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 58.9,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 58.9,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - First 2 hours",
-    "rate": 175.0,
-    "penalty_calculated_value": 51.54,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Saturday - First 2 hours",
-    "rate": 175.0,
-    "penalty_calculated_value": 51.54,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday",
-    "rate": 150.0,
-    "penalty_calculated_value": 44.18,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Sunday - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 58.9,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014overtime rates",
-    "penalty_description": "Sunday - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 58.9,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday - Introductory to Level 2",
-    "rate": 150.0,
-    "penalty_calculated_value": null,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday - Level 3 to 6",
-    "rate": 175.0,
-    "penalty_calculated_value": 51.54,
-    "base_pay_rate_id": "BR93440",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   }
-  ]
- },
- "restaurantIntro19": {
-  "payRate": {
-   "classification_fixed_id": 88331,
-   "base_pay_rate_id": "BR100198",
-   "base_rate": 831.4,
-   "base_rate_type": "Weekly",
-   "calculated_rate": null,
-   "calculated_rate_type": null,
-   "classification": "19 years of age",
-   "parent_classification_name": "Introductory Level",
-   "classification_level": 1,
-   "employee_rate_type_code": "JN",
-   "operative_from": "2026-07-01",
-   "operative_to": null
+  "restaurantIntro19": {
+    "payRate": {
+      "classification_fixed_id": 88331,
+      "base_pay_rate_id": "BR100198",
+      "base_rate": 831.4,
+      "base_rate_type": "Weekly",
+      "calculated_rate": null,
+      "calculated_rate_type": null,
+      "classification": "19 years of age",
+      "parent_classification_name": "Introductory Level",
+      "classification_level": 1,
+      "employee_rate_type_code": "JN",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    "penalties": [
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 43.76,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 43.76,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - First 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 32.82,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
+        "penalty_description": "Monday to Friday - First 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 32.82,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 100.0,
+        "penalty_calculated_value": 21.88,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 125.0,
+        "penalty_calculated_value": 27.35,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 225.0,
+        "penalty_calculated_value": 49.23,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 250.0,
+        "penalty_calculated_value": 54.7,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday - time added to annual leave by agreement",
+        "rate": 125.0,
+        "penalty_calculated_value": 27.35,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
+        "penalty_description": "Rostered day off - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 43.76,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 150.0,
+        "penalty_calculated_value": 32.82,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 125.0,
+        "penalty_calculated_value": 27.35,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014overtime rates",
+        "penalty_description": "Saturday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 43.76,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
+        "penalty_description": "Saturday - After 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 43.76,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014overtime rates",
+        "penalty_description": "Saturday - First 2 hours",
+        "rate": 175.0,
+        "penalty_calculated_value": 38.29,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
+        "penalty_description": "Saturday - First 2 hours",
+        "rate": 175.0,
+        "penalty_calculated_value": 38.29,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday",
+        "rate": 150.0,
+        "penalty_calculated_value": 32.82,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
+        "penalty_description": "Sunday - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 43.76,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014overtime rates",
+        "penalty_description": "Sunday - all time worked",
+        "rate": 200.0,
+        "penalty_calculated_value": 43.76,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday - Introductory to Level 2",
+        "rate": 150.0,
+        "penalty_calculated_value": 32.82,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday - Level 3 to Level 6",
+        "rate": 175.0,
+        "penalty_calculated_value": null,
+        "base_pay_rate_id": "BR100198",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      }
+    ]
   },
-  "penalties": [
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 43.76,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 43.76,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - First 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 32.82,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
-    "penalty_description": "Monday to Friday - First 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 32.82,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 100.0,
-    "penalty_calculated_value": 21.88,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 125.0,
-    "penalty_calculated_value": 27.35,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 225.0,
-    "penalty_calculated_value": 49.23,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 250.0,
-    "penalty_calculated_value": 54.7,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday - time added to annual leave by agreement",
-    "rate": 125.0,
-    "penalty_calculated_value": 27.35,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
-    "penalty_description": "Rostered day off - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 43.76,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 150.0,
-    "penalty_calculated_value": 32.82,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 125.0,
-    "penalty_calculated_value": 27.35,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014overtime rates",
-    "penalty_description": "Saturday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 43.76,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
-    "penalty_description": "Saturday - After 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 43.76,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014overtime rates",
-    "penalty_description": "Saturday - First 2 hours",
-    "rate": 175.0,
-    "penalty_calculated_value": 38.29,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
-    "penalty_description": "Saturday - First 2 hours",
-    "rate": 175.0,
-    "penalty_calculated_value": 38.29,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday",
-    "rate": 150.0,
-    "penalty_calculated_value": 32.82,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time junior employees\u2014overtime rates",
-    "penalty_description": "Sunday - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 43.76,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014overtime rates",
-    "penalty_description": "Sunday - all time worked",
-    "rate": 200.0,
-    "penalty_calculated_value": 43.76,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday - Introductory to Level 2",
-    "rate": 150.0,
-    "penalty_calculated_value": 32.82,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual junior employees\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday - Level 3 to Level 6",
-    "rate": 175.0,
-    "penalty_calculated_value": null,
-    "base_pay_rate_id": "BR100198",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   }
-  ]
- },
- "restaurantAllowances": [
-  {
-   "allowance": "Penalty\u2014Monday to Friday\u201410.00 pm to midnight",
-   "allowance_amount": 2.95,
-   "payment_frequency": "per hour or part thereof",
-   "clauses": "24.2",
-   "operative_from": "2026-07-01",
-   "operative_to": null
+  "restaurantAllowances": [
+    {
+      "allowance": "Penalty\u2014Monday to Friday\u201410.00 pm to midnight",
+      "allowance_amount": 2.95,
+      "payment_frequency": "per hour or part thereof",
+      "clauses": "24.2",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    {
+      "allowance": "Penalty\u2014Monday to Friday\u2014midnight to 6.00 am",
+      "allowance_amount": 4.42,
+      "payment_frequency": "per hour or part thereof",
+      "clauses": "24.2",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    {
+      "allowance": "Split shift allowance\u2014full-time and part-time employees",
+      "allowance_amount": 5.6,
+      "payment_frequency": "per each separate work period of 2 hours or more",
+      "clauses": "21.3(b)",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    {
+      "allowance": "Clothing, equipment and tool allowance\u2014cook or apprentice cook\u2014Maximum per week\u2014an amount of up to",
+      "allowance_amount": 9.94,
+      "payment_frequency": "per week",
+      "clauses": "21.4(a)",
+      "operative_from": "2024-07-01",
+      "operative_to": null
+    },
+    {
+      "allowance": "Clothing, equipment and tool allowance\u2014cook or apprentice cook\u2014Per day or part day",
+      "allowance_amount": 2.03,
+      "payment_frequency": "per day or part day",
+      "clauses": "21.4(a)",
+      "operative_from": "2024-07-01",
+      "operative_to": null
+    },
+    {
+      "allowance": "Meal allowance\u2014employee provides meal and is no longer required to work full overtime",
+      "allowance_amount": 17.42,
+      "payment_frequency": "per occasion",
+      "clauses": "21.2(b)",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    {
+      "allowance": "Meal allowance\u2014overtime of more than 2 hours without a day\u2019s notification",
+      "allowance_amount": 17.42,
+      "payment_frequency": "per occasion",
+      "clauses": "21.2(a)",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    }
+  ],
+  "retail": {
+    "payRate": {
+      "classification_fixed_id": 113,
+      "base_pay_rate_id": "BR89791",
+      "base_rate": 1081.0,
+      "base_rate_type": "Weekly",
+      "calculated_rate": 28.45,
+      "calculated_rate_type": "Hourly",
+      "classification": "Retail Employee Level 2",
+      "parent_classification_name": null,
+      "classification_level": 2,
+      "employee_rate_type_code": "AD",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    "penalties": [
+      {
+        "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "All shiftworkers: Public holiday - all hours within shift",
+        "rate": 250.0,
+        "penalty_calculated_value": 71.13,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "All shiftworkers: Public holiday - All hours within shift",
+        "rate": 225.0,
+        "penalty_calculated_value": 64.01,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "All shiftworkers: Saturday - OBPE and BPE",
+        "rate": 175.0,
+        "penalty_calculated_value": 49.79,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "All shiftworkers: Saturday - OBPE and BPE",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.68,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "All shiftworkers: Sunday - OBPE and BPE",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.9,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "All shiftworkers: Sunday - OBPE and BPE",
+        "rate": 175.0,
+        "penalty_calculated_value": 49.79,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting at or after 2.00 am and before 6.00 am",
+        "rate": 112.5,
+        "penalty_calculated_value": 32.01,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting at or after 2.00 am and before 6.00 am",
+        "rate": 137.5,
+        "penalty_calculated_value": 39.12,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting before 2.00 am",
+        "rate": 155.0,
+        "penalty_calculated_value": 44.1,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting before 2.00 am",
+        "rate": 130.0,
+        "penalty_calculated_value": 36.99,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Monday to Friday after 6.00 pm",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.68,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Monday to Friday after 6.00 pm",
+        "rate": 125.0,
+        "penalty_calculated_value": 35.56,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Saturday \u2013 after 3 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.9,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Monday to Saturday \u2013 first 3 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.68,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 100.0,
+        "penalty_calculated_value": 28.45,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Ordinary hours",
+        "rate": 125.0,
+        "penalty_calculated_value": 35.56,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "Other than baking production employees (OBPE): Monday to Friday - Starting at or after 6.00 pm and before 5.00 am",
+        "rate": 155.0,
+        "penalty_calculated_value": 44.1,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
+        "penalty_description": "Other than baking production employees (OBPE): Monday to Friday - Starting at or after 6.00 pm and before 5.00 am",
+        "rate": 130.0,
+        "penalty_calculated_value": 36.99,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 225.0,
+        "penalty_calculated_value": 64.01,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 250.0,
+        "penalty_calculated_value": 71.13,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Public holiday",
+        "rate": 250.0,
+        "penalty_calculated_value": 71.13,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.68,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 125.0,
+        "penalty_calculated_value": 35.56,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday",
+        "rate": 175.0,
+        "penalty_calculated_value": 49.79,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.68,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
+        "penalty_description": "Sunday \u2013 all day",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.9,
+        "base_pay_rate_id": "BR89791",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      }
+    ]
   },
-  {
-   "allowance": "Penalty\u2014Monday to Friday\u2014midnight to 6.00 am",
-   "allowance_amount": 4.42,
-   "payment_frequency": "per hour or part thereof",
-   "clauses": "24.2",
-   "operative_from": "2026-07-01",
-   "operative_to": null
-  },
-  {
-   "allowance": "Split shift allowance\u2014full-time and part-time employees",
-   "allowance_amount": 5.6,
-   "payment_frequency": "per each separate work period of 2 hours or more",
-   "clauses": "21.3(b)",
-   "operative_from": "2026-07-01",
-   "operative_to": null
-  },
-  {
-   "allowance": "Clothing, equipment and tool allowance\u2014cook or apprentice cook\u2014Maximum per week\u2014an amount of up to",
-   "allowance_amount": 9.94,
-   "payment_frequency": "per week",
-   "clauses": "21.4(a)",
-   "operative_from": "2024-07-01",
-   "operative_to": null
-  },
-  {
-   "allowance": "Clothing, equipment and tool allowance\u2014cook or apprentice cook\u2014Per day or part day",
-   "allowance_amount": 2.03,
-   "payment_frequency": "per day or part day",
-   "clauses": "21.4(a)",
-   "operative_from": "2024-07-01",
-   "operative_to": null
-  },
-  {
-   "allowance": "Meal allowance\u2014employee provides meal and is no longer required to work full overtime",
-   "allowance_amount": 17.42,
-   "payment_frequency": "per occasion",
-   "clauses": "21.2(b)",
-   "operative_from": "2026-07-01",
-   "operative_to": null
-  },
-  {
-   "allowance": "Meal allowance\u2014overtime of more than 2 hours without a day\u2019s notification",
-   "allowance_amount": 17.42,
-   "payment_frequency": "per occasion",
-   "clauses": "21.2(a)",
-   "operative_from": "2026-07-01",
-   "operative_to": null
+  "clerks": {
+    "payRate": {
+      "classification_fixed_id": 99,
+      "base_pay_rate_id": "BR89777",
+      "base_rate": 1073.1,
+      "base_rate_type": "Weekly",
+      "calculated_rate": 28.24,
+      "calculated_rate_type": "Hourly",
+      "classification": "Level 1\u2014Year 2",
+      "parent_classification_name": null,
+      "classification_level": 2,
+      "employee_rate_type_code": "AD",
+      "operative_from": "2026-07-01",
+      "operative_to": null
+    },
+    "penalties": [
+      {
+        "clause_description": "Casual adult shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Afternoon and night",
+        "rate": 140.0,
+        "penalty_calculated_value": 39.54,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Afternoon and night",
+        "rate": 115.0,
+        "penalty_calculated_value": 32.48,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Monday to Friday",
+        "rate": 100.0,
+        "penalty_calculated_value": 28.24,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Monday to Friday",
+        "rate": 125.0,
+        "penalty_calculated_value": 35.3,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
+        "penalty_description": "Monday to Friday in excess of ordinary daily hours - after 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.48,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
+        "penalty_description": "Monday to Friday in excess of ordinary daily hours - first 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.36,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
+        "penalty_description": "Monday to Friday in excess of ordinary weekly hours - after 3 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.48,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
+        "penalty_description": "Monday to Friday in excess of ordinary weekly hours - first 3 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.36,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
+        "penalty_description": "Monday to Saturday - after 2 hours",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.48,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
+        "penalty_description": "Monday to Saturday - first 2 hours",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.36,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Permanent night",
+        "rate": 155.0,
+        "penalty_calculated_value": 43.77,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Permanent night",
+        "rate": 130.0,
+        "penalty_calculated_value": 36.71,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 250.0,
+        "penalty_calculated_value": 70.6,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
+        "penalty_description": "Public holiday",
+        "rate": 250.0,
+        "penalty_calculated_value": 70.6,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Public holiday",
+        "rate": 275.0,
+        "penalty_calculated_value": 77.66,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 125.0,
+        "penalty_calculated_value": 35.3,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.36,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday, Sunday or public holiday",
+        "rate": 175.0,
+        "penalty_calculated_value": 49.42,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Saturday, Sunday or public holiday",
+        "rate": 150.0,
+        "penalty_calculated_value": 42.36,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
+        "penalty_description": "Saturday, Sunday or public holiday",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.48,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.48,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
+        "penalty_description": "Sunday",
+        "rate": 225.0,
+        "penalty_calculated_value": 63.54,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      },
+      {
+        "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
+        "penalty_description": "Sunday - all day",
+        "rate": 200.0,
+        "penalty_calculated_value": 56.48,
+        "base_pay_rate_id": "BR89777",
+        "operative_from": "2026-07-01",
+        "operative_to": null
+      }
+    ]
   }
- ],
- "retail": {
-  "payRate": {
-   "classification_fixed_id": 113,
-   "base_pay_rate_id": "BR89791",
-   "base_rate": 1081.0,
-   "base_rate_type": "Weekly",
-   "calculated_rate": 28.45,
-   "calculated_rate_type": "Hourly",
-   "classification": "Retail Employee Level 2",
-   "parent_classification_name": null,
-   "classification_level": 2,
-   "employee_rate_type_code": "AD",
-   "operative_from": "2026-07-01",
-   "operative_to": null
-  },
-  "penalties": [
-   {
-    "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "All shiftworkers: Public holiday - all hours within shift",
-    "rate": 250.0,
-    "penalty_calculated_value": 71.13,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "All shiftworkers: Public holiday - All hours within shift",
-    "rate": 225.0,
-    "penalty_calculated_value": 64.01,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "All shiftworkers: Saturday - OBPE and BPE",
-    "rate": 175.0,
-    "penalty_calculated_value": 49.79,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "All shiftworkers: Saturday - OBPE and BPE",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.68,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "All shiftworkers: Sunday - OBPE and BPE",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.9,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "All shiftworkers: Sunday - OBPE and BPE",
-    "rate": 175.0,
-    "penalty_calculated_value": 49.79,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting at or after 2.00 am and before 6.00 am",
-    "rate": 112.5,
-    "penalty_calculated_value": 32.01,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting at or after 2.00 am and before 6.00 am",
-    "rate": 137.5,
-    "penalty_calculated_value": 39.12,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting before 2.00 am",
-    "rate": 155.0,
-    "penalty_calculated_value": 44.1,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "Baking production employees (BPE) Early morning shifts: Monday to Friday - Starting before 2.00 am",
-    "rate": 130.0,
-    "penalty_calculated_value": 36.99,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Monday to Friday after 6.00 pm",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.68,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Monday to Friday after 6.00 pm",
-    "rate": 125.0,
-    "penalty_calculated_value": 35.56,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Saturday \u2013 after 3 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.9,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Monday to Saturday \u2013 first 3 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.68,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 100.0,
-    "penalty_calculated_value": 28.45,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Ordinary hours",
-    "rate": 125.0,
-    "penalty_calculated_value": 35.56,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "Other than baking production employees (OBPE): Monday to Friday - Starting at or after 6.00 pm and before 5.00 am",
-    "rate": 155.0,
-    "penalty_calculated_value": 44.1,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014shiftwork and penalty rates",
-    "penalty_description": "Other than baking production employees (OBPE): Monday to Friday - Starting at or after 6.00 pm and before 5.00 am",
-    "rate": 130.0,
-    "penalty_calculated_value": 36.99,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 225.0,
-    "penalty_calculated_value": 64.01,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 250.0,
-    "penalty_calculated_value": 71.13,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Public holiday",
-    "rate": 250.0,
-    "penalty_calculated_value": 71.13,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.68,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 125.0,
-    "penalty_calculated_value": 35.56,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday",
-    "rate": 175.0,
-    "penalty_calculated_value": 49.79,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.68,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "All full-time and part-time adult employees\u2014overtime rates",
-    "penalty_description": "Sunday \u2013 all day",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.9,
-    "base_pay_rate_id": "BR89791",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   }
-  ]
- },
- "clerks": {
-  "payRate": {
-   "classification_fixed_id": 99,
-   "base_pay_rate_id": "BR89777",
-   "base_rate": 1073.1,
-   "base_rate_type": "Weekly",
-   "calculated_rate": 28.24,
-   "calculated_rate_type": "Hourly",
-   "classification": "Level 1\u2014Year 2",
-   "parent_classification_name": null,
-   "classification_level": 2,
-   "employee_rate_type_code": "AD",
-   "operative_from": "2026-07-01",
-   "operative_to": null
-  },
-  "penalties": [
-   {
-    "clause_description": "Casual adult shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Afternoon and night",
-    "rate": 140.0,
-    "penalty_calculated_value": 39.54,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Afternoon and night",
-    "rate": 115.0,
-    "penalty_calculated_value": 32.48,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Monday to Friday",
-    "rate": 100.0,
-    "penalty_calculated_value": 28.24,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Monday to Friday",
-    "rate": 125.0,
-    "penalty_calculated_value": 35.3,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
-    "penalty_description": "Monday to Friday in excess of ordinary daily hours - after 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.48,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
-    "penalty_description": "Monday to Friday in excess of ordinary daily hours - first 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.36,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
-    "penalty_description": "Monday to Friday in excess of ordinary weekly hours - after 3 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.48,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
-    "penalty_description": "Monday to Friday in excess of ordinary weekly hours - first 3 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.36,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
-    "penalty_description": "Monday to Saturday - after 2 hours",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.48,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
-    "penalty_description": "Monday to Saturday - first 2 hours",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.36,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Permanent night",
-    "rate": 155.0,
-    "penalty_calculated_value": 43.77,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Permanent night",
-    "rate": 130.0,
-    "penalty_calculated_value": 36.71,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 250.0,
-    "penalty_calculated_value": 70.6,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
-    "penalty_description": "Public holiday",
-    "rate": 250.0,
-    "penalty_calculated_value": 70.6,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Public holiday",
-    "rate": 275.0,
-    "penalty_calculated_value": 77.66,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 125.0,
-    "penalty_calculated_value": 35.3,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.36,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday, Sunday or public holiday",
-    "rate": 175.0,
-    "penalty_calculated_value": 49.42,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Saturday, Sunday or public holiday",
-    "rate": 150.0,
-    "penalty_calculated_value": 42.36,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult shiftworkers\u2014overtime rates",
-    "penalty_description": "Saturday, Sunday or public holiday",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.48,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.48,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Casual adult employees other than shiftworkers\u2014ordinary and penalty rates",
-    "penalty_description": "Sunday",
-    "rate": 225.0,
-    "penalty_calculated_value": 63.54,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   },
-   {
-    "clause_description": "Full-time and part-time adult employees other than shiftworkers\u2014overtime rates",
-    "penalty_description": "Sunday - all day",
-    "rate": 200.0,
-    "penalty_calculated_value": 56.48,
-    "base_pay_rate_id": "BR89777",
-    "operative_from": "2026-07-01",
-    "operative_to": null
-   }
-  ]
- }
 }
