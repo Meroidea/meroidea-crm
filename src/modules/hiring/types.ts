@@ -1,9 +1,12 @@
+import type { AwardRateSchedule } from './award-rates';
 import type { EmploymentType, Statement } from './compliance';
 
 export type ContractStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'withdrawn';
 
 export type EmployeeListRow = {
   id: string;
+  /** The Employee ID: assigned at hire, never changed. */
+  employeeNumber: number;
   fullName: string;
   email: string;
   status: 'pending' | 'active' | 'ended';
@@ -30,6 +33,10 @@ export type ContractDetail = {
   classification: string | null;
   minimumRate: string | null;
   rateSource: 'fair_work' | 'manual' | 'none';
+  /** The award's published rates as last read from the pay database. */
+  rateSchedule: AwardRateSchedule | null;
+  /** Whether the award's rates can be read again: needs a classification from the database. */
+  classificationRef: string | null;
   belowMinimumReason: string | null;
   contractorAbn: string | null;
   probationMonths: number | null;
@@ -54,6 +61,8 @@ export type PayrollSummary = {
 
 export type EmployeeDetail = {
   id: string;
+  /** The Employee ID: assigned at hire, never changed. */
+  employeeNumber: number;
   firstName: string;
   lastName: string;
   email: string;
@@ -116,6 +125,8 @@ export type ContractSummary = {
 
 export type StaffRow = {
   id: string;
+  /** The Employee ID: assigned at hire, never changed. */
+  employeeNumber: number;
   /** Preferred name when there is one, otherwise first and last. */
   displayName: string;
   email: string;

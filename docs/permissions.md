@@ -90,7 +90,7 @@ and work in `/platform`; inside a business they hold a temporary Owner seat mark
 | `timeoff.request` | | Ask for leave, see and withdraw your own requests |
 | `timeoff.manage` | | See everyone's requests, approve or decline, cancel approved leave, enter leave for someone else, manage leave types. Enforced again by RLS on `leave_requests` |
 | `timesheets.clock` | | Clock in and out, add your own time by hand, see your own entries |
-| `timesheets.manage` | | See, correct, approve and reject everyone's time; needed with `payroll.manage` to pay from timesheets. Enforced again by RLS on `time_entries` |
+| `timesheets.manage` | | See, correct, approve and reject everyone's time, day by day against the roster; type what was worked when nobody clocked in; see the pay period and export approved time (pay figures only with `employees.manage`); needed with `payroll.manage` to pay from timesheets. Enforced again by RLS on `time_entries` |
 | `recruitment.manage` | | Create and open jobs, read applicants and their résumés, move, rate, note and delete them. Enforced again by RLS |
 | `projects.view` | | See projects and tasks, move your own tasks, time your own tasks |
 | `projects.manage` | | Create and edit projects and tasks, assign people, move any task, see everyone's logged time |
@@ -105,9 +105,9 @@ and work in `/platform`; inside a business they hold a temporary Owner seat mark
 | `inventory.manage` | | Add and edit items, archive them, and record stock changes. Enforced again by RLS on the `inventory_*` tables |
 | `employees.manage` | | Hire, see employment records and contracts, send and withdraw offers. Enforced again by RLS on `employees` / `employment_contracts` |
 | `employees.view_sensitive` | | See that tax, bank and super details exist and reveal the numbers (each reveal audited). Enforced again by RLS on `employee_payroll_details` |
-| `rosters.view` | | See your own shifts on published rosters |
-| `rosters.view_all` | | See everyone's shifts on published rosters. Enforced by RLS on `roster_shifts` |
-| `rosters.manage` | | Create, edit, publish and delete rosters and shifts; also sees drafts. Enforced again by RLS on `rosters` / `roster_shifts` |
+| `rosters.view` | | See your own published shifts, the team each is in, and the workspace's loadings and public holidays |
+| `rosters.view_all` | | See everyone's published shifts and who is in each team. Enforced by RLS on `roster_shifts` / `roster_team_members` |
+| `rosters.manage` | | Create, edit, publish and delete rosters and shifts, including unpublished ones; manage teams, pay loadings, break rules and public holidays; email staff their roster. Enforced again by RLS on every roster table. Shift cost is shown only to someone who also holds `employees.manage`, because it is worked out from contract pay rates |
 | `reports.view` | ✓ | Dashboards and reports, limited to scope |
 | `reports.export` | | Export report data |
 | `settings.manage` | | Pipelines, stages, sources, lost reasons, document types, custom fields, labels, branding |

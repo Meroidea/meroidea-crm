@@ -42,6 +42,23 @@ export const manualEntrySchema = z.object({
   note: optionalText,
 });
 
+/** One row of the daily approval screen: the hours a person actually worked, typed by a manager. */
+export const dayEntrySchema = z.object({
+  /** The entry being corrected, when the person clocked in or time was already typed. */
+  entryId: z.uuid().optional(),
+  /** The rostered shift the time was worked against, if any. */
+  shiftId: z.uuid().optional(),
+  userId: z.uuid(),
+  date: calendarDate,
+  start: clockTime,
+  end: clockTime,
+  breakMinutes: breakMinutes.default(0),
+  /** Save and approve in one step. */
+  approve: z.boolean().default(false),
+});
+
+export const exportPeriodSchema = z.object({ date: calendarDate });
+
 export const decideEntriesSchema = z.object({
   ids: z.array(z.uuid()).min(1).max(500),
   decision: z.enum(['approved', 'rejected', 'pending']),
@@ -49,12 +66,15 @@ export const decideEntriesSchema = z.object({
 export const entryIdSchema = z.object({ id: z.uuid() });
 
 export const timesheetParamsSchema = z.object({
-  view: z.enum(['mine', 'team']).optional().catch(undefined),
+  view: z.enum(['mine', 'team', 'day', 'period']).optional().catch(undefined),
   week: calendarDate.optional().catch(undefined),
+  date: calendarDate.optional().catch(undefined),
+  show: z.enum(['pending', 'approved', 'all']).optional().catch(undefined),
 });
 
 export type ManualEntryInput = z.output<typeof manualEntrySchema>;
 export type ManualEntryValues = z.input<typeof manualEntrySchema>;
+export type DayEntryInput = z.output<typeof dayEntrySchema>;
 export type DecideEntriesInput = z.output<typeof decideEntriesSchema>;
 
 export const ENTRY_STATUS_LABELS = {

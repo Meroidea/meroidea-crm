@@ -23,8 +23,10 @@ import {
 import { getPayslip, listMyPayslips, listPayslipsForRoster } from '@/modules/payroll/queries';
 import { authoriseRosterSchema } from '@/modules/payroll/schemas';
 import { authoriseRoster, releasePayslips, setTaxWithheld } from '@/modules/payroll/service';
-import { createRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
+import { createRosterSchema, publishRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
 import { createRoster, publishRoster, saveShift, unpublishRoster } from '@/modules/roster/service';
+import { businessDetailsSchema, employerSnapshot } from '@/modules/settings/business';
+import { updateBusinessDetails } from '@/modules/settings/workspace';
 import type { TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
@@ -236,7 +238,14 @@ describe('payslips from an authorised roster', () => {
     ) =>
       saveShift(
         owner,
-        saveShiftSchema.parse({ rosterId, userId, date, startTime, endTime, breakMinutes }),
+        saveShiftSchema.parse({
+          rosterId,
+          userId,
+          date,
+          startTime,
+          endTime,
+          breaks: breakMinutes ? [{ minutes: breakMinutes, paid: false }] : [],
+        }),
       );
     await shift(member.userId, '2031-06-02', '09:00', '17:00', 30);
     await shift(member.userId, '2031-06-03', '09:00', '12:20', 0);
@@ -274,7 +283,7 @@ describe('payslips from an authorised roster', () => {
 
   it('will not authorise a draft roster, and only the owner may authorise', async () => {
     await expectCode(() => authoriseRoster(owner, authorise()), 'CONFLICT');
-    await publishRoster(owner, rosterId);
+    await publishRoster(owner, publishRosterSchema.parse({ id: rosterId }));
     await expectCode(() => authoriseRoster(manager, authorise()), 'FORBIDDEN');
     await expectCode(() => authoriseRoster(outsider, authorise()), 'NOT_FOUND');
   });
@@ -318,7 +327,6 @@ describe('payslips from an authorised roster', () => {
             date: '2031-06-05',
             startTime: '09:00',
             endTime: '10:00',
-            breakMinutes: 0,
           }),
         ),
       'CONFLICT',
@@ -381,5 +389,58 @@ describe('payslips from an authorised roster', () => {
       tx.execute(sql`update payslips set gross = 99999, net = 99999 where id = ${payslipId}`),
     );
     expect((await getPayslip(owner, payslipId))?.gross).toBe('361.08');
+  });
+
+  it('carries its pay lines, its number and the year to date', async () => {
+    const slip = await getPayslip(owner, payslipId);
+    expect(slip).toMatchObject({ number: 1, employmentType: 'casual' });
+    expect(slip?.lines).toEqual([
+      {
+        title: 'Ordinary hours',
+        kind: 'ordinary',
+        minutes: 650,
+        units: null,
+        rate: '33.33',
+        multiplier: '1.00',
+        amount: '361.08',
+        superable: true,
+        clause: null,
+      },
+    ]);
+    expect(slip?.yearToDate).toMatchObject({
+      gross: '361.08',
+      superAmount: '43.33',
+      byLine: { 'Ordinary hours': '361.08' },
+    });
+    // The person it belongs to sees the same year to date from their own released payslips.
+    expect((await getPayslip(member, payslipId))?.yearToDate.gross).toBe('361.08');
+  });
+
+  it('keeps the business details it was made with when they later change', async () => {
+    const before = (await getPayslip(owner, payslipId))?.employer;
+    expect(before?.businessNumber).toBeNull();
+    const details = businessDetailsSchema.parse({
+      legalName: 'Alpha Trading Pty Ltd',
+      businessNumber: '51 824 753 556',
+      address: '1 Example Street',
+      phone: '02 5550 0000',
+      email: 'pay@example.com',
+      website: '',
+      payrollContact: 'Accounts',
+    });
+    await expectCode(() => updateBusinessDetails(manager, details), 'FORBIDDEN');
+    await expectCode(() => updateBusinessDetails(member, details), 'FORBIDDEN');
+    await updateBusinessDetails(owner, details);
+
+    const reloaded = await contextFor(owner.userId, alphaTenant);
+    expect(employerSnapshot(reloaded.tenant)).toMatchObject({
+      name: 'Alpha Trading Pty Ltd',
+      businessNumber: '51 824 753 556',
+      payrollContact: 'Accounts',
+    });
+    // Another business's details are untouched, and the payslip already made is unchanged.
+    const theirs = await contextFor(outsider.userId, betaTenant);
+    expect(employerSnapshot(theirs.tenant).businessNumber).toBeNull();
+    expect((await getPayslip(owner, payslipId))?.employer).toEqual(before);
   });
 });

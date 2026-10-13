@@ -16,6 +16,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import type { AwardRateSchedule } from '@/modules/hiring/award-rates';
+
 import { tenants } from './tenancy';
 
 export const employmentType = pgEnum('employment_type', [
@@ -64,6 +66,13 @@ export const employees = pgTable(
     tenantId: uuid()
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
+    /**
+     * The Employee ID: given by the database when the person is hired, never reused and never
+     * changed. It is how one employee is told from another, whatever happens to their name.
+     */
+    employeeNumber: integer()
+      .notNull()
+      .generatedAlwaysAsIdentity({ name: 'employees_employee_number_seq', startWith: 100001 }),
     /** Set once the person is given a login; nothing requires one. */
     userId: uuid(),
     firstName: text().notNull(),
@@ -90,6 +99,7 @@ export const employees = pgTable(
   },
   (table) => [
     unique('employees_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('employees_employee_number_key').on(table.employeeNumber),
     index('employees_tenant_status_idx')
       .on(table.tenantId, table.status)
       .where(sql`${table.deletedAt} is null`),
@@ -127,6 +137,11 @@ export const employmentContracts = pgTable(
     classificationRef: text(),
     minimumRate: numeric({ precision: 14, scale: 2 }),
     rateSource: rateSource().notNull().default('none'),
+    /**
+     * The award's published rates for this classification and kind of employment, as last read
+     * from the pay database: minimum, penalty tables, allowances. Null when never looked up.
+     */
+    rateSchedule: jsonb().$type<AwardRateSchedule>(),
     /** Why a rate under the looked-up minimum is lawful (a junior or trainee rate, say). */
     belowMinimumReason: text(),
     contractorAbn: text(),

@@ -14,8 +14,13 @@ import { dayParts } from '@/modules/roster/hours';
 import {
   canSeeWholeRoster,
   getRosterForDate,
+  getRosterRules,
   hasEarlierRoster,
+  listRemovedShifts,
+  listRosterLeave,
+  listRosterRates,
   listRosterShifts,
+  listRosterTeams,
 } from '@/modules/roster/queries';
 import { rosterPageParamsSchema } from '@/modules/roster/schemas';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
@@ -36,7 +41,7 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
       title="Roster"
       description={
         canManage
-          ? 'Plan who works when, a week or a fortnight at a time.'
+          ? 'Plan who works when, see what it costs, and publish it to your team.'
           : canSeeWholeRoster(ctx)
             ? 'Published shifts for your workspace.'
             : 'Your own shifts, once a roster is published.'
@@ -46,9 +51,15 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
 
   if (roster) {
     const wholeRoster = canSeeWholeRoster(ctx);
-    const [shifts, everyone] = await Promise.all([
+    const editable = canManage && !roster.authorisedAt;
+    const [shifts, everyone, teams, rules, rates, leave, removed] = await Promise.all([
       listRosterShifts(ctx, roster.id),
       listActiveMembers(ctx),
+      listRosterTeams(ctx),
+      getRosterRules(ctx),
+      listRosterRates(ctx),
+      listRosterLeave(ctx, roster.startsOn, roster.endsOn),
+      editable ? listRemovedShifts(ctx, roster.id) : [],
     ]);
     // General staff get a roster of one: themselves.
     const people = wholeRoster
@@ -91,8 +102,15 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
         <RosterBoard
           roster={roster}
           shifts={shifts}
+          removed={removed}
           people={people}
-          canManage={canManage && !roster.authorisedAt}
+          teams={teams}
+          leave={leave}
+          rules={rules}
+          rates={rates}
+          currency={ctx.tenant.currency}
+          canManage={editable}
+          wholeRoster={wholeRoster}
           today={today}
         />
       </div>

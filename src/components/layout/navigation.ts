@@ -12,7 +12,14 @@ import {
   ClipboardList,
   Files,
   Banknote,
+  ChartPie,
+  CircleDollarSign,
   Handshake,
+  HeartHandshake,
+  Home,
+  Package,
+  TrendingUp,
+  UsersRound,
   IdCard,
   Palmtree,
   Timer,
@@ -48,11 +55,19 @@ export type NavItem = {
   available: boolean;
 };
 
-export type NavGroup = { title: string; items: NavItem[] };
+export type NavGroup = {
+  title: string;
+  icon: LucideIcon;
+  /** Shown as plain links, always in view; every other group opens downwards from its title. */
+  pinned?: boolean;
+  items: NavItem[];
+};
 
 export const NAVIGATION: NavGroup[] = [
   {
-    title: 'Workspace',
+    title: 'Home',
+    icon: Home,
+    pinned: true,
     items: [
       { href: '/dashboard', icon: LayoutDashboard, label: { title: 'Dashboard' }, available: true },
       {
@@ -62,27 +77,12 @@ export const NAVIGATION: NavGroup[] = [
         permission: 'tasks.view',
         available: true,
       },
-      {
-        href: '/documents',
-        icon: Files,
-        label: { title: 'Documents' },
-        permission: 'files.view',
-        available: true,
-      },
-      {
-        href: '/payslips',
-        icon: Wallet,
-        label: { title: 'My payslips' },
-        feature: 'payroll',
-        available: true,
-      },
-      {
-        href: '/projects',
-        icon: FolderKanban,
-        label: { title: 'Projects' },
-        permission: 'projects.view',
-        available: true,
-      },
+    ],
+  },
+  {
+    title: 'Sales',
+    icon: TrendingUp,
+    items: [
       {
         href: '/pipeline',
         icon: KanbanSquare,
@@ -90,11 +90,6 @@ export const NAVIGATION: NavGroup[] = [
         permission: 'opportunities.view',
         available: true,
       },
-    ],
-  },
-  {
-    title: 'Records',
-    items: [
       {
         href: '/contacts',
         icon: Users,
@@ -123,6 +118,19 @@ export const NAVIGATION: NavGroup[] = [
         permission: 'partners.view',
         available: true,
       },
+    ],
+  },
+  {
+    title: 'Work',
+    icon: FolderKanban,
+    items: [
+      {
+        href: '/projects',
+        icon: FolderKanban,
+        label: { title: 'Projects' },
+        permission: 'projects.view',
+        available: true,
+      },
       {
         href: '/tasks',
         icon: ListChecks,
@@ -130,6 +138,19 @@ export const NAVIGATION: NavGroup[] = [
         permission: 'tasks.view',
         available: true,
       },
+      {
+        href: '/documents',
+        icon: Files,
+        label: { title: 'Documents' },
+        permission: 'files.view',
+        available: true,
+      },
+    ],
+  },
+  {
+    title: 'Customer care',
+    icon: HeartHandshake,
+    items: [
       {
         href: '/reviews',
         icon: Star,
@@ -147,7 +168,8 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
-    title: 'Team',
+    title: 'People',
+    icon: UsersRound,
     items: [
       {
         href: '/roster',
@@ -194,7 +216,8 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
-    title: 'Operations',
+    title: 'Stock',
+    icon: Package,
     items: [
       {
         href: '/inventory',
@@ -221,7 +244,15 @@ export const NAVIGATION: NavGroup[] = [
   },
   {
     title: 'Finance',
+    icon: CircleDollarSign,
     items: [
+      {
+        href: '/payslips',
+        icon: Wallet,
+        label: { title: 'My payslips' },
+        feature: 'payroll',
+        available: true,
+      },
       {
         href: '/expenses',
         icon: Receipt,
@@ -247,6 +278,7 @@ export const NAVIGATION: NavGroup[] = [
   },
   {
     title: 'Insight',
+    icon: ChartPie,
     items: [
       {
         href: '/reports',
@@ -273,6 +305,8 @@ export const NAVIGATION: NavGroup[] = [
   },
   {
     title: 'Admin',
+    icon: Settings,
+    pinned: true,
     items: [
       {
         href: '/settings',

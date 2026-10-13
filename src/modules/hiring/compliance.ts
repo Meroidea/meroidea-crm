@@ -76,6 +76,8 @@ export type OfferTerms = {
   minimumRate: string | null;
   belowMinimumReason: string | null;
   contractorAbn: string | null;
+  /** True when `minimumRate` is the award's published casual rate, loading included. */
+  minimumIncludesCasualLoading?: boolean;
 };
 
 /** "24.95" → 2495n. Callers have already validated the format. */
@@ -151,7 +153,7 @@ export function checkOffer(
       'Fixed-term contracts are generally limited to two years, including renewals, unless an exception applies.',
     );
   }
-  if (type === 'casual') {
+  if (type === 'casual' && !terms.minimumIncludesCasualLoading) {
     warnings.push(
       'The hourly rate for a casual must include the casual loading set by the award (commonly 25%).',
     );

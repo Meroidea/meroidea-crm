@@ -1,11 +1,13 @@
 import 'server-only';
 
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { payslips, rosterShifts, rosters, users } from '@/db/schema';
+import { centsToAmount } from '@/modules/roster/rules';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
+import { financialYearStart } from './types';
 import type { PayRunRoster, PayslipDetail, PayslipRow, PayslipShift } from './types';
 
 const columns = {
@@ -102,11 +104,17 @@ export async function getPayslip(ctx: TenantContext, id: string): Promise<Paysli
       .select({
         ...columns,
         userId: payslips.userId,
+        employeeNumber: payslips.employeeNumber,
         employerDetails: payslips.employerDetails,
         positionTitle: payslips.positionTitle,
         superRate: payslips.superRate,
         superFundName: payslips.superFundName,
         shifts: payslips.shifts,
+        number: payslips.number,
+        employer: payslips.employer,
+        employmentType: payslips.employmentType,
+        classification: payslips.classification,
+        lines: payslips.lines,
       })
       .from(payslips)
       .where(and(eq(payslips.tenantId, ctx.tenantId), eq(payslips.id, id)))
@@ -115,11 +123,61 @@ export async function getPayslip(ctx: TenantContext, id: string): Promise<Paysli
   if (!row) return null;
   const mine = row.userId === ctx.userId && row.status === 'released';
   if (!mine && !hasPermission(ctx, 'payroll.manage')) return null;
+
+  // Year to date: this payslip and the released ones before it in the same financial year. A
+  // draft belonging to another pay run has not been paid, so it is not counted.
+  const from = financialYearStart(row.paymentDate, ctx.tenant.country);
+  const sofar = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        gross: payslips.gross,
+        taxWithheld: payslips.taxWithheld,
+        net: payslips.net,
+        superAmount: payslips.superAmount,
+        lines: payslips.lines,
+      })
+      .from(payslips)
+      .where(
+        and(
+          eq(payslips.tenantId, ctx.tenantId),
+          eq(payslips.employeeId, row.employeeId),
+          gte(payslips.paymentDate, from),
+          lte(payslips.paymentDate, row.paymentDate),
+          or(eq(payslips.status, 'released'), eq(payslips.id, row.id)),
+        ),
+      ),
+  );
+  // Summed in whole cents, never as floating-point dollars.
+  const cents = (amount: string) => Math.round(Number(amount) * 100);
+  const total = (pick: (slip: (typeof sofar)[number]) => string) =>
+    centsToAmount(sofar.reduce((sum, slip) => sum + cents(pick(slip)), 0));
+  const byLine: Record<string, number> = {};
+  for (const slip of sofar) {
+    for (const line of slip.lines)
+      byLine[line.title] = (byLine[line.title] ?? 0) + cents(line.amount);
+  }
+
   return {
+    number: row.number,
+    employer: row.employer,
+    employmentType: row.employmentType,
+    classification: row.classification,
+    lines: row.lines,
+    yearToDate: {
+      from,
+      gross: total((slip) => slip.gross),
+      taxWithheld: total((slip) => slip.taxWithheld),
+      net: total((slip) => slip.net),
+      superAmount: total((slip) => slip.superAmount),
+      byLine: Object.fromEntries(
+        Object.entries(byLine).map(([title, value]) => [title, centsToAmount(value)]),
+      ),
+    },
     id: row.id,
     status: row.status,
     employeeId: row.employeeId,
     employeeName: row.employeeName,
+    employeeNumber: row.employeeNumber,
     periodStart: row.periodStart,
     periodEnd: row.periodEnd,
     paymentDate: row.paymentDate,

@@ -10,8 +10,9 @@ import { createLinkToken, decryptField } from '@/server/crypto';
 import { withRls } from '@/server/db/with-rls';
 import { sendEmail } from '@/server/email';
 import { serverEnv } from '@/server/env';
-import { getMinimumRate, isFairWorkConfigured } from '@/server/fair-work';
+import { getAwardRates, isFairWorkConfigured } from '@/server/fair-work';
 
+import type { AwardRateSchedule } from './award-rates';
 import { checkOffer, statementsFor } from './compliance';
 import { contractWording } from './contract-view';
 import { normalizeDigits } from './identifiers';
@@ -33,16 +34,33 @@ export const payrollBinding = (tenantId: string, employeeId: string, field: stri
 export async function createHire(
   ctx: TenantContext,
   input: CreateHireInput,
-): Promise<{ employeeId: string; contractId: string; warnings: string[] }> {
+): Promise<{
+  employeeId: string;
+  /** The Employee ID the database gave the new hire. */
+  employeeNumber: number;
+  contractId: string;
+  warnings: string[];
+}> {
   requirePermission(ctx, 'employees.manage');
   const contractor = input.employmentType === 'contractor';
 
   let minimumRate = contractor ? null : input.minimumRate;
   let rateSource: 'fair_work' | 'manual' | 'none' = minimumRate ? 'manual' : 'none';
-  if (!contractor && input.awardCode && input.classificationRef && isFairWorkConfigured()) {
-    const looked = await getMinimumRate(input.awardCode, input.classificationRef);
-    if (looked?.hourly) {
-      minimumRate = looked.hourly;
+  let rateSchedule: AwardRateSchedule | null = null;
+  if (
+    input.employmentType !== 'contractor' &&
+    input.awardCode &&
+    input.classificationRef &&
+    isFairWorkConfigured()
+  ) {
+    // The minimum depends on the kind of employment: a casual's includes the casual loading.
+    rateSchedule = await getAwardRates(
+      input.awardCode,
+      input.classificationRef,
+      input.employmentType,
+    );
+    if (rateSchedule?.minimumHourly) {
+      minimumRate = rateSchedule.minimumHourly;
       rateSource = 'fair_work';
     }
   }
@@ -61,7 +79,10 @@ export async function createHire(
     belowMinimumReason: input.belowMinimumReason,
     contractorAbn: contractor && input.contractorAbn ? normalizeDigits(input.contractorAbn) : null,
   };
-  const { errors, warnings } = checkOffer(ctx.tenant.country, terms);
+  const { errors, warnings } = checkOffer(ctx.tenant.country, {
+    ...terms,
+    minimumIncludesCasualLoading: input.employmentType === 'casual' && rateSource === 'fair_work',
+  });
   if (Object.keys(errors).length > 0) {
     throw new AppError(
       'VALIDATION',
@@ -82,7 +103,7 @@ export async function createHire(
         createdBy: ctx.userId,
         updatedBy: ctx.userId,
       })
-      .returning({ id: employees.id });
+      .returning({ id: employees.id, employeeNumber: employees.employeeNumber });
     if (!employee) throw new AppError('INTERNAL', 'Could not save the new hire.');
 
     const [contract] = await tx
@@ -95,6 +116,7 @@ export async function createHire(
         awardName: contractor ? null : input.awardName,
         classificationRef: contractor ? null : input.classificationRef,
         rateSource,
+        rateSchedule,
         probationMonths: contractor ? null : input.probationMonths,
         statements: statementsFor(ctx.tenant.country, input.employmentType),
         createdBy: ctx.userId,
@@ -111,12 +133,18 @@ export async function createHire(
       // The warnings shown at the time are part of the record of what the admin decided.
       context: {
         contractId: contract.id,
+        employeeNumber: employee.employeeNumber,
         employmentType: input.employmentType,
         rateSource,
         warnings,
       },
     });
-    return { employeeId: employee.id, contractId: contract.id, warnings };
+    return {
+      employeeId: employee.id,
+      employeeNumber: employee.employeeNumber,
+      contractId: contract.id,
+      warnings,
+    };
   });
 }
 
@@ -283,5 +311,77 @@ export async function revealPayrollDetails(
       bankAccount: read(row.bankAccountCiphertext, 'account'),
       superMemberNumber: read(row.superMemberCiphertext, 'super'),
     };
+  });
+}
+
+/**
+ * Reads the award's rates again for a contract and stores them beside it. The contract's own
+ * terms and wording do not change: this only updates what the pay is compared with, so a rate
+ * that was lawful when agreed is flagged if the award has since moved above it.
+ */
+export async function refreshAwardRates(
+  ctx: TenantContext,
+  contractId: string,
+): Promise<{ minimumHourly: string | null; fetchedOn: string }> {
+  requirePermission(ctx, 'employees.manage');
+  const [contract] = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: employmentContracts.id,
+        employmentType: employmentContracts.employmentType,
+        awardCode: employmentContracts.awardCode,
+        classificationRef: employmentContracts.classificationRef,
+      })
+      .from(employmentContracts)
+      .where(
+        and(
+          eq(employmentContracts.tenantId, ctx.tenantId),
+          eq(employmentContracts.id, contractId),
+          isNull(employmentContracts.deletedAt),
+        ),
+      )
+      .limit(1),
+  );
+  if (!contract) throw new AppError('NOT_FOUND', 'That contract was not found.');
+  if (contract.employmentType === 'contractor' || !contract.awardCode) {
+    throw new AppError('CONFLICT', 'No award is recorded on this contract.');
+  }
+  if (!contract.classificationRef) {
+    throw new AppError(
+      'CONFLICT',
+      'This contract’s classification was typed in, not chosen from the pay database, so its rates cannot be looked up.',
+    );
+  }
+  if (!isFairWorkConfigured()) {
+    throw new AppError('CONFLICT', 'The Fair Work pay database is not connected to this system.');
+  }
+  const schedule = await getAwardRates(
+    contract.awardCode,
+    contract.classificationRef,
+    contract.employmentType,
+  );
+  if (!schedule) {
+    throw new AppError(
+      'CONFLICT',
+      'The pay database has no current rate for this classification. It may have been renamed in the award.',
+    );
+  }
+  return withRls(ctx, async (tx) => {
+    await tx
+      .update(employmentContracts)
+      .set({ rateSchedule: schedule, updatedBy: ctx.userId })
+      .where(
+        and(
+          eq(employmentContracts.tenantId, ctx.tenantId),
+          eq(employmentContracts.id, contract.id),
+        ),
+      );
+    await audit(tx, ctx, {
+      action: 'update',
+      entityType: 'employment_contract',
+      entityId: contract.id,
+      context: { awardRatesRead: schedule.fetchedOn, minimumHourly: schedule.minimumHourly },
+    });
+    return { minimumHourly: schedule.minimumHourly, fetchedOn: schedule.fetchedOn };
   });
 }

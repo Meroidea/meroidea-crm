@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, eq, gte, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 
-import { rosters, tenantMemberships, timeEntries } from '@/db/schema';
+import { rosterShifts, rosters, tenantMemberships, timeEntries } from '@/db/schema';
 import { addDaysToDate, instantToZoned, zonedDateTimeToInstant } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { distanceMetres } from '@/lib/geo';
@@ -10,7 +10,7 @@ import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 
-import type { ClockPosition, DecideEntriesInput, ManualEntryInput } from './schemas';
+import type { ClockPosition, DayEntryInput, DecideEntriesInput, ManualEntryInput } from './schemas';
 
 const MAX_SHIFT_MINUTES = 24 * 60;
 /** A reading the device itself says could be this far off is no evidence of where someone is. */
@@ -341,5 +341,126 @@ export async function deleteEntry(ctx: TenantContext, id: string): Promise<{ id:
       .where(and(eq(timeEntries.tenantId, ctx.tenantId), eq(timeEntries.id, entry.id)));
     await audit(tx, ctx, { action: 'delete', entityType: 'time_entry', entityId: entry.id });
     return { id: entry.id };
+  });
+}
+
+/**
+ * Records the hours a person actually worked, from the daily approval screen: a manager types
+ * the times against a rostered shift, or corrects what the person clocked, and may approve in
+ * the same step. Manager-only, so the workplace location rule for clocking is not sidestepped
+ * by staff (ADR-033).
+ */
+export async function saveDayEntry(
+  ctx: TenantContext,
+  input: DayEntryInput,
+): Promise<{ id: string; status: 'pending' | 'approved' }> {
+  requirePermission(ctx, 'timesheets.manage');
+  const timezone = ctx.tenant.timezone;
+  const start = zonedDateTimeToInstant(timezone, input.date, input.start);
+  const endDate = input.end <= input.start ? addDaysToDate(input.date, 1) : input.date;
+  const end = zonedDateTimeToInstant(timezone, endDate, input.end);
+  const length = Math.round((end.getTime() - start.getTime()) / 60_000);
+  if (length <= 0 || length > MAX_SHIFT_MINUTES) {
+    throw new AppError('VALIDATION', 'Check the start and finish times.', {
+      end: ['Check the finish time'],
+    });
+  }
+  if (input.breakMinutes >= length) {
+    throw new AppError('VALIDATION', 'The break is longer than the time worked.', {
+      breakMinutes: ['Enter a shorter break'],
+    });
+  }
+  if (end.getTime() > Date.now()) {
+    throw new AppError('VALIDATION', 'Time can only be recorded after it has been worked.', {
+      end: ['This is in the future'],
+    });
+  }
+  const status = input.approve ? ('approved' as const) : ('pending' as const);
+  const decision = {
+    status,
+    decidedBy: input.approve ? ctx.userId : null,
+    decidedAt: input.approve ? new Date() : null,
+  };
+
+  return withRls(ctx, async (tx) => {
+    if (input.shiftId) {
+      const [shift] = await tx
+        .select({ userId: rosterShifts.userId })
+        .from(rosterShifts)
+        .where(
+          and(
+            eq(rosterShifts.tenantId, ctx.tenantId),
+            eq(rosterShifts.id, input.shiftId),
+            isNull(rosterShifts.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (!shift) throw new AppError('NOT_FOUND', 'That shift was not found.');
+      if (shift.userId !== input.userId) {
+        throw new AppError('VALIDATION', 'That shift belongs to someone else.');
+      }
+    }
+
+    if (input.entryId) {
+      const entry = await findEntry(tx, ctx, input.entryId);
+      if (entry.userId !== input.userId) {
+        throw new AppError('VALIDATION', 'That entry belongs to someone else.');
+      }
+      await assertPayPeriodOpen(tx, ctx, [entry.clockIn, start]);
+      await tx
+        .update(timeEntries)
+        .set({
+          clockIn: start,
+          clockOut: end,
+          breakMinutes: input.breakMinutes,
+          shiftId: input.shiftId ?? entry.shiftId,
+          ...decision,
+          updatedBy: ctx.userId,
+        })
+        .where(and(eq(timeEntries.tenantId, ctx.tenantId), eq(timeEntries.id, entry.id)));
+      await audit(tx, ctx, {
+        action: 'update',
+        entityType: 'time_entry',
+        entityId: entry.id,
+        context: { corrected: true, decision: status },
+      });
+      return { id: entry.id, status };
+    }
+
+    const [person] = await tx
+      .select({ id: tenantMemberships.id })
+      .from(tenantMemberships)
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, ctx.tenantId),
+          eq(tenantMemberships.userId, input.userId),
+        ),
+      )
+      .limit(1);
+    if (!person) throw new AppError('NOT_FOUND', 'That person was not found.');
+    await assertPayPeriodOpen(tx, ctx, [start]);
+    const [created] = await tx
+      .insert(timeEntries)
+      .values({
+        tenantId: ctx.tenantId,
+        userId: input.userId,
+        shiftId: input.shiftId ?? null,
+        clockIn: start,
+        clockOut: end,
+        breakMinutes: input.breakMinutes,
+        source: 'manual',
+        ...decision,
+        createdBy: ctx.userId,
+        updatedBy: ctx.userId,
+      })
+      .returning({ id: timeEntries.id });
+    if (!created) throw new AppError('INTERNAL', 'The entry could not be saved.');
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'time_entry',
+      entityId: created.id,
+      context: { decision: status, againstShift: Boolean(input.shiftId) },
+    });
+    return { id: created.id, status };
   });
 }

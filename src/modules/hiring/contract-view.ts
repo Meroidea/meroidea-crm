@@ -30,6 +30,7 @@ export function contractWording(
     contractorAbn: contract.contractorAbn,
     probationMonths: contract.probationMonths,
     statements: contract.statements as Statement[],
+    rateSchedule: contract.rateSchedule,
   });
 }
 
@@ -54,6 +55,8 @@ export function toContractDetail(
     classification: contract.classification,
     minimumRate: contract.minimumRate,
     rateSource: contract.rateSource,
+    rateSchedule: contract.rateSchedule,
+    classificationRef: contract.classificationRef,
     belowMinimumReason: contract.belowMinimumReason,
     contractorAbn: contract.contractorAbn,
     probationMonths: contract.probationMonths,

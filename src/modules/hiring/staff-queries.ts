@@ -57,6 +57,10 @@ export async function listStaff(
         ilike(employees.lastName, pattern),
         ilike(employees.preferredName, pattern),
         ilike(employees.email, pattern),
+        // A search that is only digits is someone looking a person up by Employee ID.
+        /^\d{1,9}$/.test(filters.q.trim())
+          ? eq(employees.employeeNumber, Number(filters.q.trim()))
+          : undefined,
       ),
     );
   }
@@ -67,6 +71,7 @@ export async function listStaff(
     tx
       .select({
         id: employees.id,
+        employeeNumber: employees.employeeNumber,
         firstName: employees.firstName,
         lastName: employees.lastName,
         preferredName: employees.preferredName,
@@ -101,6 +106,7 @@ export async function listStaff(
     if (people.has(row.id)) continue;
     people.set(row.id, {
       id: row.id,
+      employeeNumber: row.employeeNumber,
       displayName: row.preferredName ?? `${row.firstName} ${row.lastName}`,
       email: row.email,
       status: row.status,

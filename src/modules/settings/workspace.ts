@@ -1,13 +1,16 @@
 import 'server-only';
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { auditLogs, tenants } from '@/db/schema';
 import { diffChanges } from '@/lib/audit-diff';
+import { AppError } from '@/lib/errors';
+import { isValidAbn } from '@/modules/hiring/identifiers';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 
 import type { z } from 'zod';
+import { readBusinessDetails, type BusinessDetails } from './business';
 import type { workspaceSchema } from './schemas';
 
 /**
@@ -43,6 +46,43 @@ export async function updateWorkspace(
         timezone: next.timezone,
         defaultCurrency: next.currency,
         defaultCountry: next.country,
+      })
+      .where(eq(tenants.id, ctx.tenantId));
+    await tx.insert(auditLogs).values({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      action: 'update',
+      entityType: 'tenant',
+      entityId: ctx.tenantId,
+      changes,
+    });
+  });
+  return { id: ctx.tenantId };
+}
+
+/**
+ * Saves the business's own details (name on documents, business number, contact details). They
+ * are printed on payslips made from now on; payslips already made keep what they were given.
+ */
+export async function updateBusinessDetails(
+  ctx: TenantContext,
+  input: BusinessDetails,
+): Promise<{ id: string }> {
+  requirePermission(ctx, 'settings.manage');
+  if (ctx.tenant.country === 'AU' && input.businessNumber && !isValidAbn(input.businessNumber)) {
+    throw new AppError('VALIDATION', 'That ABN is not valid.', {
+      businessNumber: ['Enter the business’s 11-digit ABN'],
+    });
+  }
+  const changes = diffChanges(readBusinessDetails(ctx.tenant.settings), input);
+  if (Object.keys(changes).length === 0) return { id: ctx.tenantId };
+
+  await adminDb().transaction(async (tx) => {
+    await tx
+      .update(tenants)
+      // Only the business details are replaced; other settings in the same column are kept.
+      .set({
+        settings: sql`${tenants.settings} || ${JSON.stringify({ business: input })}::jsonb`,
       })
       .where(eq(tenants.id, ctx.tenantId));
     await tx.insert(auditLogs).values({

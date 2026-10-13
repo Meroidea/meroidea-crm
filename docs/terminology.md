@@ -35,10 +35,13 @@ UI via `tenants.labels`, but the **code name never changes**.
 | **Inventory item** | Something the workspace keeps in stock, with a running quantity on hand in a unit of the tenant's choosing. | — | — |
 | **Stock movement** | One change to an item's quantity: received, used, wasted, a correction, or a stocktake. Never edited or removed. | — | — |
 | **Employee** | A person the workspace has hired or offered work to. Not a login: an employee may never sign in. | — | — |
+| **Employee ID** | The number the system gives an employee when they are hired. Unique, never reused and never changed: it is how one employee is told from another, whatever their name. | — | — |
 | **Department** | A named group of employees. The tenant decides what it stands for: department, division, site. | — | — |
 | **Employment contract** | The terms offered to an employee, frozen once sent and accepted through a one-time link. | — | — |
 | **Roster** | A week or a fortnight of planned shifts for the workspace. A draft until published. | — | — |
-| **Shift** | One person's planned block of work on a roster, with a break and an optional free-text tag. | — | — |
+| **Shift** | One planned block of work on a roster, with breaks and optionally a team. *Vacant* while nobody is on it. A draft until published, shift by shift. | — | — |
+| **Roster team** | A named, coloured group people are rostered into; the tenant decides what it stands for (an area, a duty, a level). Not the same as *Team* in record scope, which is who reports to whom. | — | — |
+| **Loading** | A multiplier of the contract hourly rate for a Saturday, a Sunday or a public holiday. 1 is the ordinary rate. | — | — |
 | **Owner** | The user responsible for a contact or opportunity. Drives `own` scope. | Consultant | Agent |
 | **Scope** | How far a permission reaches: `own`, `team`, or `all`. | — | — |
 

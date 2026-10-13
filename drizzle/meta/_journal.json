@@ -309,6 +309,27 @@
       "when": 1791605946582,
       "tag": "0043_features_in_database",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791891639311,
+      "tag": "0044_roster_awards_timesheets_payslips",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791891782832,
+      "tag": "0045_roster_rules_and_employee_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791891787357,
+      "tag": "0046_drop_roster_shift_position",
+      "breakpoints": true
     }
   ]
 }

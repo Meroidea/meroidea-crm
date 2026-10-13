@@ -66,6 +66,8 @@ test('the platform owner onboards a business, and its admin gets a workspace wit
   }
   // A restaurant gets rosters, but not the sales pipeline it never asked for.
   const nav = page.getByRole('navigation', { name: 'Workspace' });
+  // Pages sit inside groups that open downwards from their title.
+  await nav.getByRole('button', { name: 'People' }).click();
   await expect(nav.getByText('Roster', { exact: true })).toBeVisible();
   await expect(nav.getByText('Settings', { exact: true })).toBeVisible();
   await expect(nav.getByText('Contacts', { exact: true })).toHaveCount(0);
