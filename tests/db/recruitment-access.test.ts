@@ -34,6 +34,8 @@ import { readObject } from '@/server/storage';
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
 
 const stamp = Date.now();
+/** A documentation address (RFC 5737) standing in for the applicant's browser. */
+const SENDER = '192.0.2.10';
 const mail = (name: string) => `${name}-${stamp}@example.com`;
 
 let alphaTenant: string;
@@ -88,9 +90,9 @@ describe('job openings', () => {
     token = opening!.publicToken;
     expect(opening).toMatchObject({ status: 'draft', applicants: 0 });
     expect(await getPublicOpening(token)).toBeNull();
-    expect(await code(submitApplication(token, person('Early Bird', mail('early')), null))).toBe(
-      'NOT_FOUND',
-    );
+    expect(
+      await code(submitApplication(token, person('Early Bird', mail('early')), null, SENDER)),
+    ).toBe('NOT_FOUND');
   });
 
   it('general staff and other businesses cannot see or change it', async () => {
@@ -118,6 +120,23 @@ describe('job openings', () => {
 });
 
 describe('applying from the public page', () => {
+  it('one sender cannot use up a job’s allowance; another sender still gets through', async () => {
+    const flooder = '192.0.2.200';
+    for (let n = 0; n < 5; n++) {
+      await submitApplication(token, person(`Bot ${n}`, mail(`bot-${n}`)), null, flooder);
+    }
+    expect(
+      await code(submitApplication(token, person('Bot 6', mail('bot-6')), null, flooder)),
+    ).toBe('RATE_LIMITED');
+    await submitApplication(token, person('Real Person', mail('real')), null, '192.0.2.201');
+    const names = (await listApplicants(owner, openingId)).map((row) => row.fullName);
+    expect(names).toContain('Real Person');
+    expect(names).not.toContain('Bot 6');
+    await adminDb().execute(
+      sql`delete from job_applicants where tenant_id = ${alphaTenant} and (full_name like 'Bot %' or full_name = 'Real Person')`,
+    );
+  });
+
   it('knows a real résumé from something pretending to be one', () => {
     expect(resumeExtension('cv.PDF')).toBe('pdf');
     expect(resumeExtension('cv.exe')).toBeNull();
@@ -126,10 +145,12 @@ describe('applying from the public page', () => {
   });
 
   it('records an application with its résumé', async () => {
-    await submitApplication(token, person('Ada Applicant', mail('Ada')), {
-      name: 'ada.pdf',
-      bytes: pdf,
-    });
+    await submitApplication(
+      token,
+      person('Ada Applicant', mail('Ada')),
+      { name: 'ada.pdf', bytes: pdf },
+      SENDER,
+    );
     const [ada] = await listApplicants(owner, openingId);
     applicantId = ada!.id;
     expect(ada).toMatchObject({
@@ -145,23 +166,28 @@ describe('applying from the public page', () => {
   it('refuses a file that is not what its name says', async () => {
     expect(
       await code(
-        submitApplication(token, person('Fay Fake', mail('fay')), { name: 'cv.docx', bytes: pdf }),
+        submitApplication(
+          token,
+          person('Fay Fake', mail('fay')),
+          { name: 'cv.docx', bytes: pdf },
+          SENDER,
+        ),
       ),
     ).toBe('VALIDATION');
     expect(await listApplicants(owner, openingId)).toHaveLength(1);
   });
 
   it('applying twice changes nothing and reveals nothing', async () => {
-    await submitApplication(token, person('Ada Again', mail('ADA')), null);
+    await submitApplication(token, person('Ada Again', mail('ADA')), null, SENDER);
     const rows = await listApplicants(owner, openingId);
     expect(rows.map((row) => row.fullName)).toEqual(['Ada Applicant']);
   });
 
   it('a closed job stops taking applications', async () => {
     await setOpeningStatus(owner, { id: openingId, status: 'closed' });
-    expect(await code(submitApplication(token, person('Late Lee', mail('late')), null))).toBe(
-      'NOT_FOUND',
-    );
+    expect(
+      await code(submitApplication(token, person('Late Lee', mail('late')), null, SENDER)),
+    ).toBe('NOT_FOUND');
     await setOpeningStatus(owner, { id: openingId, status: 'open' });
   });
 
@@ -169,10 +195,10 @@ describe('applying from the public page', () => {
     await adminDb().execute(sql`
       insert into job_applicants (tenant_id, job_opening_id, full_name, email, source)
       select ${alphaTenant}, ${openingId}, 'Flood ' || n, 'flood-' || n || ${`-${stamp}@example.com`}, 'website'
-      from generate_series(1, 40) n`);
-    expect(await code(submitApplication(token, person('One More', mail('more')), null))).toBe(
-      'CONFLICT',
-    );
+      from generate_series(1, 100) n`);
+    expect(
+      await code(submitApplication(token, person('One More', mail('more')), null, '192.0.2.77')),
+    ).toBe('RATE_LIMITED');
     await adminDb().execute(
       sql`delete from job_applicants where tenant_id = ${alphaTenant} and full_name like 'Flood %'`,
     );

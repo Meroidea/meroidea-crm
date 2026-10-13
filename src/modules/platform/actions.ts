@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 
 import { AppError, toActionError, type ActionResult } from '@/lib/errors';
+import { reencryptPayrollDetails } from '@/modules/hiring/key-rotation';
 import { ACTIVE_TENANT_COOKIE } from '@/server/context';
 import { assertPlatformAdmin, type PlatformAdmin } from '@/server/platform';
 
@@ -56,6 +57,11 @@ export async function setBusinessLocationAction(raw: unknown) {
   return platformAction((admin) =>
     platformService.setBusinessLocation(admin, setLocationSchema.parse(raw)),
   );
+}
+
+/** Moves every stored payroll number onto the current encryption key (ADR-040). */
+export async function reencryptPayrollDetailsAction() {
+  return platformAction((admin) => reencryptPayrollDetails(admin));
 }
 
 const cookieOptions = {

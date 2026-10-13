@@ -27,6 +27,11 @@ const serverEnvSchema = z.object({
   FWC_API_KEY: z.string().min(1).optional(),
   /** 32 random bytes, base64. Encrypts tax file, bank and super numbers at rest. */
   HR_ENCRYPTION_KEY: z.string().min(40).optional(),
+  /**
+   * Comma-separated keys being retired (ADR-040). They only read existing values, until the
+   * platform console's re-encryption has moved everything onto HR_ENCRYPTION_KEY.
+   */
+  HR_ENCRYPTION_KEYS_PREVIOUS: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

@@ -13,15 +13,21 @@ import { readBusinessDetails } from '@/modules/settings/business';
 import { BusinessForm } from '@/modules/settings/components/business-form';
 import { WorkspaceForm } from '@/modules/settings/components/workspace-form';
 import { getSettingsLists } from '@/modules/settings/queries';
-import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
+import {
+  hasFeature,
+  hasPermission,
+  requirePermission,
+  requireTenantContext,
+} from '@/server/context';
 
 export const metadata: Metadata = { title: 'Settings' };
 
-const TABS: { key: string; label: string; icon: LucideIcon }[] = [
+/** `crm` tabs configure the sales pipeline, so they only exist while that feature is on. */
+const TABS: { key: string; label: string; icon: LucideIcon; crm?: true }[] = [
   { key: 'general', label: 'Workspace', icon: Building },
-  { key: 'pipeline', label: 'Pipeline', icon: KanbanSquare },
-  { key: 'sources', label: 'Lead sources', icon: Radio },
-  { key: 'lost', label: 'Lost reasons', icon: XCircle },
+  { key: 'pipeline', label: 'Pipeline', icon: KanbanSquare, crm: true },
+  { key: 'sources', label: 'Lead sources', icon: Radio, crm: true },
+  { key: 'lost', label: 'Lost reasons', icon: XCircle, crm: true },
   { key: 'team', label: 'Team', icon: Users },
 ];
 
@@ -29,8 +35,13 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'settings.manage');
   const params = await searchParams;
-  const tab = TABS.find((candidate) => candidate.key === params.tab)?.key ?? 'general';
-  const [lists, pipeline] = await Promise.all([getSettingsLists(ctx), getPipelineConfig(ctx)]);
+  const crm = hasFeature(ctx, 'crm');
+  const tabs = TABS.filter((candidate) => crm || !candidate.crm);
+  const tab = tabs.find((candidate) => candidate.key === params.tab)?.key ?? 'general';
+  const [lists, pipeline] = await Promise.all([
+    getSettingsLists(ctx),
+    crm ? getPipelineConfig(ctx) : null,
+  ]);
   const business = readBusinessDetails(ctx.tenant.settings);
 
   return (
@@ -44,7 +55,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
           aria-label="Settings sections"
           className="-mx-4 flex gap-1 overflow-x-auto px-4 md:mx-0 md:flex-col md:px-0"
         >
-          {TABS.map(({ key, label, icon: Icon }) => (
+          {tabs.map(({ key, label, icon: Icon }) => (
             <Link
               key={key}
               href={`/settings?tab=${key}`}
@@ -102,7 +113,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
               </CardContent>
             </>
           )}
-          {tab === 'pipeline' && (
+          {tab === 'pipeline' && pipeline && (
             <>
               <CardHeader>
                 <CardTitle>{pipeline.name} pipeline</CardTitle>

@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
  * permission, or the feature is not switched on for their business. The reason is deliberately
  * not spelled out, since error details are not sent to the browser.
  */
-export default function WorkspaceError({ reset }: { error: Error; reset: () => void }) {
+export default function WorkspaceError({ retry }: { error: Error; retry: () => void }) {
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
       <h1 className="text-xl font-semibold">This page isn’t available</h1>
@@ -21,7 +21,7 @@ export default function WorkspaceError({ reset }: { error: Error; reset: () => v
         <Button asChild>
           <Link href="/dashboard">Back to the dashboard</Link>
         </Button>
-        <Button variant="outline" onClick={reset}>
+        <Button variant="outline" onClick={retry}>
           Try again
         </Button>
       </div>

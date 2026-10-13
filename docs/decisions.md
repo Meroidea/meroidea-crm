@@ -339,7 +339,8 @@ Keeping contracts in hiring avoids a second, weaker path to employing someone.
 
 **Consequences.** Applicants are not emailed by the system. Stages are fixed, not configurable.
 Deleting an applicant removes their résumé from storage. The hourly cap is per job, not per
-visitor, because no rate-limit store is in the stack.
+visitor, because no rate-limit store is in the stack. *(Superseded by ADR-039: a per-sender limit
+now sits alongside the per-job cap, counted in Postgres.)*
 
 ## ADR-035 — Projects, task time and productivity
 
@@ -392,7 +393,69 @@ queue with clear ownership.
 on the ticket page. Targets are not business-hours aware and nothing is escalated automatically;
 overdue tickets are flagged in the queue. All staff with `tickets.work` see all tickets.
 
-## ADR-038 — Rosters: teams, shift-by-shift publishing, and costed shifts with day loadings
+
+## ADR-038 — Feature switches enforced by the database too
+
+**Decision.** A switched-off feature is hidden by Postgres, not only by `loadTenantContext`.
+Migration `0043` adds `app.permission_feature(perm)` (the SQL twin of `FAMILY_FEATURE` in
+`src/lib/features.ts`) and `app.feature_enabled(tenant, feature)`. `app.has_permission` now
+returns false for a permission whose feature is off, and `app.my_context` returns only live
+grants. Every table that belongs to exactly one feature carries a restrictive `feature_switch`
+policy, so its rows can be neither read nor written while the feature is off. Tables shared
+across features (`employees`, `rosters`, `roster_shifts`, `payslips`, `time_entries`, `tasks`,
+`activities`, `projects`) are left to `has_permission` and the application, because hiding them
+would break a feature that is still on. The same migration makes `app.my_context` return the
+feature list, support flag, clock-in location and team members, so building a request's context
+is one query in one transaction instead of three.
+
+**Why.** Every other rule in the design has a second layer in the database. Before this, a
+service that forgot `requirePermission` would have exposed a switched-off module's data.
+
+**Consequences.** A new permission family must be added to both `FAMILY_FEATURE` and
+`app.permission_feature` (in a new migration); `tests/db/hardening.test.ts` fails if they differ.
+A new table owned by one feature gets a `feature_switch` policy in its RLS migration. Pages that
+read a feature's tables must check the feature first, as Settings now does for the pipeline.
+
+## ADR-039 — Per-sender limits and capped bodies on public forms
+
+**Decision.** Each public form keeps its hourly ceiling across all senders (raised to 200
+tickets per form, 200 reviews per link, 100 applications per job) and adds a per-sender limit of
+5 an hour. Senders are counted in `public_rate_limits`: fixed one-hour windows keyed by the form
+and an HMAC of the sender's address (key derived from the server secret), incremented with one
+atomic upsert. Old windows are swept on about one call in fifty. The address comes from
+`clientAddress()` (`x-vercel-forwarded-for`, then `x-real-ip`, then the first `x-forwarded-for`
+hop, valid IPs only). Every public route reads its body through `readBodyWithLimit()`, which
+stops at the limit whatever `Content-Length` says, so a chunked request cannot get past the cap.
+Over-limit requests get `RATE_LIMITED` and HTTP 429.
+
+**Why.** A per-form ceiling alone let one script use up a business's allowance and lock its
+real customers out. Rejecting a request by its declared length alone let a chunked upload
+(which declares none) through.
+
+**Consequences.** A distributed flood from many addresses can still reach a form's ceiling;
+add a challenge such as Cloudflare Turnstile if that is ever seen. Off Vercel, the proxy in
+front must overwrite the forwarding headers, or a sender can choose its own address. People
+behind one shared address share its limit.
+
+## ADR-040 — Rotating the staff details encryption key
+
+**Decision.** Field ciphertext now names its key: `v2.<key id>.<iv>.<tag>.<body>`, where the key
+id is a truncated SHA-256 fingerprint. `HR_ENCRYPTION_KEY` seals all new values;
+`HR_ENCRYPTION_KEYS_PREVIOUS` (comma-separated) may only read. Original `v1` values, which name
+no key, are read by trying each key, with GCM authentication picking the right one. The platform
+console shows how many staff records are still on an older key and has a "Re-encrypt now"
+control (`src/modules/hiring/key-rotation.ts`). It re-seals each row in its own transaction,
+leaves values no configured key can open untouched, and writes a `platform` audit row per
+business.
+
+**Why.** A key that cannot be replaced has to stay valid forever, even after a suspected leak
+or a staff change.
+
+**Consequences.** To rotate: add the old key to `HR_ENCRYPTION_KEYS_PREVIOUS`, set the new key,
+deploy, re-encrypt from `/platform`, confirm nothing is pending, then remove the old key.
+Removing it before re-encrypting makes those values unreadable.
+
+## ADR-041 — Rosters: teams, shift-by-shift publishing, and costed shifts with day loadings
 
 **Decision.** The roster keeps its week or fortnight container, and gains four things.
 
@@ -428,7 +491,7 @@ to someone who holds both `rosters.manage` and `employees.manage`. Loadings and 
 changed with `rosters.manage`. An edit to a published shift is seen by staff before it is
 announced; a business that wants edits held back should move the roster back to draft first.
 
-## ADR-039 — Award rates are read from the Fair Work pay database, by employment type
+## ADR-042 — Award rates are read from the Fair Work pay database, by employment type
 
 **Decision.** For anyone hired under a modern award, the rates Meroidea shows and checks pay
 against are the Fair Work Commission's own published rows, read through its Modern Awards Pay
@@ -445,7 +508,7 @@ Database API (`src/server/fair-work.ts`) and shaped by `src/modules/hiring/award
   agreed rate, the profile says so.
 - **Roster cost** uses the award's whole-day rates (Saturday, Sunday, public holiday) for a
   person whose award publishes exactly one for that day, as a ratio of the award's ordinary rate
-  applied to the person's agreed rate. The workspace's own loadings (ADR-038) remain the
+  applied to the person's agreed rate. The workspace's own loadings (ADR-041) remain the
   fallback for staff with no award or no such rate.
 
 Only rows in force today are used, in their latest published edition, and every page of a result
@@ -467,7 +530,7 @@ Groups of rates are matched to casual or permanent employment by the Commission'
 group title, which holds for the awards tested (restaurant, hospitality, retail, fast food,
 clerks) but is a reading of text, so the source wording is always shown beside the figure.
 
-## ADR-040 — Award rules are written down award by award, from the award's text
+## ADR-043 — Award rules are written down award by award, from the award's text
 
 **Decision.** For an award whose rules have been encoded, Meroidea works out what each rostered
 shift pays under the award. The first is the Restaurant Industry Award 2020 (MA000119), in
@@ -476,7 +539,7 @@ incorporating amendments to 1 July 2026. Each rule carries its clause number, an
 shown names the clause it applies.
 
 - The file holds **rules, never rates**. Dollar figures come from the person's rate schedule
-  (ADR-039), found by the Commission's own wording. If a rate the rules need is not published,
+  (ADR-042), found by the Commission's own wording. If a rate the rules need is not published,
   nothing is worked out and the screen says which rate is missing.
 - A person's shifts are costed **together for the roster period**, because overtime depends on
   their other shifts. Applied: ordinary, Saturday, Sunday and public holiday rates by the hour
@@ -492,7 +555,7 @@ shown names the clause it applies.
   (cl 10.7(c)).
 - Someone paid above the award keeps that margin on every rate in the cost; nobody is costed
   below the award. The award minimum is kept alongside.
-- Staff under any other award, or none, are costed as before (ADR-038, ADR-039).
+- Staff under any other award, or none, are costed as before (ADR-041, ADR-042).
 
 **Readings of the text that a reviewer should confirm.**
 1. Every hour worked on a public holiday is paid at the public holiday rate, including hours
@@ -520,7 +583,7 @@ when the Commission varies the award; `textAsAt` records what it was written fro
 not use it yet (ADR-028 still describes them). Each further award is its own file and its own
 review.
 
-## ADR-041 — Timesheets are approved day by day against the roster
+## ADR-044 — Timesheets are approved day by day against the roster
 
 **Decision.** Someone with `timesheets.manage` approves time on a daily screen
 (`/timesheets?view=day`). Each row is one published rostered shift, or one stretch of recorded
@@ -528,7 +591,7 @@ time with no shift. A person's clocked time is paired with their shift (the near
 there are several); a manager can correct it or, where nobody clocked in, type what was worked,
 then approve it. Time recorded this way is linked to the shift (`time_entries.shift_id`).
 Each row shows worked against rostered hours and, for whoever may see pay, the cost of each
-under the same rules as the roster (ADR-038 to ADR-040), now on hours actually worked.
+under the same rules as the roster (ADR-041 to ADR-043), now on hours actually worked.
 
 A pay period screen (`/timesheets?view=period`) covers the roster's period for the day, or the
 calendar week when no roster covers it: per person, rostered and approved hours, gross from
@@ -563,7 +626,7 @@ are not kept; the break on the Details sheet is a length, since break times are 
 By Shift Award Tag lists people only. Gross wage, age and pay columns are left out for anyone
 who does not manage employee records.
 
-## ADR-042 — Every employee has an Employee ID the database assigns and nobody can change
+## ADR-045 — Every employee has an Employee ID the database assigns and nobody can change
 
 **Decision.** `employees.employee_number` is an identity column the database always generates,
 starting at 100001. It is assigned the moment the employee record is created at hire, by every
@@ -588,17 +651,17 @@ held them, not by hire date. A business cannot bring its own numbering from anot
 that is needed it should be a separate, editable "payroll reference" field, not this one. The
 internal `id` (uuid) remains what tables reference.
 
-## ADR-043 — Payslips are made of pay lines, carry the employer's details, and show the year to date
+## ADR-046 — Payslips are made of pay lines, carry the employer's details, and show the year to date
 
-**Amends** ADR-028 (gross was hours × rate), ADR-032 and the payslip note in ADR-038 to ADR-041.
+**Amends** ADR-028 (gross was hours × rate), ADR-032 and the payslip note in ADR-041 to ADR-044.
 
 **Decision.**
 - **Pay lines.** A pay run turns each person's hours (rostered, or approved timesheet time)
   into lines with `src/modules/payroll/lines.ts`: under an award with written-down rules, the
   award's own lines (ordinary hours, Saturday, Sunday, public holiday, overtime bands, minimum
-  payments, the split shift allowance and late amounts) from the engine in ADR-040; otherwise
+  payments, the split shift allowance and late amounts) from the engine in ADR-043; otherwise
   hours at the agreed rate, with the workspace's Saturday, Sunday and public-holiday loading
-  (ADR-038). **Gross pay is the sum of the lines.** Each line of hours is settled once on its
+  (ADR-041). **Gross pay is the sum of the lines.** Each line of hours is settled once on its
   total, so hours × rate equals the amount shown.
 - **Super** is the chosen percentage of ordinary time earnings: every line except overtime.
 - **The employer's details** are kept per business (`tenants.settings.business`: name on
@@ -619,11 +682,10 @@ business it came from and running totals for the year. A single "hours × rate" 
 weekend, public holiday and overtime rates that the roster and timesheets already show.
 
 **Consequences.** Payslips for staff under the Restaurant Industry Award now depend on the six
-readings of that award listed in ADR-040, which should be confirmed by a qualified person
+readings of that award listed in ADR-043, which should be confirmed by a qualified person
 before a business relies on them for pay. Tax is still typed in, not calculated. Leave is not
 paid, accrued or shown. There is no logo upload yet: the payslip shows the business's initial.
 Payslips made before this have no lines, employer details or number; they are shown as one line
 of hours at their hourly rate, with the employer text typed at the time. Treating all
 non-overtime lines as ordinary time earnings for super is a simplification an accountant
 should confirm (expense-type allowances, when they are added, will need excluding).
-

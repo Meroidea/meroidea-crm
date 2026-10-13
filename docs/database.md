@@ -628,7 +628,7 @@ Two live rosters never cover the same day; the service checks this on create.
 ### roster_shifts
 Read policy: `rosters.manage` sees all; everyone else sees a shift only once that shift has been
 published (`published_at is not null`) on a published roster — their own, or everyone's with
-`rosters.view_all` (migrations 0032, 0043).
+`rosters.view_all` (migrations 0032, 0045).
 
 ```sql
 id, tenant_id,
@@ -654,7 +654,7 @@ still be told.
 
 ### roster_teams, roster_team_members
 The named, coloured groups people are rostered into. Replaced the free-text `position` tag
-(converted and dropped in migrations 0043 and 0044).
+(converted and dropped in migrations 0045 and 0046).
 ```sql
 -- roster_teams
 id, tenant_id,
@@ -772,7 +772,9 @@ created_at, updated_at, created_by, updated_by, deleted_at
 ### employee_payroll_details
 Entered once by the employee through their link, after accepting. Identifying numbers are
 AES-256-GCM ciphertext bound to the tenant and employee (`src/server/crypto.ts`); the key lives
-in `HR_ENCRYPTION_KEY`, never in the database.
+in `HR_ENCRYPTION_KEY`, never in the database. Each value starts with `v2.<key id>.` naming the
+key that sealed it; keys being retired go in `HR_ENCRYPTION_KEYS_PREVIOUS` until the platform
+console has re-encrypted every row (ADR-040).
 ```sql
 id, tenant_id,
 employee_id  uuid not null             -- unique (tenant_id, employee_id)
@@ -950,7 +952,7 @@ status        payslip_status not null default 'draft'   -- draft | released
 period_start, period_end, payment_date date not null
 employer_details text                  -- as printed
 employee_name text not null, position_title text
-employee_number integer             -- the Employee ID at the time; null on payslips older than migration 0049
+employee_number integer             -- the Employee ID at the time; null on payslips older than migration 0044
 number integer                      -- the employee's own count of payslips (1 for their first); null on older payslips
 employer jsonb                      -- the business as it described itself when the payslip was made: { name, legalName, businessNumber, address, phone, email, website, payrollContact }
 employment_type text, classification text
@@ -1209,6 +1211,18 @@ unique (tenant_id, user_id, dedupe_key) where dedupe_key is not null
 ### saved_views 🟡
 Per-user saved filters/columns for lists and the board.
 
+### public_rate_limits 🟢 (not tenant data; ADR-039)
+Per-sender counters for the public forms, written only by `src/server/rate-limit.ts` through
+`adminDb`. RLS is enabled with no policies, and `anon` and `authenticated` have no privileges.
+```sql
+bucket        text not null          -- one form or link, e.g. 'helpdesk:<tenant id>'
+subject_hash  text not null          -- HMAC of the sender's address; never the address itself
+window_start  timestamptz not null   -- start of the fixed one-hour window
+hits          integer not null default 1
+primary key (bucket, subject_hash, window_start)
+index (window_start)                 -- for sweeping windows older than a day
+```
+
 ### audit_logs 🟢
 Append-only.
 ```sql
@@ -1318,8 +1332,27 @@ in `src/server/db/admin.ts`, and must never be imported from a module that serve
 app.user_id()          → auth.uid()
 app.tenant_ids()       → setof uuid: tenants where the user has an active membership
 app.active_tenant_id() → current_setting('app.tenant_id', true)::uuid
-app.has_permission(tenant uuid, perm text) → boolean
+app.has_permission(tenant uuid, perm text) → boolean   -- false while perm's feature is off
+app.permission_feature(perm text) → text               -- feature a permission needs; null = always
+app.feature_enabled(tenant uuid, feature text) → boolean
+app.my_context(preferred uuid) → the signed-in person's workspace, live grants, features,
+                                 support flag, clock-in location and team members, in one row
 ```
+
+### Feature switches (ADR-038)
+Every table owned by exactly one feature also has a restrictive policy, ANDed with the
+permissive ones, so its rows vanish while the platform owner has the feature switched off:
+```sql
+create policy feature_switch on contacts as restrictive for all to authenticated
+  using      ((select app.feature_enabled((select app.active_tenant_id()), 'crm')))
+  with check ((select app.feature_enabled((select app.active_tenant_id()), 'crm')));
+```
+Covered: crm (`contacts`, `contact_organizations`, `organizations`, `opportunities`,
+`stage_history`, `partners`, `pipelines`, `pipeline_stages`, `lost_reasons`, `lead_sources`),
+helpdesk, reviews, recruitment, `project_tasks` and `task_time_logs`, inventory, purchasing,
+the document library, expenses, invoices and time off. Shared tables (`employees`, `rosters`,
+`roster_shifts`, `payslips`, `time_entries`, `tasks`, `activities`, `projects`) rely on
+`has_permission` and the application.
 
 ### Standard policy (every tenant-owned table)
 ```sql

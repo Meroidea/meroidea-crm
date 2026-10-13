@@ -38,7 +38,10 @@ Each permission family belongs to a feature the platform owner switches on per b
 `partners`, `organizations`, `products`, `reports` → **crm**; `tasks` → **tasks**; `rosters` →
 **roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
 of the same name. `settings`, `users`, `roles` and `audit` are always available. A grant whose
-feature is off is dropped when the context is built, for every role including Owner.
+feature is off is dropped when the context is built, for every role including Owner, and the
+database enforces the same rule: `app.has_permission` refuses it and the feature's own tables
+hide their rows (ADR-038). The SQL copy of this map is `app.permission_feature`; a DB test keeps
+the two identical.
 
 **Platform owners** are not a role inside a business. They are named in `PLATFORM_ADMIN_EMAILS`
 and work in `/platform`; inside a business they hold a temporary Owner seat marked as support.

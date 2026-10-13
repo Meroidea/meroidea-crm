@@ -74,7 +74,11 @@ change as touching sensitive personal data.
   review or ticket id from the caller.
 - The customer's ticket page must never return `is_internal` messages or staff identities
   beyond a display name.
-- Every public intake route keeps its honeypot, size limit, Zod parse and hourly cap.
+- Every public intake route keeps its honeypot, size limit, Zod parse, per-form hourly cap and
+  per-sender limit (ADR-039). Read bodies with `readJsonBody` / `readFormBody`
+  (`src/server/request.ts`), never `request.json()` after a `Content-Length` check: a chunked
+  request declares no length. Count senders with `enforceRateLimit` (`src/server/rate-limit.ts`),
+  which stores only a keyed hash of the address.
 
 ## Platform owners (ADR-029)
 
@@ -85,8 +89,9 @@ change as touching sensitive personal data.
   change to a business writes a row to that business's `audit_logs` with `actor_type = 'platform'`.
 - Never add a way to read a business's data that skips membership. Support access is a real,
   visible membership (`is_support`) so RLS keeps applying; remove it when the owner leaves.
-- A new permission family must be mapped to its feature in `src/lib/features.ts`, or the feature
-  switch will not hide it.
+- A new permission family must be mapped to its feature in `src/lib/features.ts` and in
+  `app.permission_feature`, or the feature switch will not hide it. A table owned by one feature
+  gets a restrictive `feature_switch` policy (ADR-038).
 
 ## Location (ADR-033)
 
@@ -102,6 +107,9 @@ change as touching sensitive personal data.
   `encryptField()` (`src/server/crypto.ts`). Never log them, put them in URLs, or select the
   ciphertext columns unless you are about to decrypt for an audited reveal.
 - Reading them requires `employees.view_sensitive`; every reveal calls `audit()` first.
+- Keys rotate without downtime (ADR-040): retiring keys go in `HR_ENCRYPTION_KEYS_PREVIOUS`,
+  re-encryption runs from `/platform`, and only then is the old key removed. Never decrypt with
+  a key that is not configured, and never overwrite a value that failed to open.
 - The new hire's one-time link path (`src/modules/hiring/public.ts`) is the only place outside
   provisioning that may use `adminDb` in a request. It must start from the link's hash and never
   accept a tenant or record id from the caller (ADR-026).

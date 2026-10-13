@@ -7,6 +7,7 @@ import { and, asc, eq, gte, isNull, ne, sql } from 'drizzle-orm';
 import { auditLogs, contacts, helpdeskForms, tenants, ticketMessages, tickets } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { adminDb } from '@/server/db/admin';
+import { enforceRateLimit } from '@/server/rate-limit';
 
 import { nextTicketNumber } from './numbering';
 import { responseDueAt, type PublicTicketInput } from './schemas';
@@ -19,8 +20,13 @@ import { responseDueAt, type PublicTicketInput } from './schemas';
  */
 
 const TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
-/** Tickets one form accepts per hour, and messages one ticket accepts per hour. */
-const FORM_HOURLY_LIMIT = 40;
+/**
+ * Tickets one sender may open through a form per hour; tickets one form accepts per hour from
+ * everyone together (a ceiling against a flood from many addresses); and messages one ticket
+ * accepts per hour. The per-sender limit is what stops one script locking real customers out.
+ */
+const SENDER_HOURLY_LIMIT = 5;
+const FORM_HOURLY_LIMIT = 200;
 const REPLY_HOURLY_LIMIT = 20;
 
 async function formByToken(token: string) {
@@ -50,9 +56,19 @@ export async function getPublicForm(token: string): Promise<{ businessName: stri
 export async function submitPublicTicket(
   token: string,
   input: PublicTicketInput,
+  sender: string | null,
 ): Promise<{ number: number; ticketToken: string }> {
   const form = await formByToken(token);
   if (!form) throw new AppError('NOT_FOUND', 'This contact form is not available.');
+  await enforceRateLimit(
+    {
+      bucket: `helpdesk:${form.tenantId}`,
+      subject: sender,
+      limit: SENDER_HOURLY_LIMIT,
+      windowSeconds: 3600,
+    },
+    'You have sent several requests already. Please wait a while before sending another.',
+  );
   const db = adminDb();
   const [recent] = await db
     .select({ total: sql<number>`count(*)::int` })
@@ -66,7 +82,7 @@ export async function submitPublicTicket(
     );
   if ((recent?.total ?? 0) >= FORM_HOURLY_LIMIT) {
     throw new AppError(
-      'CONFLICT',
+      'RATE_LIMITED',
       'We are receiving a lot of requests right now. Try again later.',
     );
   }
@@ -215,7 +231,7 @@ export async function replyAsCustomer(token: string, body: string): Promise<void
     );
   if ((recent?.total ?? 0) >= REPLY_HOURLY_LIMIT) {
     throw new AppError(
-      'CONFLICT',
+      'RATE_LIMITED',
       'That is a lot of messages. Please wait a little and try again.',
     );
   }

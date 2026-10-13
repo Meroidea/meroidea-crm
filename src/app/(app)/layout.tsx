@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { AppSidebar } from '@/components/layout/app-sidebar';
+import { DotBackground } from '@/components/layout/dot-background';
 import { PrivacyBlurToggle } from '@/components/layout/privacy-blur-toggle';
 import { UserMenu } from '@/components/layout/user-menu';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
@@ -23,7 +24,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           permissions={[...ctx.grants.keys()]}
           features={ctx.tenant.features}
         />
-        <SidebarInset className="min-w-0">
+        {/* Transparent, so the page shows the same dotted background as the public site. */}
+        <SidebarInset className="min-w-0 bg-transparent">
+          <DotBackground />
           {ctx.isSupport && (
             <SupportBanner tenantId={ctx.tenantId} businessName={ctx.tenant.name} />
           )}

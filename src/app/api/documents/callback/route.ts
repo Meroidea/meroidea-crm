@@ -2,6 +2,10 @@ import { callbackSignature, editorSettings, sessionKey } from '@/modules/files/e
 import { saveEditedVersion } from '@/modules/files/editor-save';
 import { MAX_DOCUMENT_BYTES } from '@/modules/files/formats';
 import { sameSignature, verifyJwt } from '@/server/jwt';
+import { readJsonBody } from '@/server/request';
+
+/** The editing server's notices are small JSON documents; anything far larger is not one. */
+const MAX_BODY_BYTES = 64 * 1024;
 
 /** The editing server expects exactly this body; anything else makes it retry or warn the user. */
 const reply = (error: 0 | 1) => Response.json({ error });
@@ -24,7 +28,9 @@ export async function POST(request: Request) {
     return new Response('Not found', { status: 404 });
   }
 
-  const body = (await request.json().catch(() => null)) as { token?: unknown } | null;
+  const body = (await readJsonBody(request, MAX_BODY_BYTES).catch(() => null)) as {
+    token?: unknown;
+  } | null;
   const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
   // The token arrives in the header (wrapping the body under "payload") or inside the body.
   const fromHeader = bearer ? verifyJwt(bearer, settings.secret) : null;

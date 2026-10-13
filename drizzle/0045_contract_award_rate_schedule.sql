@@ -1,1 +1,0 @@
-ALTER TABLE "employment_contracts" ADD COLUMN "rate_schedule" jsonb;

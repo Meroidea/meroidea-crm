@@ -1,6 +1,6 @@
 {
-  "id": "efa2f6a0-1bbf-45fc-8d63-9b664208b890",
-  "prevId": "730de72d-3a7e-45e7-bc4e-18aca72634fd",
+  "id": "20bf1155-1e7b-48c4-b815-ae40ed3a9c1b",
+  "prevId": "69792e33-4e28-42af-a0a4-1ec5753f6704",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3635,6 +3635,12 @@
           "notNull": true,
           "default": false
         },
+        "position": {
+          "name": "position",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "note": {
           "name": "note",
           "type": "text",
@@ -3800,7 +3806,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "roster_shifts_tenant_id_id_key": {
+          "name": "roster_shifts_tenant_id_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -4520,6 +4535,23 @@
           "primaryKey": false,
           "notNull": true
         },
+        "employee_number": {
+          "name": "employee_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "employees_employee_number_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "100001",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
         "user_id": {
           "name": "user_id",
           "type": "uuid",
@@ -4729,6 +4761,13 @@
             "tenant_id",
             "id"
           ]
+        },
+        "employees_employee_number_key": {
+          "name": "employees_employee_number_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "employee_number"
+          ]
         }
       },
       "policies": {},
@@ -4845,6 +4884,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'none'"
+        },
+        "rate_schedule": {
+          "name": "rate_schedule",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "below_minimum_reason": {
           "name": "below_minimum_reason",
@@ -6487,6 +6532,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "employee_number": {
+          "name": "employee_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "position_title": {
           "name": "position_title",
           "type": "text",
@@ -6547,6 +6598,37 @@
           "type": "char(3)",
           "primaryKey": false,
           "notNull": true
+        },
+        "number": {
+          "name": "number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "employer": {
+          "name": "employer",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "employment_type": {
+          "name": "employment_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "classification": {
+          "name": "classification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lines": {
+          "name": "lines",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "shifts": {
           "name": "shifts",
@@ -7239,6 +7321,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "shift_id": {
+          "name": "shift_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "clock_in": {
           "name": "clock_in",
           "type": "timestamp with time zone",
@@ -7421,6 +7509,21 @@
             "id"
           ],
           "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "time_entries_tenant_shift_fk": {
+          "name": "time_entries_tenant_shift_fk",
+          "tableFrom": "time_entries",
+          "tableTo": "roster_shifts",
+          "columnsFrom": [
+            "tenant_id",
+            "shift_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -9394,6 +9497,69 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.public_rate_limits": {
+      "name": "public_rate_limits",
+      "schema": "",
+      "columns": {
+        "bucket": {
+          "name": "bucket",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_hash": {
+          "name": "subject_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_start": {
+          "name": "window_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hits": {
+          "name": "hits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        }
+      },
+      "indexes": {
+        "public_rate_limits_window_idx": {
+          "name": "public_rate_limits_window_idx",
+          "columns": [
+            {
+              "expression": "window_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "public_rate_limits_bucket_subject_hash_window_start_pk": {
+          "name": "public_rate_limits_bucket_subject_hash_window_start_pk",
+          "columns": [
+            "bucket",
+            "subject_hash",
+            "window_start"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

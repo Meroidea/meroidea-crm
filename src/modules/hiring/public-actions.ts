@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 
 import { AppError, toActionError, type ActionResult } from '@/lib/errors';
+import { clientAddress } from '@/server/request';
 
 import { acceptOffer, declineOffer, submitPayrollDetails } from './public';
 import { acceptOfferSchema, declineOfferSchema, payrollDetailsSchema } from './schemas';
@@ -15,7 +16,7 @@ import { acceptOfferSchema, declineOfferSchema, payrollDetailsSchema } from './s
 async function requestMeta() {
   const list = await headers();
   return {
-    ip: list.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+    ip: clientAddress(list),
     userAgent: list.get('user-agent'),
   };
 }
