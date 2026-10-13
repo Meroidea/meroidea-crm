@@ -18,6 +18,8 @@ import { zonedToday } from '@/lib/dates';
 import { formatCalendarDate, formatDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { checkOffer, EMPLOYMENT_TYPE_LABELS, isBelowMinimum } from '@/modules/hiring/compliance';
+import { AwardRateTable } from '@/modules/hiring/components/award-rate-table';
+import { AwardRatesRefresh } from '@/modules/hiring/components/award-rates-refresh';
 import { ContractActions } from '@/modules/hiring/components/contract-actions';
 import { ContractBody } from '@/modules/hiring/components/contract-body';
 import { PayrollCard } from '@/modules/hiring/components/payroll-card';
@@ -121,6 +123,7 @@ export default async function StaffProfilePage({ params, searchParams }: PagePro
   const canSeePayroll = hasPermission(ctx, 'employees.view_sensitive');
   const status = PERSON_STATUS[employee.status];
 
+  const awardNow = contract?.rateSchedule?.minimumHourly ?? null;
   const payWarnings = contract
     ? [
         ...(isBelowMinimum(contract)
@@ -128,7 +131,21 @@ export default async function StaffProfilePage({ params, searchParams }: PagePro
               `The ${contract.payBasis === 'hourly' ? 'hourly rate' : 'salary'} is less than the minimum recorded for their classification (${formatMoney(contract.minimumRate, contract.currency)} an hour).${contract.belowMinimumReason ? ` Reason recorded: ${contract.belowMinimumReason}.` : ''}`,
             ]
           : []),
-        ...checkOffer(ctx.tenant.country, contract).warnings,
+        // The award may have moved since the contract was agreed: compare with the latest read.
+        ...(awardNow &&
+        awardNow !== contract.minimumRate &&
+        isBelowMinimum({ ...contract, minimumRate: awardNow })
+          ? [
+              `The award minimum is now ${formatMoney(awardNow, contract.currency)} an hour (read ${formatCalendarDate(contract.rateSchedule?.fetchedOn)}), which is more than the agreed ${contract.payBasis === 'hourly' ? 'rate' : 'salary'}. Pay at least the award rate, and issue a new contract if the terms need to change.`,
+            ]
+          : []),
+        ...checkOffer(ctx.tenant.country, {
+          ...contract,
+          // A later read of the award counts as the minimum having been checked.
+          minimumRate: contract.minimumRate ?? awardNow,
+          minimumIncludesCasualLoading:
+            contract.employmentType === 'casual' && Boolean(contract.rateSchedule?.minimumHourly),
+        }).warnings,
       ]
     : [];
 
@@ -346,6 +363,29 @@ export default async function StaffProfilePage({ params, searchParams }: PagePro
                     </div>
                   )}
                 </div>
+                {!contractor && contract.awardCode && (
+                  <div className="flex flex-col gap-3 rounded-xl border p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">Award rates</p>
+                      <AwardRatesRefresh
+                        contractId={contract.id}
+                        hasRates={Boolean(contract.rateSchedule)}
+                      />
+                    </div>
+                    {contract.rateSchedule ? (
+                      <AwardRateTable
+                        schedule={contract.rateSchedule}
+                        currency={contract.currency}
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {contract.classificationRef
+                          ? 'The award’s penalty rates and allowances have not been read for this contract yet.'
+                          : 'This contract’s classification was typed in rather than chosen from the pay database, so its award rates cannot be looked up.'}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Pay conditions come from the contract. To change them, issue a new contract.
                 </p>

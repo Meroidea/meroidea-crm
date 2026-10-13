@@ -16,6 +16,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import type { AwardRateSchedule } from '@/modules/hiring/award-rates';
+
 import { tenants } from './tenancy';
 
 export const employmentType = pgEnum('employment_type', [
@@ -127,6 +129,11 @@ export const employmentContracts = pgTable(
     classificationRef: text(),
     minimumRate: numeric({ precision: 14, scale: 2 }),
     rateSource: rateSource().notNull().default('none'),
+    /**
+     * The award's published rates for this classification and kind of employment, as last read
+     * from the pay database: minimum, penalty tables, allowances. Null when never looked up.
+     */
+    rateSchedule: jsonb().$type<AwardRateSchedule>(),
     /** Why a rate under the looked-up minimum is lawful (a junior or trainee rate, say). */
     belowMinimumReason: text(),
     contractorAbn: text(),

@@ -21,6 +21,7 @@ import {
 } from '@/modules/hiring/schemas';
 import {
   createHire,
+  refreshAwardRates,
   revealPayrollDetails,
   sendContract,
   withdrawContract,
@@ -350,5 +351,20 @@ describe('declining and withdrawing', () => {
     await withdrawContract(owner, created.contractId);
     expect(await getOfferByToken(second)).toBeNull();
     await expectCode(() => withdrawContract(member, created.contractId), 'FORBIDDEN');
+  });
+});
+
+describe('reading award rates again for a contract', () => {
+  it('is for whoever manages employee records, in their own workspace only', async () => {
+    const created = await createHire(owner, hire({ email: mail('award-rates') }));
+    await expectCode(() => refreshAwardRates(manager, created.contractId), 'FORBIDDEN');
+    await expectCode(() => refreshAwardRates(member, created.contractId), 'FORBIDDEN');
+    await expectCode(() => refreshAwardRates(outsider, created.contractId), 'NOT_FOUND');
+  });
+
+  it('refuses, without guessing, when the classification was typed in by hand', async () => {
+    const created = await createHire(owner, hire({ email: mail('award-typed') }));
+    // The contract names an award but no classification from the pay database to look up.
+    await expectCode(() => refreshAwardRates(owner, created.contractId), 'CONFLICT');
   });
 });

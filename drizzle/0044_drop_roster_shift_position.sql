@@ -1,0 +1,1 @@
+ALTER TABLE "roster_shifts" DROP COLUMN "position";

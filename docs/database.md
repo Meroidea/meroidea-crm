@@ -626,28 +626,75 @@ index (tenant_id, starts_on) where deleted_at is null
 Two live rosters never cover the same day; the service checks this on create.
 
 ### roster_shifts
-Read policy: `rosters.manage` sees all; on a published roster a person sees their own shifts, and
-everyone's only with `rosters.view_all` (migration 0032).
+Read policy: `rosters.manage` sees all; everyone else sees a shift only once that shift has been
+published (`published_at is not null`) on a published roster — their own, or everyone's with
+`rosters.view_all` (migrations 0032, 0043).
 
 ```sql
 id, tenant_id,
 roster_id     uuid not null            -- fk (tenant_id, roster_id) -> rosters
-user_id       uuid not null            -- fk (tenant_id, user_id) -> tenant_memberships
+user_id       uuid                     -- fk (tenant_id, user_id) -> tenant_memberships; null = vacant shift
+team_id       uuid                     -- fk (tenant_id, team_id) -> roster_teams
 starts_at     timestamptz not null
 ends_at       timestamptz not null     -- check (ends_at > starts_at); may fall on the next day
-break_minutes integer not null default 0   -- check: >= 0 and shorter than the shift
-position      text                     -- short free-text tag in the tenant's own words
+break_minutes integer not null default 0   -- unpaid break time; check: >= 0 and shorter than the shift
+breaks        jsonb not null default '[]'  -- [{ minutes, paid }]; break_minutes is the sum of the unpaid ones
+auto_breaks   boolean not null default false  -- breaks follow workforce_settings.break_rules
 note          text
+published_at  timestamptz              -- when staff were last shown this shift; null = never
+unpublished_changes boolean not null default true  -- added, changed or removed since then
 created_at, updated_at, created_by, updated_by, deleted_at
 index (tenant_id, roster_id) where deleted_at is null
 index (tenant_id, user_id, starts_at) where deleted_at is null
 ```
-One person's live shifts never overlap; the service checks this on save.
+One person's live shifts never overlap; the service checks this on save. Vacant shifts may
+overlap each other. A person given a team must be a member of it. A soft-deleted shift keeps
+`unpublished_changes = true` while its removal has not been published, so the person on it can
+still be told.
+
+### roster_teams, roster_team_members
+The named, coloured groups people are rostered into. Replaced the free-text `position` tag
+(converted and dropped in migrations 0043 and 0044).
+```sql
+-- roster_teams
+id, tenant_id,
+name       text not null               -- unique per tenant among live teams, ignoring case
+color      text not null default 'chart-3'  -- a design token: chart-1 … chart-5
+created_at, updated_at, created_by, updated_by, deleted_at
+unique (tenant_id, id)
+
+-- roster_team_members: plain membership rows, removed outright
+tenant_id, team_id, user_id, created_at, created_by
+primary key (team_id, user_id)
+fk (tenant_id, team_id) -> roster_teams, fk (tenant_id, user_id) -> tenant_memberships
+```
+
+### workforce_settings, public_holidays
+How a business costs and fills its shifts. No row means ordinary rates and the default break
+rules in `src/modules/roster/rules.ts`.
+```sql
+-- workforce_settings: one row per tenant
+tenant_id              uuid primary key
+saturday_loading       numeric(4,2) not null default 1   -- multiplier of the contract hourly rate
+sunday_loading         numeric(4,2) not null default 1
+public_holiday_loading numeric(4,2) not null default 1   -- check: each between 1 and 5
+break_rules            jsonb not null default '[]'        -- [{ fromMinutes, minutes, paid }]
+created_at, updated_at, created_by, updated_by
+
+-- public_holidays: each tenant's own list, removed outright
+id, tenant_id,
+day   date not null                    -- calendar day in the tenant timezone
+name  text not null
+created_at, created_by
+unique (tenant_id, day)
+```
 
 **RLS.** Unlike the other business tables, write access is enforced in the database as well as
-in the service: `insert` and `update` policies require `app.has_permission(tenant, 'rosters.manage')`.
-The `select` policies show a roster and its shifts to everyone in the tenant once published, and
-to `rosters.manage` holders before that. No delete grant: both tables are soft-deleted.
+in the service: `insert`, `update` and `delete` policies on all six roster tables require
+`app.has_permission(tenant, 'rosters.manage')`. Team names, loadings and holidays are readable by
+everyone in the tenant; team membership rows by `rosters.manage`, `rosters.view_all`, or the
+person they are about. `rosters`, `roster_shifts` and `roster_teams` are soft-deleted and have no
+delete grant.
 
 ---
 
@@ -706,6 +753,7 @@ award_code, award_name, classification text
 classification_ref text                -- id in the pay database the minimum was read from
 minimum_rate     numeric(14,2)         -- hourly minimum the pay was checked against
 rate_source      rate_source not null default 'none'   -- fair_work | manual | none
+rate_schedule  jsonb                   -- the award's published rates for this classification and employment type as last read: minimum (casual loading included), penalty tables, whole-day rates, allowances, dates. Null = never looked up
 below_minimum_reason text              -- required when pay_rate is under minimum_rate
 contractor_abn   text
 probation_months integer

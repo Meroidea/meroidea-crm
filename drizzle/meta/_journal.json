@@ -295,6 +295,34 @@
       "when": 1791526881603,
       "tag": "0041_pin_set_updated_at_search_path",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791856366903,
+      "tag": "0042_roster_teams_breaks_publishing",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791856731197,
+      "tag": "0043_roster_teams_rls_and_conversion",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791856760569,
+      "tag": "0044_drop_roster_shift_position",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791886758909,
+      "tag": "0045_contract_award_rate_schedule",
+      "breakpoints": true
     }
   ]
 }

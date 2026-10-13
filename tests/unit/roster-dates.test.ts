@@ -7,7 +7,7 @@ import {
   mondayOf,
   zonedDateTimeToInstant,
 } from '@/lib/dates';
-import { formatHours, positionCode, positionTone } from '@/modules/roster/hours';
+import { formatHours, teamCode } from '@/modules/roster/hours';
 import { saveShiftSchema } from '@/modules/roster/schemas';
 
 const SYDNEY = 'Australia/Sydney';
@@ -65,14 +65,10 @@ describe('shift display helpers', () => {
     expect(formatHours(0)).toBe('0h');
   });
 
-  it('abbreviates a tag to a short code', () => {
-    expect(positionCode('Front desk')).toBe('FD');
-    expect(positionCode('support')).toBe('SU');
-    expect(positionCode(null)).toBe('');
-  });
-
-  it('gives the same tag the same colour regardless of case', () => {
-    expect(positionTone('Front desk')).toBe(positionTone('front DESK'));
+  it('abbreviates a team name to a short code', () => {
+    expect(teamCode('Front desk')).toBe('FD');
+    expect(teamCode('support')).toBe('SU');
+    expect(teamCode(null)).toBe('');
   });
 });
 
@@ -86,17 +82,33 @@ describe('shift form validation', () => {
   };
 
   it('accepts a break typed into a form field and blank optional text', () => {
-    const parsed = saveShiftSchema.parse({ ...base, breakMinutes: '30', position: '  ', note: '' });
-    expect(parsed).toMatchObject({ breakMinutes: 30, position: null, note: null });
+    const parsed = saveShiftSchema.parse({
+      ...base,
+      teamId: '',
+      breaks: [{ minutes: '30', paid: false }],
+      note: '',
+    });
+    expect(parsed).toMatchObject({
+      teamId: null,
+      breaks: [{ minutes: 30, paid: false }],
+      autoBreaks: false,
+      note: null,
+    });
+  });
+
+  it('reads an empty person as a vacant shift', () => {
+    expect(saveShiftSchema.parse({ ...base, userId: '' }).userId).toBeNull();
   });
 
   it('accepts its own output, because the action re-validates what the form already parsed', () => {
-    const once = saveShiftSchema.parse({ ...base, breakMinutes: '30', position: '', note: '' });
+    const once = saveShiftSchema.parse({ ...base, breaks: [{ minutes: '30', paid: true }] });
     expect(saveShiftSchema.parse(once)).toEqual(once);
   });
 
-  it('rejects a malformed time and a negative break', () => {
+  it('rejects a malformed time and a break of no length', () => {
     expect(saveShiftSchema.safeParse({ ...base, startTime: '9am' }).success).toBe(false);
-    expect(saveShiftSchema.safeParse({ ...base, breakMinutes: -5 }).success).toBe(false);
+    expect(
+      saveShiftSchema.safeParse({ ...base, breaks: [{ minutes: 0, paid: false }] }).success,
+    ).toBe(false);
   });
 });

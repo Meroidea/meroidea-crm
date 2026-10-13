@@ -14,15 +14,18 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
   createHireAction,
-  getMinimumRateAction,
+  getAwardRatesAction,
   listClassificationsAction,
   searchAwardsAction,
 } from '@/modules/hiring/actions';
+import type { AwardRateSchedule } from '@/modules/hiring/award-rates';
+import { AwardRateTable } from '@/modules/hiring/components/award-rate-table';
 import {
   EMPLOYMENT_TYPE_HINTS,
   EMPLOYMENT_TYPE_LABELS,
   EMPLOYMENT_TYPES,
   isBelowMinimum,
+  type EmploymentType,
 } from '@/modules/hiring/compliance';
 import {
   createHireSchema,
@@ -56,6 +59,7 @@ export function HireForm({
   const [awards, setAwards] = useState<Option[]>([]);
   const [classifications, setClassifications] = useState<Option[]>([]);
   const [lookupNote, setLookupNote] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<AwardRateSchedule | null>(null);
   const [isLooking, startLookup] = useTransition();
   const {
     register,
@@ -133,6 +137,30 @@ export function HireForm({
       if (result.data.length === 0) setLookupNote('No award matched. Try a shorter word.');
     });
 
+  /** The minimum depends on the kind of employment, so it is read again when either changes. */
+  const loadRates = (code: string, ref: string, employment: EmploymentType) => {
+    setValue('minimumRate', '');
+    setSchedule(null);
+    if (!code || !ref || employment === 'contractor') return;
+    startLookup(async () => {
+      setLookupNote(null);
+      const result = await getAwardRatesAction({
+        awardCode: code,
+        classificationRef: ref,
+        employmentType: employment,
+      });
+      if (!result.ok) return setLookupNote(result.error.message);
+      setSchedule(result.data);
+      if (result.data?.minimumHourly) setValue('minimumRate', result.data.minimumHourly);
+      else {
+        setLookupNote(
+          result.data?.minimumBasis ??
+            'No minimum rate is published for that classification. Check the award.',
+        );
+      }
+    });
+  };
+
   const chooseAward = (code: string) => {
     const award = awards.find((option) => option.value === code);
     setValue('awardCode', code);
@@ -140,6 +168,7 @@ export function HireForm({
     setValue('classification', '');
     setValue('classificationRef', '');
     setValue('minimumRate', '');
+    setSchedule(null);
     setClassifications([]);
     if (!code) return;
     startLookup(async () => {
@@ -153,14 +182,7 @@ export function HireForm({
     const picked = classifications.find((option) => option.value === ref);
     setValue('classificationRef', ref);
     setValue('classification', picked?.label ?? '');
-    setValue('minimumRate', '');
-    if (!ref || typeof awardCode !== 'string' || !awardCode) return;
-    startLookup(async () => {
-      const result = await getMinimumRateAction({ awardCode, classificationRef: ref });
-      if (!result.ok) return setLookupNote(result.error.message);
-      if (result.data?.hourly) setValue('minimumRate', result.data.hourly);
-      else setLookupNote('No minimum rate is published for that classification. Check the award.');
-    });
+    loadRates(typeof awardCode === 'string' ? awardCode : '', ref, type);
   };
 
   const onSubmit = handleSubmit(async (values) => {
@@ -223,7 +245,14 @@ export function HireForm({
                   type="radio"
                   value={option}
                   className="sr-only"
-                  {...register('employmentType')}
+                  {...register('employmentType', {
+                    onChange: (event: { target: { value: string } }) =>
+                      loadRates(
+                        typeof awardCode === 'string' ? awardCode : '',
+                        typeof classificationRef === 'string' ? classificationRef : '',
+                        event.target.value as EmploymentType,
+                      ),
+                  })}
                 />
                 <span className="text-sm font-medium">{EMPLOYMENT_TYPE_LABELS[option]}</span>
                 <span className="text-xs text-muted-foreground">
@@ -355,6 +384,16 @@ export function HireForm({
                   {lookupNote}
                 </p>
               )}
+              {schedule && (
+                <details className="rounded-lg border px-3 py-2 sm:col-span-2" open>
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Award rates for this classification
+                  </summary>
+                  <div className="mt-3">
+                    <AwardRateTable schedule={schedule} currency={currency} />
+                  </div>
+                </details>
+              )}
             </>
           ) : (
             <>
@@ -427,7 +466,9 @@ export function HireForm({
               <ShieldCheck aria-hidden className="mt-0.5 size-4 shrink-0" />
             )}
             <span>
-              Minimum for this classification: ${minimumRate} an hour
+              Minimum for this classification
+              {type === 'casual' && schedule ? ', including the casual loading' : ''}: $
+              {minimumRate} an hour
               {fairWorkConnected ? ' (Fair Work pay database)' : ' (entered by you, not verified)'}.
               {below && ' The pay you entered is below it.'}
             </span>

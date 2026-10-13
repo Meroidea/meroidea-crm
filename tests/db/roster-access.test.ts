@@ -3,14 +3,35 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { rosterShifts } from '@/db/schema';
 import { AppError } from '@/lib/errors';
-import { getRosterForDate, listRosterShifts } from '@/modules/roster/queries';
-import { createRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
 import {
+  getRosterForDate,
+  getRosterRules,
+  listRemovedShifts,
+  listRosterRates,
+  listRosterShifts,
+  listRosterTeams,
+} from '@/modules/roster/queries';
+import { DEFAULT_BREAK_RULES } from '@/modules/roster/rules';
+import {
+  addHolidaySchema,
+  copyShiftSchema,
+  createRosterSchema,
+  publishRosterSchema,
+  saveRulesSchema,
+  saveShiftSchema,
+  saveTeamSchema,
+} from '@/modules/roster/schemas';
+import {
+  addHoliday,
+  copyShift,
   createRoster,
   deleteRoster,
   deleteShift,
+  deleteTeam,
   publishRoster,
+  saveRules,
   saveShift,
+  saveTeam,
   unpublishRoster,
 } from '@/modules/roster/service';
 import type { TenantContext } from '@/server/context';
@@ -57,10 +78,12 @@ const shift = (ctx: TenantContext, overrides: Record<string, unknown> = {}) =>
     date: '2031-03-03',
     startTime: '09:00',
     endTime: '17:00',
-    breakMinutes: 30,
-    position: 'Front desk',
+    breaks: [{ minutes: 30, paid: false }],
     ...overrides,
   });
+
+const publish = (id: string, options: Record<string, unknown> = {}) =>
+  publishRosterSchema.parse({ id, ...options });
 
 beforeAll(async () => {
   const alpha = await createWorkspace('Roster Alpha', mail('roster-alpha'));
@@ -102,7 +125,9 @@ describe('who can build a roster', () => {
       endTime: '17:00',
       overnight: false,
       paidMinutes: 450,
-      position: 'Front desk',
+      breakMinutes: 30,
+      published: false,
+      unpublishedChanges: true,
     });
   });
 
@@ -141,7 +166,7 @@ describe('who can build a roster', () => {
       'FORBIDDEN',
     );
     await expectCode(() => deleteShift(member, existing.id), 'FORBIDDEN');
-    await expectCode(() => publishRoster(member, rosterId), 'FORBIDDEN');
+    await expectCode(() => publishRoster(member, publish(rosterId)), 'FORBIDDEN');
     await expectCode(() => deleteRoster(member, rosterId), 'FORBIDDEN');
   });
 
@@ -175,7 +200,7 @@ describe('who can see a roster', () => {
   });
 
   it('shows it to a member once published, and hides it again when moved back to draft', async () => {
-    await publishRoster(owner, rosterId);
+    await publishRoster(owner, publish(rosterId));
     const seen = await getRosterForDate(member, '2031-03-05');
     expect(seen).toMatchObject({ id: rosterId, status: 'published' });
     expect(await listRosterShifts(member, rosterId)).toHaveLength(1);
@@ -183,7 +208,7 @@ describe('who can see a roster', () => {
     await unpublishRoster(owner, rosterId);
     expect(await getRosterForDate(member, '2031-03-05')).toBeNull();
     expect(await listRosterShifts(member, rosterId)).toHaveLength(0);
-    await publishRoster(owner, rosterId);
+    await publishRoster(owner, publish(rosterId));
   });
 
   it("general staff see only their own shifts; managers and the owner see everyone's", async () => {
@@ -195,9 +220,9 @@ describe('who can see a roster', () => {
         date: '2031-03-06',
         startTime: '10:00',
         endTime: '14:00',
-        breakMinutes: 0,
       }),
     );
+    await publishRoster(owner, publish(rosterId));
     const mine = await listRosterShifts(member, rosterId);
     expect(mine.map((row) => row.userId)).toEqual([member.userId]);
     // Straight at the database, past the service: still only their own.
@@ -216,7 +241,240 @@ describe('who can see a roster', () => {
     expect(await getRosterForDate(outsider, '2031-03-03')).toBeNull();
     expect(await listRosterShifts(outsider, rosterId)).toHaveLength(0);
     await expectCode(() => saveShift(outsider, shift(outsider)), 'NOT_FOUND');
-    await expectCode(() => publishRoster(outsider, rosterId), 'NOT_FOUND');
+    await expectCode(() => publishRoster(outsider, publish(rosterId)), 'NOT_FOUND');
+  });
+});
+
+describe('teams, vacant shifts and breaks', () => {
+  let teamId: string;
+
+  it('lets the owner create a team, and only its members can be rostered into it', async () => {
+    teamId = (
+      await saveTeam(
+        owner,
+        saveTeamSchema.parse({ name: 'Floor', color: 'chart-1', memberIds: [member.userId] }),
+      )
+    ).id;
+    const inTeam = await saveShift(
+      owner,
+      shift(member, { date: '2031-03-04', teamId, breaks: [] }),
+    );
+    expect(
+      (await listRosterShifts(owner, rosterId)).find((row) => row.id === inTeam.id),
+    ).toMatchObject({ teamId });
+    await expectCode(
+      () => saveShift(owner, shift(manager, { date: '2031-03-04', teamId, breaks: [] })),
+      'VALIDATION',
+    );
+    await deleteShift(owner, inTeam.id);
+  });
+
+  it('refuses a second team with the same name, whatever the capitals', async () => {
+    await expectCode(
+      () => saveTeam(owner, saveTeamSchema.parse({ name: 'FLOOR', color: 'chart-2' })),
+      'DUPLICATE',
+    );
+  });
+
+  it('refuses a member or a manager who tries to change teams or pay rules', async () => {
+    for (const ctx of [member, manager]) {
+      await expectCode(
+        () => saveTeam(ctx, saveTeamSchema.parse({ name: 'Mine', color: 'chart-2' })),
+        'FORBIDDEN',
+      );
+      await expectCode(() => deleteTeam(ctx, teamId), 'FORBIDDEN');
+      await expectCode(
+        () => saveRules(ctx, saveRulesSchema.parse({ saturday: 1, sunday: 2, publicHoliday: 2.5 })),
+        'FORBIDDEN',
+      );
+      await expectCode(
+        () => addHoliday(ctx, addHolidaySchema.parse({ day: '2031-03-05', name: 'A day off' })),
+        'FORBIDDEN',
+      );
+    }
+    const message = await rejectionMessage(() =>
+      withRls(member, (tx) =>
+        tx.execute(
+          sql`insert into roster_teams (tenant_id, name) values (${alphaTenant}, 'Sneaky')`,
+        ),
+      ),
+    );
+    expect(message).toMatch(/row-level security/i);
+  });
+
+  it('shows a member which teams they are in, but not who else is', async () => {
+    await saveTeam(
+      owner,
+      saveTeamSchema.parse({
+        id: teamId,
+        name: 'Floor',
+        color: 'chart-1',
+        memberIds: [member.userId, manager.userId],
+      }),
+    );
+    const seenByMember = await listRosterTeams(member);
+    expect(seenByMember.find((team) => team.id === teamId)?.memberIds).toEqual([member.userId]);
+    // The manager reads the whole roster, so sees the whole team.
+    const seenByManager = await listRosterTeams(manager);
+    expect(seenByManager.find((team) => team.id === teamId)?.memberIds.sort()).toEqual(
+      [member.userId, manager.userId].sort(),
+    );
+  });
+
+  it('never shows or changes another workspace’s teams, rules or holidays', async () => {
+    await saveRules(
+      owner,
+      saveRulesSchema.parse({ saturday: 1.25, sunday: 1.5, publicHoliday: 2.5, breakRules: [] }),
+    );
+    await addHoliday(owner, addHolidaySchema.parse({ day: '2031-03-07', name: 'Founders day' }));
+
+    expect(await listRosterTeams(outsider)).toHaveLength(0);
+    expect(await getRosterRules(outsider)).toEqual({
+      loadings: { saturday: 1, sunday: 1, publicHoliday: 1 },
+      breakRules: DEFAULT_BREAK_RULES,
+      holidays: [],
+    });
+    await expectCode(() => deleteTeam(outsider, teamId), 'NOT_FOUND');
+    await expectCode(
+      () =>
+        saveTeam(
+          outsider,
+          saveTeamSchema.parse({ name: 'Theirs', color: 'chart-3', memberIds: [member.userId] }),
+        ),
+      'VALIDATION',
+    );
+    const raw = (await withRls(outsider, (tx) =>
+      tx.execute(sql`select
+        (select count(*)::int from roster_teams) as teams,
+        (select count(*)::int from roster_team_members) as members,
+        (select count(*)::int from workforce_settings) as settings,
+        (select count(*)::int from public_holidays) as holidays`),
+    )) as unknown as Record<string, number>[];
+    expect(raw[0]).toEqual({ teams: 0, members: 0, settings: 0, holidays: 0 });
+
+    const own = await getRosterRules(member);
+    expect(own.loadings).toEqual({ saturday: 1.25, sunday: 1.5, publicHoliday: 2.5 });
+    expect(own.holidays.map((holiday) => holiday.day)).toEqual(['2031-03-07']);
+  });
+
+  it('keeps pay rates from anyone who does not manage employee records', async () => {
+    expect(await listRosterRates(member)).toBeNull();
+    expect(await listRosterRates(manager)).toBeNull();
+    expect(await listRosterRates(owner)).toEqual({});
+  });
+
+  it('saves a vacant shift, and takes only unpaid breaks off the hours worked', async () => {
+    const vacant = await saveShift(
+      owner,
+      shift(member, {
+        userId: '',
+        date: '2031-03-05',
+        startTime: '09:00',
+        endTime: '17:00',
+        breaks: [
+          { minutes: 30, paid: false },
+          { minutes: 10, paid: true },
+        ],
+      }),
+    );
+    const saved = (await listRosterShifts(owner, rosterId)).find((row) => row.id === vacant.id);
+    expect(saved).toMatchObject({ userId: null, breakMinutes: 30, paidMinutes: 450 });
+    expect(saved?.breaks).toHaveLength(2);
+
+    // Two vacant shifts at the same time are fine: nobody is double-booked.
+    const copied = await copyShift(
+      owner,
+      copyShiftSchema.parse({ id: vacant.id, dates: ['2031-03-07', '2031-03-08'] }),
+    );
+    expect(copied.created).toBe(2);
+    await expectCode(
+      () => copyShift(owner, copyShiftSchema.parse({ id: vacant.id, dates: ['2031-03-20'] })),
+      'VALIDATION',
+    );
+    await expectCode(
+      () => copyShift(member, copyShiftSchema.parse({ id: vacant.id, dates: ['2031-03-09'] })),
+      'FORBIDDEN',
+    );
+    for (const row of await listRosterShifts(owner, rosterId)) {
+      if (row.userId === null) await deleteShift(owner, row.id);
+    }
+  });
+});
+
+describe('publishing shift by shift', () => {
+  it('keeps a shift added to a published roster from staff until it is published', async () => {
+    await publishRoster(owner, publish(rosterId));
+    const before = await listRosterShifts(member, rosterId);
+
+    const added = await saveShift(
+      owner,
+      shift(member, { date: '2031-03-08', startTime: '08:00', endTime: '12:00', breaks: [] }),
+    );
+    expect((await listRosterShifts(member, rosterId)).map((row) => row.id)).toEqual(
+      before.map((row) => row.id),
+    );
+    // Straight at the database, past the service: the new shift is not there for them either.
+    const raw = await withRls(member, (tx) =>
+      tx.select({ id: rosterShifts.id }).from(rosterShifts),
+    );
+    expect(raw.map((row) => row.id)).not.toContain(added.id);
+    // Nor for a manager, who reads everyone's published shifts but does not build the roster.
+    expect((await listRosterShifts(manager, rosterId)).map((row) => row.id)).not.toContain(
+      added.id,
+    );
+
+    const outcome = await publishRoster(owner, publish(rosterId));
+    expect(outcome.published).toBe(1);
+    expect((await listRosterShifts(member, rosterId)).map((row) => row.id)).toContain(added.id);
+  });
+
+  it('marks a published shift as changed when it is edited, and clears that on publish', async () => {
+    const [target] = (await listRosterShifts(owner, rosterId)).filter(
+      (row) => row.date === '2031-03-08',
+    );
+    if (!target) throw new Error('no shift to change');
+    expect(target).toMatchObject({ published: true, unpublishedChanges: false });
+    await saveShift(
+      owner,
+      shift(member, {
+        id: target.id,
+        date: '2031-03-08',
+        startTime: '08:00',
+        endTime: '13:00',
+        breaks: [],
+      }),
+    );
+    const changed = (await listRosterShifts(owner, rosterId)).find((row) => row.id === target.id);
+    expect(changed).toMatchObject({ published: true, unpublishedChanges: true });
+
+    await publishRoster(owner, publish(rosterId));
+    const settled = (await listRosterShifts(owner, rosterId)).find((row) => row.id === target.id);
+    expect(settled).toMatchObject({ published: true, unpublishedChanges: false });
+  });
+
+  it('remembers a removed published shift until its removal has been published', async () => {
+    const [target] = (await listRosterShifts(owner, rosterId)).filter(
+      (row) => row.date === '2031-03-08',
+    );
+    if (!target) throw new Error('no shift to remove');
+    await deleteShift(owner, target.id);
+    const waiting = await listRemovedShifts(owner, rosterId);
+    expect(waiting.map((row) => row.id)).toEqual([target.id]);
+    await expectCode(() => listRemovedShifts(member, rosterId), 'FORBIDDEN');
+
+    const outcome = await publishRoster(owner, publish(rosterId, { notify: true, scope: 'all' }));
+    // Tests never send mail, so the outcome reports that nobody was emailed.
+    expect(outcome).toMatchObject({ published: 1, emailed: 0 });
+    expect(await listRemovedShifts(owner, rosterId)).toHaveLength(0);
+  });
+
+  it('forgets a shift that was removed before anyone was shown it', async () => {
+    const draft = await saveShift(
+      owner,
+      shift(member, { date: '2031-03-09', startTime: '08:00', endTime: '12:00', breaks: [] }),
+    );
+    await deleteShift(owner, draft.id);
+    expect(await listRemovedShifts(owner, rosterId)).toHaveLength(0);
   });
 });
 
@@ -234,10 +492,7 @@ describe('roster rules', () => {
       'CONFLICT',
     );
     // Someone else at the same time is fine.
-    await saveShift(
-      owner,
-      shift(manager, { startTime: '16:00', endTime: '20:00', breakMinutes: 0 }),
-    );
+    await saveShift(owner, shift(manager, { startTime: '16:00', endTime: '20:00', breaks: [] }));
   });
 
   it('refuses a shift outside the roster, for a non-member, or with a break as long as itself', async () => {
@@ -251,7 +506,7 @@ describe('roster rules', () => {
             date: '2031-03-04',
             startTime: '09:00',
             endTime: '10:00',
-            breakMinutes: 60,
+            breaks: [{ minutes: 60, paid: false }],
           }),
         ),
       'VALIDATION',
@@ -261,7 +516,7 @@ describe('roster rules', () => {
   it('treats an end time before the start as running overnight', async () => {
     await saveShift(
       owner,
-      shift(member, { date: '2031-03-06', startTime: '22:00', endTime: '06:00', breakMinutes: 0 }),
+      shift(member, { date: '2031-03-06', startTime: '22:00', endTime: '06:00', breaks: [] }),
     );
     const overnight = (await listRosterShifts(owner, rosterId)).find(
       (candidate) => candidate.date === '2031-03-06',
@@ -294,12 +549,17 @@ describe('roster rules', () => {
     await createRoster(owner, createRosterSchema.parse({ startsOn: '2031-03-10', span: 'week' }));
   });
 
-  it('writes an audit entry for creating and publishing a roster', async () => {
+  it('writes an audit entry for creating a roster and for every publish', async () => {
     const rows = (await withRls(owner, (tx) =>
-      tx.execute(sql`select action from audit_logs
+      tx.execute(sql`select action, context from audit_logs
                      where tenant_id = ${alphaTenant} and entity_type = 'roster'
                        and entity_id = ${rosterId} order by created_at`),
-    )) as unknown as { action: string }[];
-    expect(rows.map((row) => row.action)).toEqual(['create', 'update', 'update', 'update']);
+    )) as unknown as { action: string; context: { publishedShifts?: number } | null }[];
+    expect(rows[0]?.action).toBe('create');
+    expect(rows.slice(1).every((row) => row.action === 'update')).toBe(true);
+    // Every publish records how many shifts it showed to staff.
+    expect(
+      rows.filter((row) => typeof row.context?.publishedShifts === 'number').length,
+    ).toBeGreaterThanOrEqual(5);
   });
 });

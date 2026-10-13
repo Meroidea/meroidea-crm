@@ -1,3 +1,4 @@
+import type { AwardRateSchedule } from './award-rates';
 import type { EmploymentType, Statement } from './compliance';
 
 export type ContractStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'withdrawn';
@@ -30,6 +31,10 @@ export type ContractDetail = {
   classification: string | null;
   minimumRate: string | null;
   rateSource: 'fair_work' | 'manual' | 'none';
+  /** The award's published rates as last read from the pay database. */
+  rateSchedule: AwardRateSchedule | null;
+  /** Whether the award's rates can be read again: needs a classification from the database. */
+  classificationRef: string | null;
   belowMinimumReason: string | null;
   contractorAbn: string | null;
   probationMonths: number | null;

@@ -1,7 +1,12 @@
 'use server';
 
 import { authedAction } from '@/server/action';
-import { getMinimumRate, listClassifications, searchAwards } from '@/server/fair-work';
+import {
+  getAwardRates,
+  getMinimumRate,
+  listClassifications,
+  searchAwards,
+} from '@/server/fair-work';
 
 import {
   awardSearchSchema,
@@ -9,6 +14,7 @@ import {
   contractIdSchema,
   createHireSchema,
   employeeIdSchema,
+  awardRatesSchema,
   minimumRateSchema,
 } from './schemas';
 import * as hiringService from './service';
@@ -50,4 +56,14 @@ export const listClassificationsAction = authedAction(
 export const getMinimumRateAction = authedAction(
   { permission: 'employees.manage', input: minimumRateSchema },
   (_ctx, input) => getMinimumRate(input.awardCode, input.classificationRef),
+);
+
+export const getAwardRatesAction = authedAction(
+  { permission: 'employees.manage', input: awardRatesSchema },
+  (_ctx, input) => getAwardRates(input.awardCode, input.classificationRef, input.employmentType),
+);
+
+export const refreshAwardRatesAction = authedAction(
+  { permission: 'employees.manage', input: contractIdSchema, revalidate: ['/staff', '/roster'] },
+  (ctx, input) => hiringService.refreshAwardRates(ctx, input.id),
 );

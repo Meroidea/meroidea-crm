@@ -66,6 +66,9 @@ export const minimumRateSchema = z.object({
   awardCode: z.string().trim().min(3).max(20),
   classificationRef: z.string().trim().min(1).max(40),
 });
+export const awardRatesSchema = minimumRateSchema.extend({
+  employmentType: z.enum(['full_time', 'part_time', 'casual', 'fixed_term']),
+});
 
 const token = z.string().regex(/^[A-Za-z0-9_-]{40,50}$/);
 

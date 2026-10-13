@@ -14,7 +14,7 @@ import { linkEmployeeLogin } from '@/modules/hiring/staff-service';
 import { listPayslipsForRoster } from '@/modules/payroll/queries';
 import { authoriseRosterSchema } from '@/modules/payroll/schemas';
 import { authoriseRoster } from '@/modules/payroll/service';
-import { createRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
+import { createRosterSchema, publishRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
 import { createRoster, publishRoster, saveShift } from '@/modules/roster/service';
 import { workedMinutes } from '@/modules/timesheets/minutes';
 import { getOpenEntry, listTimeEntries } from '@/modules/timesheets/queries';
@@ -228,10 +228,9 @@ describe('paying from timesheets', () => {
         date: '2024-06-03',
         startTime: '09:00',
         endTime: '17:00',
-        breakMinutes: 0,
       }),
     );
-    await publishRoster(owner, rosterId);
+    await publishRoster(owner, publishRosterSchema.parse({ id: rosterId }));
   }, 60_000);
 
   it('refuses while entries in the period are still waiting', async () => {

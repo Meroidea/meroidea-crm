@@ -23,7 +23,7 @@ import {
 import { getPayslip, listMyPayslips, listPayslipsForRoster } from '@/modules/payroll/queries';
 import { authoriseRosterSchema } from '@/modules/payroll/schemas';
 import { authoriseRoster, releasePayslips, setTaxWithheld } from '@/modules/payroll/service';
-import { createRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
+import { createRosterSchema, publishRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
 import { createRoster, publishRoster, saveShift, unpublishRoster } from '@/modules/roster/service';
 import type { TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
@@ -236,7 +236,14 @@ describe('payslips from an authorised roster', () => {
     ) =>
       saveShift(
         owner,
-        saveShiftSchema.parse({ rosterId, userId, date, startTime, endTime, breakMinutes }),
+        saveShiftSchema.parse({
+          rosterId,
+          userId,
+          date,
+          startTime,
+          endTime,
+          breaks: breakMinutes ? [{ minutes: breakMinutes, paid: false }] : [],
+        }),
       );
     await shift(member.userId, '2031-06-02', '09:00', '17:00', 30);
     await shift(member.userId, '2031-06-03', '09:00', '12:20', 0);
@@ -274,7 +281,7 @@ describe('payslips from an authorised roster', () => {
 
   it('will not authorise a draft roster, and only the owner may authorise', async () => {
     await expectCode(() => authoriseRoster(owner, authorise()), 'CONFLICT');
-    await publishRoster(owner, rosterId);
+    await publishRoster(owner, publishRosterSchema.parse({ id: rosterId }));
     await expectCode(() => authoriseRoster(manager, authorise()), 'FORBIDDEN');
     await expectCode(() => authoriseRoster(outsider, authorise()), 'NOT_FOUND');
   });
@@ -318,7 +325,6 @@ describe('payslips from an authorised roster', () => {
             date: '2031-06-05',
             startTime: '09:00',
             endTime: '10:00',
-            breakMinutes: 0,
           }),
         ),
       'CONFLICT',

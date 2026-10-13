@@ -1,5 +1,6 @@
 import { formatCalendarDate } from '@/lib/format';
 
+import type { AwardRateSchedule } from './award-rates';
 import { EMPLOYMENT_TYPE_LABELS, type EmploymentType, type Statement } from './compliance';
 
 export type ContractData = {
@@ -19,7 +20,24 @@ export type ContractData = {
   contractorAbn: string | null;
   probationMonths: number | null;
   statements: Statement[];
+  /** The award's published rates when the offer was prepared, if they were looked up. */
+  rateSchedule?: AwardRateSchedule | null;
 };
+
+/** The award's own figures for this classification, so the offer shows what it was checked against. */
+function awardRateLines(schedule: AwardRateSchedule, currency: string): string[] {
+  const table = schedule.groups[0];
+  if (!schedule.minimumHourly || !table) return [];
+  const rates = table.lines
+    .map((line) => `${line.description}: ${money(line.hourly, currency)} per hour`)
+    .join('; ');
+  return [
+    `At the date of this offer the award minimum for your classification and type of employment is ${money(schedule.minimumHourly, currency)} per hour${
+      schedule.operativeFrom ? `, in force from ${formatCalendarDate(schedule.operativeFrom)}` : ''
+    }, as published by the Fair Work Commission.`,
+    `Published award rates at that date (${table.title}): ${rates}. These rates change when the award is varied; you will always be paid at least the rate the award requires for the hours you work.`,
+  ];
+}
 
 const money = (amount: string, currency: string) =>
   new Intl.NumberFormat('en-AU', { style: 'currency', currency }).format(Number(amount));
@@ -92,6 +110,7 @@ export function renderContract(data: ContractData): string {
         data.awardName
           ? `Your employment is covered by the ${data.awardName}${data.awardCode ? ` (${data.awardCode})` : ''}, classification: ${data.classification ?? 'to be confirmed'}. The award applies as varied from time to time and is not incorporated into this contract.`
           : 'No modern award is recorded as covering this position.',
+        ...(data.rateSchedule ? awardRateLines(data.rateSchedule, data.currency) : []),
         'Nothing in this contract gives you less than the National Employment Standards or any award that covers you.',
       ],
     ]);

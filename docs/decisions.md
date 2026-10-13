@@ -392,3 +392,78 @@ queue with clear ownership.
 on the ticket page. Targets are not business-hours aware and nothing is escalated automatically;
 overdue tickets are flagged in the queue. All staff with `tickets.work` see all tickets.
 
+## ADR-038 — Rosters: teams, shift-by-shift publishing, and costed shifts with day loadings
+
+**Decision.** The roster keeps its week or fortnight container, and gains four things.
+
+1. **Teams** (`roster_teams`, `roster_team_members`) replace the free-text shift tag. Each
+   business names and colours its own, and a person can only be rostered into a team they
+   belong to. Existing tags were converted to teams with their people as members.
+2. **Vacant shifts.** A shift may have no person yet (`user_id` null). It is never paid.
+3. **Publishing is per shift.** Each shift records when staff were last shown it
+   (`published_at`) and whether it has changed since (`unpublished_changes`). Staff see a shift
+   only once it has been published; a shift added to a published roster stays hidden until the
+   next publish. A change to an already-published shift is visible at once and stays flagged
+   until published, which is when the person can be emailed. A removed published shift is kept
+   flagged until its removal is published. Publishing can email each affected person their own
+   shifts; mail is sent after the change is saved and never undoes it.
+4. **Shift cost with day loadings.** A shift is costed as paid hours × the person's accepted
+   contract hourly rate × a loading for the day it starts on. Each business sets its own
+   Saturday, Sunday and public-holiday multipliers and keeps its own list of public holidays
+   (`workforce_settings`, `public_holidays`). Breaks are a list of paid and unpaid breaks, filled
+   in from the business's break rules unless set by hand; only unpaid breaks come off the hours.
+
+**Why.** The owner asked for the roster to work the way the scheduling tool their clients
+already know does: build by day, see the cost as you go, and publish changes without
+re-announcing the whole week. A single weekend multiplier chosen by the business is honest about
+what it is, where a built-in award table would claim an accuracy the platform cannot keep up to
+date (the reasoning in ADR-028 still stands).
+
+**Consequences.** This amends ADR-028 for **cost on the roster only**: payslips are still hours
+× contract rate with no loading, so a roster's cost can be higher than the gross on the payslips
+made from it until loadings are applied to pay, which is planned with the timesheet milestone.
+A whole shift takes the loading of its start day; a shift that runs past midnight is not split.
+Salaried staff and anyone without an accepted hourly contract are not costed. Cost is shown only
+to someone who holds both `rosters.manage` and `employees.manage`. Loadings and break rules are
+changed with `rosters.manage`. An edit to a published shift is seen by staff before it is
+announced; a business that wants edits held back should move the roster back to draft first.
+
+## ADR-039 — Award rates are read from the Fair Work pay database, by employment type
+
+**Decision.** For anyone hired under a modern award, the rates Meroidea shows and checks pay
+against are the Fair Work Commission's own published rows, read through its Modern Awards Pay
+Database API (`src/server/fair-work.ts`) and shaped by `src/modules/hiring/award-rates.ts`:
+
+- The **minimum for an ordinary hour depends on the kind of employment**. For a full-time,
+  part-time or fixed-term employee it is the classification's base rate. For a casual it is the
+  award's published casual rate, which includes the casual loading. Juniors and apprentices are
+  separate classifications with their own rates. The offer check compares pay with that figure.
+- The full **rate schedule** for the classification (ordinary and penalty rates, overtime,
+  allowances) is stored on the contract (`employment_contracts.rate_schedule`), shown in the hire
+  form and on the staff profile, and summarised in the contract wording at the date of the offer.
+  It can be read again at any time from the staff profile; if the award has since risen above the
+  agreed rate, the profile says so.
+- **Roster cost** uses the award's whole-day rates (Saturday, Sunday, public holiday) for a
+  person whose award publishes exactly one for that day, as a ratio of the award's ordinary rate
+  applied to the person's agreed rate. The workspace's own loadings (ADR-038) remain the
+  fallback for staff with no award or no such rate.
+
+Only rows in force today are used, in their latest published edition, and every page of a result
+is read. No dollar figure is typed into the code or multiplied out by it: where the database does
+not publish a figure (a casual rate, a whole-day rate) the schedule says so and nothing is assumed.
+
+**Why.** The previous check compared a casual's pay with the base rate, without the loading, and
+read only the first page of an award's classifications. Rates change at least every July, and the
+only defensible source is the Commission's own.
+
+**Consequences.** The pay database gives rates, not rules. *When* a rate applies (the hour
+overtime starts, minimum shift lengths, evening and night windows, split shifts, how penalties
+combine, when an allowance is owed) is in each award's text and is **not** applied automatically:
+roster cost covers whole-day rates only and is an estimate, and payslips are still hours × the
+agreed rate (ADR-028). Tax and superannuation are unchanged. Which award and classification
+covers a person remains the employer's decision; a wrong choice gives wrong rates. A contract
+whose classification was typed in before the database was connected cannot be looked up.
+Groups of rates are matched to casual or permanent employment by the Commission's wording of the
+group title, which holds for the awards tested (restaurant, hospitality, retail, fast food,
+clerks) but is a reading of text, so the source wording is always shown beside the figure.
+

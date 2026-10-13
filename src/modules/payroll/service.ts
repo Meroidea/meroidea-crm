@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import {
   employeePayrollDetails,
@@ -78,6 +78,8 @@ export async function authoriseRoster(
                 eq(rosterShifts.tenantId, ctx.tenantId),
                 eq(rosterShifts.rosterId, roster.id),
                 isNull(rosterShifts.deletedAt),
+                // A vacant shift was never worked by anyone.
+                isNotNull(rosterShifts.userId),
               ),
             )
             .orderBy(rosterShifts.startsAt);
@@ -92,6 +94,7 @@ export async function authoriseRoster(
 
     const worked = new Map<string, { minutes: number; shifts: PayslipShift[] }>();
     for (const shift of shifts) {
+      if (!shift.userId) continue;
       const minutes =
         Math.round((shift.endsAt.getTime() - shift.startsAt.getTime()) / 60_000) -
         shift.breakMinutes;
