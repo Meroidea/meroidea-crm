@@ -21,6 +21,7 @@ import {
   TrendingUp,
   UsersRound,
   IdCard,
+  MessageSquareWarning,
   Palmtree,
   Timer,
   KanbanSquare,
@@ -190,6 +191,13 @@ export const NAVIGATION: NavGroup[] = [
         icon: Palmtree,
         label: { title: 'Time off' },
         permission: 'timeoff.request',
+        available: true,
+      },
+      {
+        href: '/concerns',
+        icon: MessageSquareWarning,
+        label: { title: 'Concerns' },
+        permission: 'concerns.raise',
         available: true,
       },
       {

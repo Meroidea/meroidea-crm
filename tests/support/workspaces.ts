@@ -66,6 +66,8 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
   const db = adminDb();
   for (const table of [
     'tenant_agreements',
+    'concern_messages',
+    'concerns',
     'ticket_messages',
     'tickets',
     'customer_reviews',

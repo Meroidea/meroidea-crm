@@ -18,3 +18,4 @@ export * from './reviews';
 export * from './helpdesk';
 export * from './rate-limits';
 export * from './agreements';
+export * from './concerns';

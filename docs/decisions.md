@@ -762,3 +762,31 @@ else fails, the acceptance still stands, nothing is created, the reason is audit
 admin can give a login from the profile. Without an email provider the hire is not sent the
 password link; the admin sends one from Settings → Team (shown once to pass on), or the hire uses
 "Forgot password" once email is set up. Moving people between teams has no screen yet.
+
+## ADR-049 — Staff concerns, with "the admin only" enforced by the database
+
+**Decision.** A new feature, **Staff concerns** (`concerns`), lets anyone in a business raise a
+concern (roster, pay, workplace, safety, how someone is treated, other) with **a manager** or with
+**the admin only**, then follow a conversation on it. Three permissions: `concerns.raise`
+(everyone), `concerns.handle` (Manager and Admin: concerns raised with a manager) and
+`concerns.handle_all` (Admin: every concern). RLS decides visibility, so a concern raised with
+the admin only is invisible to managers at the database, not just hidden on screen. Those who
+answer move it from open to being looked at (automatically on their first reply) to resolved,
+and can reopen it; the person who raised it cannot change its status, and nobody can change what
+was raised or with whom. When one is raised, those who can answer it are emailed that a concern
+is waiting, without its content. Concerns are never deleted. The feature is in the starting set
+for every kind of business with staff; existing businesses get the role grants, but the feature
+stays off until the platform owner switches it on (ADR-029).
+
+**Why.** Staff need a way to raise a problem that does not depend on catching the right person on
+shift, and a concern is often about a manager, so "the admin only" has to be a guarantee the
+manager cannot get around. Putting it in RLS means a mistake in a page or service cannot leak
+it. Leaving the content out of emails and the audit log keeps sensitive workplace matters out of
+shared inboxes and logs.
+
+**Consequences.** Raising is not anonymous: the raiser's name is shown, and the form says so. In a
+small business the system cannot keep someone anonymous from context, so it does not promise
+to. This is not a whistleblower channel under the Corporations Act, and nothing here gives legal
+protections. A Manager's concern raised "with a manager" is visible to the other managers; to
+reach the admin alone they choose that option. There are no attachments, reminders or reports
+yet.

@@ -45,7 +45,7 @@ re-implement scope logic.
 Each permission family belongs to a feature the platform owner switches on per business
 (`src/lib/features.ts`): `contacts`, `opportunities`, `revenue`, `activities`, `documents`,
 `partners`, `organizations`, `products`, `reports` → **crm**; `tasks` → **tasks**; `rosters` →
-**roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
+**roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses`, `concerns` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
 of the same name. `settings`, `users`, `roles` and `audit` are always available. A grant whose
 feature is off is dropped when the context is built, for every role including Admin, and the
 database enforces the same rule: `app.has_permission` refuses it and the feature's own tables
@@ -108,6 +108,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `reviews.manage` | | Create and switch review links, mark reviews read or followed up, keep notes, remove a review |
 | `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee |
 | `tickets.manage` | | Switch the public contact form on or off, delete tickets |
+| `concerns.raise` | | Raise a concern with a manager or with the admin alone, follow it and reply (ADR-049) |
+| `concerns.handle` | | Read, answer and change the status of concerns raised with a manager. Never those raised with the admin only. Enforced again by RLS on `concerns` / `concern_messages` |
+| `concerns.handle_all` | | Read, answer and change the status of every concern, including those raised with the admin only |
 | `payroll.manage` | | Authorise a roster for pay, enter tax withheld, release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
 | `purchasing.manage` | | See and manage suppliers and their price lists, and place, re-send and cancel orders. Enforced again by RLS on `suppliers`, `supplier_items`, `purchase_orders`, `purchase_order_lines` |
 | `inventory.view` | | See stock items, quantities, values and each item's history |
@@ -175,6 +178,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | reviews.manage | ✓ | ✓ | | |
 | tickets.work | ✓ | ✓ | ✓ | ✓ |
 | tickets.manage | ✓ | ✓ | | |
+| concerns.raise | ✓ | ✓ | ✓ | ✓ |
+| concerns.handle | ✓ | ✓ | | |
+| concerns.handle_all | ✓ | | | |
 | payroll.manage | ✓ | | | |
 | purchasing.manage | ✓ | | | |
 | inventory.view | ✓ | ✓ | ✓ | ✓ |

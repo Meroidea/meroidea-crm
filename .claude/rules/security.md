@@ -106,6 +106,16 @@ change as touching sensitive personal data.
 - A business in `awaiting_agreement` is closed to its own people in `requireTenantContext` and
   `authedAction`, exactly like `suspended`.
 
+## Staff concerns (ADR-049)
+
+- A concern raised with the admin only must never reach a manager. That rule lives in the RLS
+  policies on `concerns` / `concern_messages`; never read them through `adminDb` or widen
+  `concerns.handle` to cover them.
+- What a concern says never goes into `audit_logs`, emails or logs. Notification emails say only
+  that a concern is waiting.
+- Nobody changes the status of a concern they raised, and nobody can change what was raised or
+  with whom (column grants).
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a
