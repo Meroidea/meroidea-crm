@@ -64,7 +64,8 @@ const lead = (ctx: TenantContext, overrides: Record<string, unknown> = {}) =>
       sourceId,
       subSourceId,
       leadType: 'b2b',
-      companyName: 'Example Pty Ltd',
+      // Each lead its own company: the same name at one company is a duplicate (§3.4).
+      companyName: `Example ${Math.random().toString(36).slice(2, 9)} Pty Ltd`,
       jobTitle: 'Manager',
       interest: 'Annual plan',
       ...overrides,
