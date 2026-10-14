@@ -359,3 +359,68 @@ describe('B2C conversion', () => {
     await setCrm({});
   });
 });
+
+describe('outreach', () => {
+  it('fills merge fields and leaves unknown ones empty', async () => {
+    const { renderMergeFields } = await import('@/modules/outreach/service');
+    expect(
+      renderMergeFields(
+        'Hi {{contact.first_name}} at {{ contact.company }} — {{user.name}}{{nope}}',
+        {
+          firstName: 'Avery',
+          lastName: null,
+          company: 'Example Pty Ltd',
+          userName: 'Sam',
+          businessName: 'Leads Co',
+        },
+      ),
+    ).toBe('Hi Avery at Example Pty Ltd — Sam');
+  });
+
+  it('refuses to email someone who asked not to be emailed', async () => {
+    const { sendContactEmail } = await import('@/modules/outreach/service');
+    const { id } = await createContact(sdr, lead({ doNotEmail: true }));
+    await expectCode(
+      () =>
+        sendContactEmail(sdr, { contactId: id, subject: 'Hello', body: 'Hi', templateId: null }),
+      'CONFLICT',
+    );
+  });
+
+  it('turns a sequence into dated tasks, and stopping it cancels the open ones', async () => {
+    const { enrollInSequence, stopEnrollment } = await import('@/modules/outreach/service');
+    const { saveSequence } = await import('@/modules/crm-config/service');
+    const { id: sequenceId } = await saveSequence(admin, {
+      name: `Welcome ${Math.random()}`,
+      description: null,
+      steps: [
+        { id: 'a', day: 1, type: 'email', title: 'Intro', templateId: null },
+        { id: 'b', day: 3, type: 'call', title: 'Call', templateId: null },
+      ],
+    });
+    const { id } = await createContact(sdr, lead());
+    const enrollment = await enrollInSequence(sdr, { contactId: id, sequenceId, assignedTo: null });
+    const open = (await adminDb().execute(
+      sql`select count(*)::int as total from tasks where sequence_enrollment_id = ${enrollment.id} and status = 'open'`,
+    )) as unknown as { total: number }[];
+    expect(open[0]?.total).toBe(2);
+    await expectCode(
+      () => enrollInSequence(sdr, { contactId: id, sequenceId, assignedTo: null }),
+      'CONFLICT',
+    );
+    await stopEnrollment(sdr, enrollment.id);
+    const cancelled = (await adminDb().execute(
+      sql`select count(*)::int as total from tasks where sequence_enrollment_id = ${enrollment.id} and status = 'cancelled'`,
+    )) as unknown as { total: number }[];
+    expect(cancelled[0]?.total).toBe(2);
+  });
+
+  it('accepts only the business’s own call outcomes, and a call needs nothing more', async () => {
+    const { id } = await createContact(sdr, lead());
+    await expectCode(
+      () => logActivity(sdr, { type: 'call', body: '', outcome: 'Made up', contactId: id }),
+      'VALIDATION',
+    );
+    await logActivity(sdr, { type: 'call', body: '', outcome: 'Left voicemail', contactId: id });
+  });
+});

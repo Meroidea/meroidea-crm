@@ -230,7 +230,10 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
       <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
         <div className="flex flex-col gap-4">
           {hasPermission(ctx, 'activities.create') && (
-            <ActivityComposer opportunityId={opportunity.id} />
+            <ActivityComposer
+              opportunityId={opportunity.id}
+              callOutcomes={readCrmSettings(ctx.tenant.settings).callOutcomes}
+            />
           )}
           <Card>
             <CardHeader>

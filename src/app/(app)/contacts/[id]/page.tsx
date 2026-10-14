@@ -30,6 +30,10 @@ import { HouseholdLinks } from '@/modules/leads/components/household-links';
 import { LeadPanel } from '@/modules/leads/components/lead-panel';
 import { getLeadConfig } from '@/modules/leads/config';
 import { leadPanelData } from '@/modules/leads/panel-data';
+import { getEmailTemplates, getSequences } from '@/modules/crm-config/queries';
+import { listActiveMembers } from '@/modules/members/queries';
+import { SendEmailButton, SequencePanel } from '@/modules/outreach/components/outreach-tools';
+import { listEnrollments } from '@/modules/outreach/queries';
 import { hasPermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'Contact' };
@@ -82,6 +86,10 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     customFields,
     leadConfig,
     contactOptions,
+    templates,
+    sequenceOptions,
+    enrollments,
+    members,
   ] = await Promise.all([
     canEdit && hasPermission(ctx, 'organizations.view')
       ? listOrganizationOptions(ctx)
@@ -95,7 +103,17 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     getCustomFields(ctx, 'contact'),
     getLeadConfig(ctx),
     canEdit ? listContactOptions(ctx) : Promise.resolve([]),
+    hasPermission(ctx, 'activities.create') ? getEmailTemplates(ctx, true) : Promise.resolve([]),
+    hasPermission(ctx, 'tasks.manage') ? getSequences(ctx, true) : Promise.resolve([]),
+    listEnrollments(ctx, contact.id),
+    hasPermission(ctx, 'tasks.assign_others') ? listActiveMembers(ctx) : Promise.resolve([]),
   ]);
+  const canEmail =
+    hasPermission(ctx, 'activities.create') &&
+    Boolean(contact.email) &&
+    !contact.doNotEmail &&
+    contact.status !== 'do_not_contact' &&
+    !contact.anonymizedAt;
   const shownCustom = customFields.filter(
     (field) => field.isActive || contact.customFields[field.key] !== undefined,
   );
@@ -148,7 +166,10 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
           </p>
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
-          {contact.email && !contact.doNotEmail && (
+          {canEmail && contact.email && (
+            <SendEmailButton contactId={contact.id} to={contact.email} templates={templates} />
+          )}
+          {!canEmail && contact.email && !contact.doNotEmail && (
             <Button asChild variant="outline" className="flex-1 sm:flex-none">
               <a href={`mailto:${contact.email}`}>
                 <Mail aria-hidden /> Email
@@ -330,7 +351,12 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
               </CardContent>
             </Card>
           )}
-          {hasPermission(ctx, 'activities.create') && <ActivityComposer contactId={contact.id} />}
+          {hasPermission(ctx, 'activities.create') && (
+            <ActivityComposer
+              contactId={contact.id}
+              callOutcomes={leadConfig.settings.callOutcomes}
+            />
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Timeline</CardTitle>
@@ -424,6 +450,28 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
               />
             </CardContent>
           </Card>
+          {(enrollments.length > 0 || (canEdit && sequenceOptions.length > 0)) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Sequences</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SequencePanel
+                  contactId={contact.id}
+                  enrollments={enrollments}
+                  sequences={sequenceOptions.map((sequence) => ({
+                    value: sequence.id,
+                    label: sequence.name,
+                  }))}
+                  people={members.map((member) => ({
+                    value: member.userId,
+                    label: member.fullName,
+                  }))}
+                  canManage={canEdit && hasPermission(ctx, 'tasks.manage')}
+                />
+              </CardContent>
+            </Card>
+          )}
           {showHousehold && (
             <Card>
               <CardHeader>

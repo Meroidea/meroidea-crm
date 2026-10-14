@@ -10,8 +10,9 @@ import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 import { contactRecord } from '@/modules/contacts/access';
 import { noteOutreach, OUTREACH_TYPES } from '@/modules/leads/outreach';
+import { readCrmSettings } from '@/modules/leads/settings';
 
-import type { LogActivityInput } from './schemas';
+import { CALL_OUTCOMES, type LogActivityInput } from './schemas';
 
 type SystemActivity = {
   type:
@@ -106,15 +107,26 @@ export async function logActivity(
       assertCanAccess(ctx, 'contacts.view', contactRecord(contact));
     }
 
+    let outcome: string | null = null;
+    if (input.type === 'call' && input.outcome) {
+      const allowed = [...readCrmSettings(ctx.tenant.settings).callOutcomes, ...CALL_OUTCOMES];
+      if (!allowed.includes(input.outcome)) {
+        throw new AppError('VALIDATION', 'Choose one of the call outcomes.', {
+          outcome: ['Invalid'],
+        });
+      }
+      outcome = input.outcome;
+    }
+
     const now = new Date();
     const [created] = await tx
       .insert(activities)
       .values({
         tenantId: ctx.tenantId,
         type: input.type,
-        body: input.body,
+        body: input.body || null,
         direction: input.type === 'note' ? null : (input.direction ?? 'outbound'),
-        outcome: input.type === 'call' ? (input.outcome ?? null) : null,
+        outcome: input.type === 'call' ? outcome : null,
         occurredAt: now,
         contactId,
         opportunityId,
