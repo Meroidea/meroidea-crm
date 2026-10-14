@@ -101,6 +101,9 @@ export const updateContactSchema = contactFieldsSchema.extend({ id: z.uuid() });
 
 export const contactIdSchema = z.object({ id: z.uuid() });
 
+/** Keep one record of a person and fold the other into it. */
+export const mergeContactsSchema = z.object({ keepId: z.uuid(), dropId: z.uuid() });
+
 export const duplicateCheckSchema = z.object({
   firstName: z.string().trim().max(80).optional(),
   lastName: z.string().trim().max(80).optional(),

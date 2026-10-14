@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { activities, contacts, opportunities } from '@/db/schema';
 import { AppError } from '@/lib/errors';
@@ -83,6 +83,32 @@ export async function recordSystemActivities(
       metadata: event.metadata ?? {},
     })),
   );
+}
+
+/**
+ * Erasure on request (docs/leads.md §6): what people wrote about a person goes; the fact that a
+ * call or email happened stays, so reports still add up. System events keep their wording,
+ * which never names the person.
+ */
+export async function redactContactActivities(
+  tx: Tx,
+  ctx: Pick<TenantContext, 'tenantId'>,
+  contactId: string,
+): Promise<void> {
+  await tx
+    .update(activities)
+    .set({ body: null })
+    .where(and(eq(activities.tenantId, ctx.tenantId), eq(activities.contactId, contactId)));
+  await tx
+    .update(activities)
+    .set({ subject: 'Details erased on request' })
+    .where(
+      and(
+        eq(activities.tenantId, ctx.tenantId),
+        eq(activities.contactId, contactId),
+        inArray(activities.type, ['call', 'email', 'meeting', 'message', 'note', 'enquiry']),
+      ),
+    );
 }
 
 /** Logs a call, email, meeting, message or note against a record the person can see. */

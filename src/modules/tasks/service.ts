@@ -15,6 +15,18 @@ import { contactRecord } from '@/modules/contacts/access';
 
 import type { CreateTaskInput } from './schemas';
 
+/** Erasure on request: a task's own words may name the person; its type and dates stay. */
+export async function redactContactTasks(
+  tx: Tx,
+  ctx: Pick<TenantContext, 'tenantId'>,
+  contactId: string,
+): Promise<void> {
+  await tx
+    .update(tasks)
+    .set({ title: 'Details erased on request', description: null })
+    .where(and(eq(tasks.tenantId, ctx.tenantId), eq(tasks.contactId, contactId)));
+}
+
 async function loadForWrite(tx: Tx, ctx: TenantContext, id: string) {
   const [row] = await tx
     .select()

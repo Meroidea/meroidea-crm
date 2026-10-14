@@ -12,7 +12,8 @@ import { canAccess } from '@/lib/permissions/scope';
 import { ContactActions } from '@/modules/contacts/components/contact-actions';
 import { ContactStatusBadge } from '@/modules/contacts/components/contact-status-badge';
 import { OrganizationLinks } from '@/modules/contacts/components/organization-links';
-import { getContact } from '@/modules/contacts/queries';
+import { PossibleDuplicates } from '@/modules/contacts/components/possible-duplicates';
+import { getContact, listPossibleDuplicates } from '@/modules/contacts/queries';
 import { ActivityComposer } from '@/modules/activities/components/activity-composer';
 import { Timeline } from '@/modules/activities/components/timeline';
 import { getTimeline } from '@/modules/activities/queries';
@@ -90,6 +91,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     sequenceOptions,
     enrollments,
     members,
+    duplicates,
   ] = await Promise.all([
     canEdit && hasPermission(ctx, 'organizations.view')
       ? listOrganizationOptions(ctx)
@@ -107,6 +109,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     hasPermission(ctx, 'tasks.manage') ? getSequences(ctx, true) : Promise.resolve([]),
     listEnrollments(ctx, contact.id),
     hasPermission(ctx, 'tasks.assign_others') ? listActiveMembers(ctx) : Promise.resolve([]),
+    canEdit ? listPossibleDuplicates(ctx, contact) : Promise.resolve([]),
   ]);
   const canEmail =
     hasPermission(ctx, 'activities.create') &&
@@ -194,6 +197,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
             contactId={contact.id}
             recordName={contact.fullName}
             canDelete={canDelete}
+            canErase={hasPermission(ctx, 'contacts.anonymize') && !contact.anonymizedAt}
           />
         </div>
       </header>
@@ -280,24 +284,6 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
                     : '—'}
                 </Detail>
                 <Detail label="Campaign or event">{contact.campaignName ?? '—'}</Detail>
-                <Detail label="Added">
-                  {formatDateTime(ctx, contact.createdAt)}
-                  {contact.createdByName && ` by ${contact.createdByName}`}
-                  {contact.importBatch &&
-                    (hasPermission(ctx, 'contacts.import') ? (
-                      <>
-                        {' · '}
-                        <Link
-                          href={`/imports/${contact.importBatch.id}`}
-                          className="text-primary hover:underline"
-                        >
-                          upload {contact.importBatch.fileName}
-                        </Link>
-                      </>
-                    ) : (
-                      ` · upload ${contact.importBatch.fileName}`
-                    ))}
-                </Detail>
                 <Detail label="Interested in">{contact.interest ?? '—'}</Detail>
                 {contact.utm && Object.keys(contact.utm).length > 0 && (
                   <Detail label="Web tracking (UTM)">
@@ -509,13 +495,45 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
               </CardContent>
             </Card>
           )}
+          {duplicates.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Possible duplicates</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PossibleDuplicates
+                  contactId={contact.id}
+                  recordName={contact.fullName}
+                  duplicates={duplicates}
+                  canMerge={hasPermission(ctx, 'contacts.merge')}
+                />
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Record</CardTitle>
             </CardHeader>
             <CardContent>
               <dl className="grid gap-3">
-                <Detail label="Created">{formatDateTime(ctx, contact.createdAt)}</Detail>
+                <Detail label="Created">
+                  {formatDateTime(ctx, contact.createdAt)}
+                  {contact.createdByName && ` by ${contact.createdByName}`}
+                  {contact.importBatch &&
+                    (hasPermission(ctx, 'contacts.import') ? (
+                      <>
+                        {' · '}
+                        <Link
+                          href={`/imports/${contact.importBatch.id}`}
+                          className="text-primary hover:underline"
+                        >
+                          upload {contact.importBatch.fileName}
+                        </Link>
+                      </>
+                    ) : (
+                      ` · upload ${contact.importBatch.fileName}`
+                    ))}
+                </Detail>
                 <Detail label="Last updated">{formatDateTime(ctx, contact.updatedAt)}</Detail>
               </dl>
             </CardContent>

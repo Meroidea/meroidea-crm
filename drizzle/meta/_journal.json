@@ -400,6 +400,13 @@
       "when": 1791975662594,
       "tag": "0056_lead_management_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1792012651052,
+      "tag": "0057_contact_merge_and_erasure",
+      "breakpoints": true
     }
   ]
 }

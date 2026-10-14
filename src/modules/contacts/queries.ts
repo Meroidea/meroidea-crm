@@ -1,6 +1,19 @@
 import 'server-only';
 
-import { and, asc, count, desc, eq, ilike, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import { alias } from 'drizzle-orm/pg-core';
 
@@ -22,6 +35,7 @@ import { assertCanAccess, scopeFilter } from '@/lib/permissions/scope';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 import { contactRecord, contactScope } from './access';
+import { findDuplicateContacts } from './duplicates';
 
 import type { ContactListFilters, ContactStatus } from './schemas';
 import type { ContactDetail, ContactListRow } from './types';
@@ -378,4 +392,49 @@ export async function listContactOptions(
       .limit(1000),
   );
   return rows.map((row) => ({ id: row.id, name: row.name ?? '' }));
+}
+
+/**
+ * Other records that look like the same person (same email or phone, or the same name at the
+ * same company), limited to ones the viewer may see: the starting point for a merge.
+ */
+export async function listPossibleDuplicates(
+  ctx: TenantContext,
+  contact: Pick<
+    ContactDetail,
+    'id' | 'firstName' | 'lastName' | 'email' | 'phone' | 'companyName' | 'anonymizedAt'
+  >,
+): Promise<{ id: string; name: string; email: string | null; matchKind: string }[]> {
+  if (contact.anonymizedAt) return [];
+  return withRls(ctx, async (tx) => {
+    const matches = await findDuplicateContacts(tx, ctx, {
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      email: contact.email,
+      phone: contact.phone,
+      companyName: contact.companyName,
+      excludeId: contact.id,
+    });
+    const visible = matches.flatMap((match) =>
+      match.contact ? [{ id: match.contact.id, matchKind: match.matchKind }] : [],
+    );
+    if (visible.length === 0) return [];
+    const rows = await tx
+      .select({ id: contacts.id, name: contacts.fullName, email: contacts.email })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.tenantId, ctx.tenantId),
+          inArray(
+            contacts.id,
+            visible.map((match) => match.id),
+          ),
+          isNull(contacts.deletedAt),
+        ),
+      );
+    return visible.flatMap((match) => {
+      const row = rows.find((candidate) => candidate.id === match.id);
+      return row ? [{ ...row, name: row.name ?? '', matchKind: match.matchKind }] : [];
+    });
+  });
 }
