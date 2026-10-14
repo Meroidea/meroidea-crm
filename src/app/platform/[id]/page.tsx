@@ -16,15 +16,10 @@ import {
   getBusinessAgreement,
   type BusinessAgreement,
 } from '@/modules/platform/service';
+import { businessStatus } from '@/modules/platform/status';
 import { requirePlatformAdmin } from '@/server/platform';
 
 export const metadata: Metadata = { title: 'Business' };
-
-const STATUS_LABELS: Record<string, string> = {
-  active: 'Active',
-  suspended: 'Suspended',
-  awaiting_agreement: 'Awaiting agreement',
-};
 
 function agreementSummary(agreement: BusinessAgreement | null, timezone: string): string {
   if (!agreement) return 'Onboarded before service agreements were recorded. Nothing to accept.';
@@ -59,8 +54,8 @@ export default async function BusinessPage({ params }: PageProps<'/platform/[id]
         </nav>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">{business.name}</h1>
-          <Badge variant={business.status === 'suspended' ? 'destructive' : 'outline'}>
-            {STATUS_LABELS[business.status] ?? business.status}
+          <Badge variant={businessStatus(business.status).variant}>
+            {businessStatus(business.status).label}
           </Badge>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">

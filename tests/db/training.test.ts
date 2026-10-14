@@ -239,6 +239,23 @@ describe('who may do what', () => {
     expect(message).toMatch(/row-level security/i);
   });
 
+  it('keeps a published course from losing its last module, and refuses a role from elsewhere', async () => {
+    const solo = (await createCourse(admin, courseSchema.parse({ title: 'Solo course' }))).id;
+    const only = (await createModule(admin, { ...lesson({ questions: [] }), courseId: solo })).id;
+    await setCourseStatus(admin, { id: solo, status: 'published' });
+    await expectCode(() => deleteModule(admin, only), 'CONFLICT');
+    await setCourseStatus(admin, { id: solo, status: 'draft' });
+    await deleteModule(admin, only);
+
+    const otherRole = (await adminDb().execute(
+      sql`select id from roles where tenant_id = ${betaTenant} and key = 'member'`,
+    )) as unknown as { id: string }[];
+    await expectCode(
+      () => addAssignment(admin, { courseId: solo, audience: 'role', targetId: otherRole[0]!.id }),
+      'VALIDATION',
+    );
+  });
+
   it('will not publish an empty course', async () => {
     const empty = (await createCourse(admin, courseSchema.parse({ title: 'Empty course' }))).id;
     await expectCode(() => setCourseStatus(admin, { id: empty, status: 'published' }), 'CONFLICT');

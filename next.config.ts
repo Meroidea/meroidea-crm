@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
       ignore: [
         /^\/offer\//,
         /^\/agreement\//,
+        // A set-your-password link: its query string is a one-time sign-in token.
+        /^\/auth\/confirm/,
         /^\/jobs\//,
         /^\/api\/jobs\//,
         /^\/r\//,

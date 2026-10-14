@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { DotBackground } from '@/components/layout/dot-background';
+import { SignOutButton } from '@/components/layout/sign-out-button';
 
 export const metadata: Metadata = { title: 'Workspace suspended' };
 
@@ -14,6 +15,9 @@ export default function SuspendedPage() {
           Your records are safe, but nobody can sign in to this workspace for now. Please contact
           Meroidea to have it reactivated.
         </p>
+        <div className="mt-6">
+          <SignOutButton />
+        </div>
       </div>
     </div>
   );

@@ -293,6 +293,21 @@ describe('a login when a hire accepts their offer', () => {
     await expect(createHire(hiringOnly, hire('Pia'))).resolves.toBeTruthy();
   });
 
+  it('links the staff record to the login of someone already in the business', async () => {
+    const { userId: existing } = await inviteMember(
+      admin,
+      inviteMemberSchema.parse({
+        fullName: 'Tali Newstart',
+        email: mail('tali'),
+        roleId: staffRoleId,
+      }),
+    );
+    alphaUsers.push(existing);
+    const { userId } = await hireAndAccept('Tali', { loginRoleId: staffRoleId });
+    expect(userId).toBe(existing);
+    expect((await membershipOf(alphaTenant, existing))?.role_key).toBe('member');
+  });
+
   it('keeps the acceptance when the email already has a login, and makes none', async () => {
     const existing = await createAuthUser(mail('quinn'), 'Quinn Elsewhere');
     betaUsers.push(existing);

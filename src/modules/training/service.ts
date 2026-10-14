@@ -274,6 +274,24 @@ export async function deleteModule(
         'People have already done this module, so it is kept as their record. Archive the course instead, or edit the module.',
       );
     }
+    // A published course always has something to do; an empty one would read as complete.
+    const [course] = await tx
+      .select({
+        status: trainingCourses.status,
+        modules: sql<number>`(select count(*)::int from training_modules m
+          where m.tenant_id = training_courses.tenant_id and m.course_id = training_courses.id)`,
+      })
+      .from(trainingCourses)
+      .where(
+        and(eq(trainingCourses.tenantId, ctx.tenantId), eq(trainingCourses.id, lesson.courseId)),
+      )
+      .limit(1);
+    if (course?.status === 'published' && course.modules <= 1) {
+      throw new AppError(
+        'CONFLICT',
+        'This is the course’s only module. Take the course back to draft before deleting it.',
+      );
+    }
     await tx
       .delete(trainingModules)
       .where(and(eq(trainingModules.tenantId, ctx.tenantId), eq(trainingModules.id, id)));
@@ -304,6 +322,20 @@ export async function addAssignment(
       if (!member) {
         throw new AppError('VALIDATION', 'Choose someone in this business.', {
           targetId: ['Choose someone in this business'],
+        });
+      }
+    }
+    if (input.audience === 'role' || input.audience === 'department') {
+      // A role or department of this business only; anything else is "choose again", not an error.
+      const [exists] = (await tx.execute(
+        input.audience === 'role'
+          ? sql`select 1 from roles where tenant_id = ${ctx.tenantId} and id = ${input.targetId}`
+          : sql`select 1 from departments where tenant_id = ${ctx.tenantId} and id = ${input.targetId}
+                  and deleted_at is null`,
+      )) as unknown as unknown[];
+      if (!exists) {
+        throw new AppError('VALIDATION', 'Choose who to assign it to.', {
+          targetId: ['That is no longer available. Choose again.'],
         });
       }
     }

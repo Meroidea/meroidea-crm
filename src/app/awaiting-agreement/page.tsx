@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { DotBackground } from '@/components/layout/dot-background';
+import { SignOutButton } from '@/components/layout/sign-out-button';
 
 export const metadata: Metadata = { title: 'Service agreement' };
 
@@ -14,6 +15,9 @@ export default function AwaitingAgreementPage() {
           Your workspace opens once your business’s admin has accepted the service agreement with
           Meroidea. Use the link in the email Meroidea sent them, or ask Meroidea to send a new one.
         </p>
+        <div className="mt-6">
+          <SignOutButton />
+        </div>
       </div>
     </div>
   );

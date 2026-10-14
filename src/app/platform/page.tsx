@@ -10,6 +10,7 @@ import { formatCalendarDate } from '@/lib/format';
 import { payrollKeyStatus } from '@/modules/hiring/key-rotation';
 import { EncryptionKeyPanel } from '@/modules/platform/components/platform-tools';
 import { listBusinesses } from '@/modules/platform/service';
+import { businessStatus } from '@/modules/platform/status';
 import { requirePlatformAdmin } from '@/server/platform';
 
 export default async function PlatformPage() {
@@ -68,9 +69,10 @@ export default async function PlatformPage() {
                     )
                   )}
                 </span>
-                {business.status === 'suspended' && <Badge variant="destructive">Suspended</Badge>}
-                {business.status === 'awaiting_agreement' && (
-                  <Badge variant="outline">Awaiting agreement</Badge>
+                {business.status !== 'active' && business.status !== 'trialing' && (
+                  <Badge variant={businessStatus(business.status).variant}>
+                    {businessStatus(business.status).label}
+                  </Badge>
                 )}
               </Link>
             </li>

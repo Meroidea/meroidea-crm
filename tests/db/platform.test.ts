@@ -27,6 +27,7 @@ import {
 } from '@/modules/platform/service';
 import { getAcceptedAgreement } from '@/modules/settings/queries';
 import { workspaceSchema } from '@/modules/settings/schemas';
+import { provisionTenant } from '@/modules/tenants/provision';
 import {
   hasFeature,
   hasPermission,
@@ -185,6 +186,29 @@ describe('onboarding a business', () => {
     expect(preset('restaurant')).not.toContain('crm');
     expect(preset('consultancy')).toEqual(expect.arrayContaining(['crm', 'tasks']));
     expect(preset('consultancy')).not.toContain('inventory');
+  });
+});
+
+describe('creating a business all at once', () => {
+  it('leaves nothing behind when a later step of creating it fails', async () => {
+    const ownerId = await createAuthUser(mail('half-made'), 'Half Made');
+    const before = (await adminDb().execute(
+      sql`select count(*)::int as n from tenants where name = 'Half Made Cafe'`,
+    )) as unknown as { n: number }[];
+    await expect(
+      provisionTenant({
+        userId: ownerId,
+        companyName: 'Half Made Cafe',
+        finish: async () => {
+          throw new Error('the agreement could not be recorded');
+        },
+      }),
+    ).rejects.toThrow('the agreement could not be recorded');
+    const after = (await adminDb().execute(
+      sql`select count(*)::int as n from tenants where name = 'Half Made Cafe'`,
+    )) as unknown as { n: number }[];
+    expect(after[0]?.n).toBe(before[0]?.n);
+    await adminDb().execute(sql`delete from auth.users where id = ${ownerId}`);
   });
 });
 

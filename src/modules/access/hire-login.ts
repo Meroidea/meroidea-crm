@@ -2,9 +2,9 @@ import 'server-only';
 
 import { randomBytes } from 'node:crypto';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
-import { auditLogs, employees, roles, tenantMemberships, tenants } from '@/db/schema';
+import { auditLogs, employees, roles, tenantMemberships, tenants, users } from '@/db/schema';
 import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
@@ -34,6 +34,63 @@ function record(tenantId: string, employeeId: string, context: Record<string, un
     entityType: 'employee',
     entityId: employeeId,
     context,
+  });
+}
+
+/**
+ * Links the staff record to an active login in the same business with the same email, unless
+ * that login already belongs to another staff record. True when linked.
+ */
+async function linkExistingMember(tenantId: string, employeeId: string, email: string) {
+  return adminDb().transaction(async (tx) => {
+    const [member] = await tx
+      .select({ userId: tenantMemberships.userId, membershipId: tenantMemberships.id })
+      .from(tenantMemberships)
+      .innerJoin(users, eq(users.id, tenantMemberships.userId))
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, tenantId),
+          eq(tenantMemberships.status, 'active'),
+          eq(tenantMemberships.isSupport, false),
+          sql`lower(${users.email}) = ${email}`,
+        ),
+      )
+      .limit(1);
+    if (!member) return false;
+    const [taken] = await tx
+      .select({ id: employees.id })
+      .from(employees)
+      .where(
+        and(
+          eq(employees.tenantId, tenantId),
+          eq(employees.userId, member.userId),
+          isNull(employees.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (taken) return false;
+    const [linked] = await tx
+      .update(employees)
+      .set({ userId: member.userId })
+      .where(
+        and(
+          eq(employees.tenantId, tenantId),
+          eq(employees.id, employeeId),
+          isNull(employees.userId),
+        ),
+      )
+      .returning({ id: employees.id });
+    if (!linked) return false;
+    await tx.insert(auditLogs).values({
+      tenantId,
+      actorUserId: null,
+      actorType: 'employee_link',
+      action: 'update',
+      entityType: 'employee',
+      entityId: employeeId,
+      context: { linkedExistingLogin: true, membershipId: member.membershipId },
+    });
+    return true;
   });
 }
 
@@ -94,7 +151,11 @@ export async function createLoginForAcceptedHire(input: {
     user_metadata: { full_name: fullName },
   });
   if (error || !data.user) {
-    // One email holds one login (ADR-031); an admin can link or give one from the profile.
+    // One email holds one login (ADR-031). When that login is already one of this business's own
+    // people (an admin added them before they accepted), link the staff record to it instead.
+    if (await linkExistingMember(input.tenantId, input.employeeId, email)) {
+      return { created: false, reason: 'already_linked' };
+    }
     await record(input.tenantId, input.employeeId, { loginCreated: false, reason: 'email_in_use' });
     return { created: false, reason: 'email_in_use' };
   }

@@ -9,6 +9,7 @@ import { Field, fieldA11y } from '@/components/forms/field';
 import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
@@ -474,58 +475,55 @@ export function ModuleEditor({
         <ol className="flex flex-col gap-4">
           {draft.questions.map((question, index) => (
             <li key={index} className="flex flex-col gap-3 rounded-lg border p-4">
-              <div className="flex items-start gap-2">
-                <Field
-                  name={`question-${index}`}
-                  label={`Question ${index + 1}`}
-                  error={errors[`questions.${index}.prompt`]}
-                  className="flex-1"
-                >
-                  <Input
-                    value={question.prompt}
-                    maxLength={500}
-                    onChange={(event) =>
-                      setQuestion(index, { ...question, prompt: event.target.value })
-                    }
-                    {...fieldA11y(`question-${index}`, errors[`questions.${index}.prompt`])}
-                  />
-                </Field>
-                <div className="flex gap-1 pt-6">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Move question ${index + 1} up`}
-                    disabled={index === 0}
-                    onClick={() => move(index, -1)}
-                  >
-                    <ArrowUp aria-hidden />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Move question ${index + 1} down`}
-                    disabled={index === draft.questions.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    <ArrowDown aria-hidden />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Remove question ${index + 1}`}
-                    onClick={() =>
-                      set(
-                        'questions',
-                        draft.questions.filter((_, at) => at !== index),
-                      )
-                    }
-                  >
-                    <Trash2 aria-hidden />
-                  </Button>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor={`question-${index}`}>Question {index + 1}</Label>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Move question ${index + 1} up`}
+                      disabled={index === 0}
+                      onClick={() => move(index, -1)}
+                    >
+                      <ArrowUp aria-hidden />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Move question ${index + 1} down`}
+                      disabled={index === draft.questions.length - 1}
+                      onClick={() => move(index, 1)}
+                    >
+                      <ArrowDown aria-hidden />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Remove question ${index + 1}`}
+                      onClick={() =>
+                        set(
+                          'questions',
+                          draft.questions.filter((_, at) => at !== index),
+                        )
+                      }
+                    >
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </div>
                 </div>
+                <Input
+                  value={question.prompt}
+                  maxLength={500}
+                  onChange={(event) =>
+                    setQuestion(index, { ...question, prompt: event.target.value })
+                  }
+                  {...fieldA11y(`question-${index}`, errors[`questions.${index}.prompt`])}
+                />
+                <ErrorText>{errors[`questions.${index}.prompt`] ?? null}</ErrorText>
               </div>
               <fieldset className="flex flex-col gap-2">
                 <legend className="mb-1 text-sm text-muted-foreground">

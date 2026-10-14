@@ -702,7 +702,10 @@ Settings but cannot change them (contact details printed on payslips, such as ad
 stay theirs to edit).
 
 The admin's login is created with an unusable password and the business starts as
-`awaiting_agreement`, closed to its own people (a support seat can still enter). The admin is
+`awaiting_agreement`, closed to its own people (a support seat can still enter). The workspace,
+its identity, the agreement request and the audit entry are written in one transaction
+(`provisionTenant`'s `finish` step), so a failure leaves no half-made business; the login is
+removed again if anything fails. The admin is
 emailed a one-time link (`/agreement/{token}`, secret stored as a SHA-256 hash, 14 days) to the
 current version of the service agreement. Accepting requires ticking a box and typing the name
 the platform owner recorded; the acceptance stores the version, time, typed name, IP address and
@@ -757,9 +760,11 @@ acceptance removes a step the admin would otherwise forget, and links the person
 timesheets and payslips to them from day one.
 
 **Consequences.** Logins are only created on acceptance, so someone who never accepts never gets
-one. If the hire's email already has a login (one email holds one login, ADR-031), or anything
-else fails, the acceptance still stands, nothing is created, the reason is audited, and the
-admin can give a login from the profile. Without an email provider the hire is not sent the
+one. If the hire's email already belongs to an active member of the same business (an admin added
+them before they accepted), the staff record is linked to that login instead. If it belongs to
+anyone else (one email holds one login, ADR-031), or anything else fails, the acceptance still
+stands, nothing is created, the reason is audited, and the admin can give a login from the
+profile. Without an email provider the hire is not sent the
 password link; the admin sends one from Settings → Team (shown once to pass on), or the hire uses
 "Forgot password" once email is set up. Moving people between teams has no screen yet.
 
@@ -826,8 +831,9 @@ the course is published and assigned to them; the right answers live in
 published and assigned to the caller, marks the answers and records the result (passed stays
 passed, the best score is kept, attempts are counted); `app.training_progress` returns the caller's
 own progress, or everyone's with `training.view_all`, working out assignment where department
-records can be read. A module someone has completed cannot be deleted; a course with modules
-cannot be deleted, only archived.
+records can be read. A module someone has completed cannot be deleted, nor the only module of a
+published course (it would read as complete); a course with modules cannot be deleted, only
+archived. Assigning checks the role or department belongs to the business.
 
 **Why.** Small businesses train new starters on the menu, customer service, policies, cash and
 emergency procedures, and need to know who has done what; the kitchen does not need the till

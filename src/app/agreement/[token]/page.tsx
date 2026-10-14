@@ -59,7 +59,7 @@ export default async function AgreementPage({ params }: PageProps<'/agreement/[t
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-6">
+              <CardContent>
                 <AcceptAgreement token={token} businessName={agreement.businessName} />
               </CardContent>
             </Card>

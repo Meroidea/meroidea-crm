@@ -190,8 +190,8 @@ export async function createBusiness(
   }
   const userId = data.user.id;
 
+  const link = createLinkToken();
   let tenantId: string;
-  let token: string;
   try {
     ({ tenantId } = await provisionTenant({
       userId,
@@ -199,62 +199,62 @@ export async function createBusiness(
       industry: input.businessType,
       features: input.features,
       source: 'platform',
+      // In the same transaction as the workspace: it never exists, even for a moment, as an open
+      // business without its identity and its agreement waiting to be accepted.
+      finish: async (tx, tenantId) => {
+        await tx
+          .update(tenants)
+          .set({
+            status: 'awaiting_agreement',
+            legalName: input.legalName,
+            businessNumber: input.businessNumber,
+            primaryContactName: input.primaryContactName,
+            primaryContactEmail: input.primaryContactEmail.toLowerCase(),
+            primaryContactPhone: input.primaryContactPhone,
+            locationLatitude: input.latitude || null,
+            locationLongitude: input.longitude || null,
+            clockRadiusMetres: input.radiusMetres,
+          })
+          .where(eq(tenants.id, tenantId));
+        await tx.insert(tenantAgreements).values({
+          tenantId,
+          agreementId: agreement.id,
+          recipientUserId: userId,
+          recipientName: input.adminName,
+          recipientEmail: adminEmail,
+          tokenHash: link.hash,
+          tokenExpiresAt: new Date(Date.now() + AGREEMENT_LINK_DAYS * 86_400_000),
+        });
+        await tx.insert(auditLogs).values({
+          tenantId,
+          actorUserId: admin.userId,
+          actorType: 'platform',
+          action: 'create',
+          entityType: 'tenant',
+          entityId: tenantId,
+          context: {
+            onboardedBy: 'platform',
+            features: input.features,
+            clockLocation: input.latitude ? 'set' : 'none',
+            agreementSent: true,
+          },
+        });
+      },
     }));
-    const link = createLinkToken();
-    token = link.token;
-    await adminDb().transaction(async (tx) => {
-      await tx
-        .update(tenants)
-        .set({
-          status: 'awaiting_agreement',
-          legalName: input.legalName,
-          businessNumber: input.businessNumber,
-          primaryContactName: input.primaryContactName,
-          primaryContactEmail: input.primaryContactEmail.toLowerCase(),
-          primaryContactPhone: input.primaryContactPhone,
-          locationLatitude: input.latitude || null,
-          locationLongitude: input.longitude || null,
-          clockRadiusMetres: input.radiusMetres,
-        })
-        .where(eq(tenants.id, tenantId));
-      await tx.insert(tenantAgreements).values({
-        tenantId,
-        agreementId: agreement.id,
-        recipientUserId: userId,
-        recipientName: input.adminName,
-        recipientEmail: adminEmail,
-        tokenHash: link.hash,
-        tokenExpiresAt: new Date(Date.now() + AGREEMENT_LINK_DAYS * 86_400_000),
-      });
-      await tx.insert(auditLogs).values({
-        tenantId,
-        actorUserId: admin.userId,
-        actorType: 'platform',
-        action: 'create',
-        entityType: 'tenant',
-        entityId: tenantId,
-        context: {
-          onboardedBy: 'platform',
-          features: input.features,
-          clockLocation: input.latitude ? 'set' : 'none',
-          agreementSent: true,
-        },
-      });
-    });
   } catch (cause) {
     // Don't leave a login behind for a business that was never created.
     await supabase.auth.admin.deleteUser(userId);
     throw cause;
   }
 
-  const link = agreementUrl(token);
+  const url = agreementUrl(link.token);
   const emailed = await emailAgreementLink({
     to: adminEmail,
     name: input.adminName,
     businessName: input.companyName,
-    link,
+    link: url,
   });
-  return { tenantId, adminEmail, emailed, link };
+  return { tenantId, adminEmail, emailed, link: url };
 }
 
 function agreementUrl(token: string): string {
