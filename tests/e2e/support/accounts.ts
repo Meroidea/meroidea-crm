@@ -1,5 +1,6 @@
 import { loadEnvConfig } from '@next/env';
 import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 
 loadEnvConfig(process.cwd());
 
@@ -42,5 +43,26 @@ export async function ensurePlatformOwner(): Promise<void> {
       return;
     }
     if (data.users.length < 200) throw error;
+  }
+}
+
+/**
+ * Makes sure a service agreement is published, since onboarding a business needs one (ADR-047).
+ * Written straight to the local test database: the console's publish form is not what these
+ * tests are about.
+ */
+export async function ensureServiceAgreement(): Promise<void> {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('Browser tests need DATABASE_URL.');
+  const sql = postgres(url, { max: 1 });
+  try {
+    await sql`
+      insert into service_agreements (version, title, body, published_by)
+      select 1, 'Test service agreement',
+        ${'These are the test terms between Meroidea and the business, for browser tests only. '.repeat(4)},
+        gen_random_uuid()
+      where not exists (select 1 from service_agreements)`;
+  } finally {
+    await sql.end();
   }
 }

@@ -69,6 +69,9 @@ export default async function PlatformPage() {
                   )}
                 </span>
                 {business.status === 'suspended' && <Badge variant="destructive">Suspended</Badge>}
+                {business.status === 'awaiting_agreement' && (
+                  <Badge variant="outline">Awaiting agreement</Badge>
+                )}
               </Link>
             </li>
           ))}

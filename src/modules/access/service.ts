@@ -21,7 +21,7 @@ import type { InviteMemberInput } from './schemas';
  * the auth server, single-use and short-lived; we deliver it ourselves (ADR-023) instead of
  * using the auth server's built-in mailer.
  */
-async function createPasswordLink(email: string): Promise<string | null> {
+export async function createPasswordLink(email: string): Promise<string | null> {
   const { data, error } = await createSupabaseAdminClient().auth.admin.generateLink({
     type: 'recovery',
     email,

@@ -689,3 +689,42 @@ Payslips made before this have no lines, employer details or number; they are sh
 of hours at their hourly rate, with the employer text typed at the time. Treating all
 non-overtime lines as ordinary time earnings for super is a simplification an accountant
 should confirm (expense-type allowances, when they are added, will need excluding).
+
+## ADR-047 — Onboarding records who the business is; its admin accepts a service agreement before getting in
+
+**Supersedes:** the temporary password in ADR-029.
+
+**Decision.** When onboarding a business, the platform owner records its name, legal name, ABN
+(check digit validated), primary contact (name, email, phone), and optionally its clock-in
+location, alongside its features and its admin's name and email. These identity fields live in
+columns on `tenants` that only the platform console writes; the business's admin sees them in
+Settings but cannot change them (contact details printed on payslips, such as address and phone,
+stay theirs to edit).
+
+The admin's login is created with an unusable password and the business starts as
+`awaiting_agreement`, closed to its own people (a support seat can still enter). The admin is
+emailed a one-time link (`/agreement/{token}`, secret stored as a SHA-256 hash, 14 days) to the
+current version of the service agreement. Accepting requires ticking a box and typing the name
+the platform owner recorded; the acceptance stores the version, time, typed name, IP address and
+browser, spends the link and opens the business. The admin is then sent straight into the
+existing set-your-password flow (ADR-031). Agreement versions are immutable; new wording is a
+new version, and businesses keep the version they accepted. Reactivating a suspended business
+that has not accepted returns it to `awaiting_agreement`.
+
+**Why.** If the platform owner chose or saw the admin's password, nothing done under that login
+could be told apart from the platform owner's own actions, which defeats the audit log in any
+dispute; the platform owner already has audited support access, so they never need it. One
+link that both records the agreement and leads to choosing a password is one step for the
+client. Recording the exact version, typed name, time and network details is what makes a
+click-through acceptance defensible as an electronic signature (Electronic Transactions Act 1999
+(Cth) s10: a method that identifies the person and shows their intention, as reliable as is
+appropriate). Locking identity fields keeps payslips and invoices from being issued under a
+name or ABN the platform owner never verified.
+
+**Consequences.** A service agreement must be published before any business can be onboarded.
+Its wording is for a lawyer to write; the system only stores and records it. The ABN check
+catches typing errors but does not prove the ABN is registered to that business (the ABN Lookup
+web service could, later). Businesses onboarded before this change have no agreement record and
+stay active; asking them to accept, and asking every business to accept a new version, are not
+built yet. Changing a business's admin to someone else is not built yet. The accept page has no
+per-sender rate limit; the link's 256-bit secret is the protection.

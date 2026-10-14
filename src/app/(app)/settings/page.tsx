@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { PageHeader } from '@/components/data/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { getPipelineConfig } from '@/modules/pipelines/queries';
 import { LeadSourceList, LostReasonList } from '@/modules/settings/components/settings-lists';
@@ -12,7 +13,7 @@ import { TeamTable } from '@/modules/settings/components/team-table';
 import { readBusinessDetails } from '@/modules/settings/business';
 import { BusinessForm } from '@/modules/settings/components/business-form';
 import { WorkspaceForm } from '@/modules/settings/components/workspace-form';
-import { getSettingsLists } from '@/modules/settings/queries';
+import { getAcceptedAgreement, getSettingsLists } from '@/modules/settings/queries';
 import {
   hasFeature,
   hasPermission,
@@ -38,9 +39,10 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   const crm = hasFeature(ctx, 'crm');
   const tabs = TABS.filter((candidate) => crm || !candidate.crm);
   const tab = tabs.find((candidate) => candidate.key === params.tab)?.key ?? 'general';
-  const [lists, pipeline] = await Promise.all([
+  const [lists, pipeline, agreement] = await Promise.all([
     getSettingsLists(ctx),
     crm ? getPipelineConfig(ctx) : null,
+    getAcceptedAgreement(ctx),
   ]);
   const business = readBusinessDetails(ctx.tenant.settings);
 
@@ -76,13 +78,44 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
           {tab === 'general' && (
             <>
               <CardHeader>
+                <CardTitle>Your business</CardTitle>
+                <CardDescription>
+                  Recorded by Meroidea when your business was set up, and printed on your payslips.
+                  To change any of these, contact Meroidea.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid max-w-2xl gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_1fr]">
+                  {(
+                    [
+                      ['Business name', ctx.tenant.name],
+                      ['Legal name', ctx.tenant.legalName ?? 'Same as the business name'],
+                      [
+                        ctx.tenant.country === 'AU' ? 'ABN' : 'Business number',
+                        ctx.tenant.businessNumber ?? '—',
+                      ],
+                    ] as const
+                  ).map(([label, value]) => (
+                    <div key={label} className="contents">
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {agreement && (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {agreement.title} (version {agreement.version}) accepted by{' '}
+                    {agreement.acceptedName} on {formatDateTime(ctx, agreement.acceptedAt)}.
+                  </p>
+                )}
+              </CardContent>
+              <CardHeader className="border-t pt-6">
                 <CardTitle>Workspace</CardTitle>
-                <CardDescription>Name, timezone and money defaults.</CardDescription>
+                <CardDescription>Timezone and money defaults.</CardDescription>
               </CardHeader>
               <CardContent>
                 <WorkspaceForm
                   initial={{
-                    name: ctx.tenant.name,
                     timezone: ctx.tenant.timezone,
                     currency: ctx.tenant.currency,
                     country: ctx.tenant.country ?? '',
@@ -90,7 +123,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
                 />
               </CardContent>
               <CardHeader className="border-t pt-6">
-                <CardTitle>Business details</CardTitle>
+                <CardTitle>Contact details</CardTitle>
                 <CardDescription>
                   Printed on payslips made from now on. Payslips already made keep what they were
                   given.
@@ -98,11 +131,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
               </CardHeader>
               <CardContent>
                 <BusinessForm
-                  workspaceName={ctx.tenant.name}
-                  australian={ctx.tenant.country === 'AU'}
                   initial={{
-                    legalName: business.legalName ?? '',
-                    businessNumber: business.businessNumber ?? '',
                     address: business.address ?? '',
                     phone: business.phone ?? '',
                     email: business.email ?? '',

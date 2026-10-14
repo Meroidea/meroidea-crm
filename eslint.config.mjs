@@ -50,6 +50,8 @@ const eslintConfig = defineConfig([
       'src/modules/helpdesk/public.ts',
       // The platform owner's console works across every business by design (ADR-029).
       'src/modules/platform/service.ts',
+      // The admin's service-agreement link: they cannot sign in until they accept (ADR-047).
+      'src/modules/platform/agreement-public.ts',
       // Saves coming back from the document editing server: a verified webhook, no session.
       'src/modules/files/editor-save.ts',
       // Re-sealing payroll details onto a new key, across businesses, for platform owners (ADR-040).

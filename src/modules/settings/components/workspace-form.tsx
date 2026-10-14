@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { updateWorkspaceAction } from '@/modules/settings/actions';
 
-type Workspace = { name: string; timezone: string; currency: string; country: string };
+type Workspace = { timezone: string; currency: string; country: string };
 
 export function WorkspaceForm({ initial }: { initial: Workspace }) {
   const router = useRouter();
@@ -41,7 +41,6 @@ export function WorkspaceForm({ initial }: { initial: Workspace }) {
         });
       }}
     >
-      {field('name', 'Workspace name')}
       {field(
         'timezone',
         'Timezone',

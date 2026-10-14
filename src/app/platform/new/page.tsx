@@ -19,7 +19,7 @@ export default async function NewBusinessPage() {
       </nav>
       <PageHeader
         title="Onboard a business"
-        description="Creates their workspace and their admin’s login. Their admin then adds staff and sets things up their own way."
+        description="Records who and where the business is, creates its workspace, and sends its admin the service agreement. Once they accept, they choose their password, add staff and set things up their own way."
       />
       <NewBusinessForm />
     </div>

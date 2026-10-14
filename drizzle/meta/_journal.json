@@ -330,6 +330,20 @@
       "when": 1791891787357,
       "tag": "0046_drop_roster_shift_position",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791952641664,
+      "tag": "0047_service_agreements",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791952664191,
+      "tag": "0048_locked_business_identity",
+      "breakpoints": true
     }
   ]
 }

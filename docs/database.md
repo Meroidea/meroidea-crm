@@ -105,6 +105,22 @@ created_at, updated_at
 switched on for the business. `tenant_memberships.is_support boolean not null default false`
 marks a platform owner's temporary seat (check: a support seat is always `active`).
 
+**Added by ADR-047:** who the business is, recorded by the platform owner at onboarding and
+written only by `src/modules/platform/service.ts` (the business's admin reads them but has no
+way to change them; `tenants` is read-only to `authenticated`):
+```sql
+legal_name            text   -- registered name, when it differs from name
+business_number       text   -- ABN, check digit validated, stored as '51 824 753 556'
+primary_contact_name  text
+primary_contact_email text
+primary_contact_phone text
+```
+`status` gains `awaiting_agreement`: a business onboarded by the platform owner whose admin has
+not yet accepted the service agreement. Its own people are shut out (as for `suspended`); a
+support seat is not. Migration 0048 moved any `settings.business.legalName` / `businessNumber`
+into these columns and removed them from `settings`. `app.my_context` also returns
+`tenant_legal_name` and `tenant_business_number`.
+
 ### users
 Global application profile, 1:1 with `auth.users`. **Not** tenant-owned (a user can belong
 to several tenants — needed for resellers, partner staff, and our own support access).
@@ -1221,6 +1237,46 @@ window_start  timestamptz not null   -- start of the fixed one-hour window
 hits          integer not null default 1
 primary key (bucket, subject_hash, window_start)
 index (window_start)                 -- for sweeping windows older than a day
+```
+
+### service_agreements 🟢 (not tenant data; ADR-047)
+The agreement between Meroidea and the businesses it serves. A published version is never
+edited; new wording is a new version. Written only through `adminDb` by the platform console.
+RLS on; `authenticated` may read a version that an accepted `tenant_agreements` row it can see
+points at.
+```sql
+id            uuid pk
+version       integer not null unique   -- 1, 2, 3…
+title         text not null
+body          text not null             -- "## " lines are headings, blank lines split paragraphs
+published_by  uuid not null             -- the platform owner's auth user id
+published_at  timestamptz not null default now()
+```
+
+### tenant_agreements 🟢 (ADR-047)
+One request to a business's admin to accept the agreement, and the record of their acceptance.
+Written only through `adminDb` (the console, and `src/modules/platform/agreement-public.ts` from
+the link's secret). RLS: `select` for members holding `settings.manage` in that tenant, and only
+the columns `id, tenant_id, agreement_id, recipient_name, recipient_email, sent_at,
+accepted_at, accepted_name` are granted, so the link's hash and the recorded IP and browser are
+never readable through a session.
+```sql
+id                  uuid pk
+tenant_id           uuid not null fk tenants
+agreement_id        uuid not null fk service_agreements   -- the exact version shown
+recipient_user_id   uuid not null       -- the admin login the acceptance opens
+recipient_name      text not null       -- must be typed to accept
+recipient_email     text not null
+token_hash          text unique         -- SHA-256 of the link's secret; null once accepted
+token_expires_at    timestamptz         -- 14 days after sending
+sent_at             timestamptz not null default now()
+accepted_at         timestamptz
+accepted_name       text
+accepted_ip         text
+accepted_user_agent text
+created_at          timestamptz not null default now()
+unique (tenant_id, id)
+unique (tenant_id) where accepted_at is null   -- at most one open request per business
 ```
 
 ### audit_logs 🟢

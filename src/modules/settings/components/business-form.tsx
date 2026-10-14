@@ -10,17 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { updateBusinessDetailsAction } from '@/modules/settings/actions';
 import type { BusinessDetailsValues } from '@/modules/settings/business';
 
-/** The business's details as printed on payslips and other documents it issues. */
-export function BusinessForm({
-  initial,
-  workspaceName,
-  australian,
-}: {
-  initial: BusinessDetailsValues;
-  workspaceName: string;
-  /** In Australia the business number is an ABN and is checked as one. */
-  australian: boolean;
-}) {
+/** How to reach the business, as printed on payslips and other documents it issues. */
+export function BusinessForm({ initial }: { initial: BusinessDetailsValues }) {
   const router = useRouter();
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
@@ -48,25 +39,6 @@ export function BusinessForm({
         });
       }}
     >
-      <Field
-        name="business-legalName"
-        label="Business name on documents"
-        hint={`Leave blank to use “${workspaceName}”`}
-        error={errors.legalName?.[0]}
-      >
-        <Input maxLength={120} {...input('legalName')} />
-      </Field>
-      <Field
-        name="business-businessNumber"
-        label={australian ? 'ABN' : 'Business number'}
-        error={errors.businessNumber?.[0]}
-      >
-        <Input
-          inputMode={australian ? 'numeric' : 'text'}
-          maxLength={30}
-          {...input('businessNumber')}
-        />
-      </Field>
       <Field
         name="business-address"
         label="Address"

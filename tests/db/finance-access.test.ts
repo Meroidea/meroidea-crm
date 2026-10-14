@@ -25,6 +25,8 @@ import { authoriseRosterSchema } from '@/modules/payroll/schemas';
 import { authoriseRoster, releasePayslips, setTaxWithheld } from '@/modules/payroll/service';
 import { createRosterSchema, publishRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
 import { createRoster, publishRoster, saveShift, unpublishRoster } from '@/modules/roster/service';
+import { businessIdentitySchema } from '@/modules/platform/schemas';
+import { updateBusinessIdentity } from '@/modules/platform/service';
 import { businessDetailsSchema, employerSnapshot } from '@/modules/settings/business';
 import { updateBusinessDetails } from '@/modules/settings/workspace';
 import type { TenantContext } from '@/server/context';
@@ -420,17 +422,31 @@ describe('payslips from an authorised roster', () => {
     const before = (await getPayslip(owner, payslipId))?.employer;
     expect(before?.businessNumber).toBeNull();
     const details = businessDetailsSchema.parse({
-      legalName: 'Alpha Trading Pty Ltd',
-      businessNumber: '51 824 753 556',
+      // Who the business is belongs to the platform owner (ADR-047): the admin's form drops it.
+      legalName: 'Smuggled Pty Ltd',
+      businessNumber: '53 004 085 616',
       address: '1 Example Street',
       phone: '02 5550 0000',
       email: 'pay@example.com',
       website: '',
       payrollContact: 'Accounts',
     });
+    expect(details).not.toHaveProperty('businessNumber');
     await expectCode(() => updateBusinessDetails(manager, details), 'FORBIDDEN');
     await expectCode(() => updateBusinessDetails(member, details), 'FORBIDDEN');
     await updateBusinessDetails(owner, details);
+    await updateBusinessIdentity(
+      { userId: owner.userId, email: owner.email },
+      businessIdentitySchema.parse({
+        tenantId: alphaTenant,
+        companyName: owner.tenant.name,
+        legalName: 'Alpha Trading Pty Ltd',
+        businessNumber: '51824753556',
+        primaryContactName: 'Alex Alpha',
+        primaryContactEmail: 'alex@example.com',
+        primaryContactPhone: '02 5550 0001',
+      }),
+    );
 
     const reloaded = await contextFor(owner.userId, alphaTenant);
     expect(employerSnapshot(reloaded.tenant)).toMatchObject({

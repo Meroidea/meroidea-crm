@@ -1,8 +1,17 @@
 import 'server-only';
 
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull } from 'drizzle-orm';
 
-import { leadSources, lostReasons, roles, teams, tenantMemberships, users } from '@/db/schema';
+import {
+  leadSources,
+  lostReasons,
+  roles,
+  serviceAgreements,
+  teams,
+  tenantAgreements,
+  tenantMemberships,
+  users,
+} from '@/db/schema';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
@@ -62,4 +71,26 @@ export async function getSettingsLists(ctx: TenantContext) {
     ]);
     return { sources, reasons, members, roles: roleRows };
   });
+}
+
+/** The service agreement this business accepted most recently, or null (ADR-047). */
+export async function getAcceptedAgreement(ctx: TenantContext) {
+  requirePermission(ctx, 'settings.manage');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        title: serviceAgreements.title,
+        version: serviceAgreements.version,
+        acceptedName: tenantAgreements.acceptedName,
+        acceptedAt: tenantAgreements.acceptedAt,
+      })
+      .from(tenantAgreements)
+      .innerJoin(serviceAgreements, eq(serviceAgreements.id, tenantAgreements.agreementId))
+      .where(
+        and(eq(tenantAgreements.tenantId, ctx.tenantId), isNotNull(tenantAgreements.acceptedAt)),
+      )
+      .orderBy(desc(tenantAgreements.acceptedAt))
+      .limit(1),
+  );
+  return row ?? null;
 }

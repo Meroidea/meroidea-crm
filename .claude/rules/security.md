@@ -93,6 +93,19 @@ change as touching sensitive personal data.
   `app.permission_feature`, or the feature switch will not hide it. A table owned by one feature
   gets a restrictive `feature_switch` policy (ADR-038).
 
+## Service agreement and business identity (ADR-047)
+
+- A business's name, legal name, ABN and primary contact are written only by
+  `src/modules/platform/service.ts`. Never add them to a schema a business's own user submits.
+- Nobody sets or sees a business admin's password, the platform owner included. The admin
+  accepts the service agreement through a one-time link, then chooses a password via ADR-031.
+- `src/modules/platform/agreement-public.ts` may use `adminDb`. It starts from the link's hash,
+  never takes a tenant or record id from the caller, and clears the hash once accepted.
+- Never grant `authenticated` the `token_hash`, `accepted_ip` or `accepted_user_agent` columns
+  of `tenant_agreements`. Published `service_agreements` rows are never updated.
+- A business in `awaiting_agreement` is closed to its own people in `requireTenantContext` and
+  `authedAction`, exactly like `suspended`.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

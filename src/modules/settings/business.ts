@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 /**
- * The business's own details as they are printed on what it issues, payslips first: the name it
- * trades or is registered under, its business number, and how to reach it. Kept with the
- * workspace's settings and copied onto each payslip when it is made, so a later change never
- * rewrites a payslip already given to someone.
+ * How to reach the business, as printed on what it issues, payslips first. Its admin keeps these
+ * up to date in Settings. Who the business is (its name, legal name and business number) is not
+ * here: the platform owner records that when onboarding it, and only the platform console
+ * changes it (ADR-047). Kept with the workspace's settings and copied onto each payslip when it
+ * is made, so a later change never rewrites a payslip already given to someone.
  */
 const text = (max: number) =>
   z
@@ -15,16 +16,6 @@ const text = (max: number) =>
     .transform((value) => value || null);
 
 export const businessDetailsSchema = z.object({
-  /** The registered or trading name, when it differs from the workspace's name. */
-  legalName: text(120),
-  /** ABN in Australia; whatever business number applies elsewhere. Spaces are allowed. */
-  businessNumber: z
-    .string()
-    .trim()
-    .max(30)
-    .regex(/^[0-9A-Za-z -]*$/, 'Use letters, numbers and spaces only')
-    .nullish()
-    .transform((value) => value || null),
   address: text(240),
   phone: text(40),
   email: z
@@ -40,8 +31,6 @@ export type BusinessDetails = z.output<typeof businessDetailsSchema>;
 export type BusinessDetailsValues = { [Key in keyof BusinessDetails]: string };
 
 const EMPTY: BusinessDetails = {
-  legalName: null,
-  businessNumber: null,
   address: null,
   phone: null,
   email: null,
@@ -56,12 +45,22 @@ export function readBusinessDetails(settings: Record<string, unknown>): Business
 }
 
 /** What a payslip keeps about the employer: the details as they stood when it was made. */
-export type EmployerSnapshot = BusinessDetails & { name: string };
+export type EmployerSnapshot = BusinessDetails & {
+  name: string;
+  legalName: string | null;
+  businessNumber: string | null;
+};
 
 export function employerSnapshot(tenant: {
   name: string;
+  legalName: string | null;
+  businessNumber: string | null;
   settings: Record<string, unknown>;
 }): EmployerSnapshot {
-  const details = readBusinessDetails(tenant.settings);
-  return { ...details, name: details.legalName ?? tenant.name };
+  return {
+    ...readBusinessDetails(tenant.settings),
+    legalName: tenant.legalName,
+    businessNumber: tenant.businessNumber,
+    name: tenant.legalName ?? tenant.name,
+  };
 }

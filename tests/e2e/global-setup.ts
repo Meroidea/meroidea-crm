@@ -1,5 +1,6 @@
-import { ensurePlatformOwner } from './support/accounts';
+import { ensurePlatformOwner, ensureServiceAgreement } from './support/accounts';
 
 export default async function globalSetup(): Promise<void> {
   await ensurePlatformOwner();
+  await ensureServiceAgreement();
 }
