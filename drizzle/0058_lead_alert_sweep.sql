@@ -18,6 +18,7 @@ declare
   today text;
   added int := 0;
   n int;
+  assigners uuid[];
 begin
   select coalesce(t.settings -> 'crm' -> 'sla', '{}'::jsonb), t.timezone
   into sla, tz
@@ -39,14 +40,13 @@ begin
   today := to_char(now() at time zone tz, 'YYYY-MM-DD');
 
   -- Who can hand out leads: the people the queue and escalations go to.
-  create temporary table if not exists sweep_assigners (user_id uuid) on commit drop;
-  truncate sweep_assigners;
-  insert into sweep_assigners
-  select distinct m.user_id
-  from public.tenant_memberships m
-  join public.role_permissions rp on rp.tenant_id = m.tenant_id and rp.role_id = m.role_id
-  where m.tenant_id = p_tenant and m.status = 'active' and not m.is_support
-    and rp.permission = 'contacts.assign' and (rp.scope is null or rp.scope = 'all');
+  assigners := array(
+    select distinct m.user_id
+    from public.tenant_memberships m
+    join public.role_permissions rp on rp.tenant_id = m.tenant_id and rp.role_id = m.role_id
+    where m.tenant_id = p_tenant and m.status = 'active' and not m.is_support
+      and rp.permission = 'contacts.assign' and (rp.scope is null or rp.scope = 'all')
+  );
 
   -- 1. Leads nobody owns past the SLA: one summary a day to each person who can assign them.
   insert into public.notifications (tenant_id, user_id, type, title, url, dedupe_key, email_wanted)
@@ -62,7 +62,7 @@ begin
       and c.owner_user_id is null and s.kind in ('new', 'working', 'returned')
       and c.created_at < now() - make_interval(hours => unassigned_hours)
   ) w
-  cross join sweep_assigners a
+  cross join unnest(assigners) as a(user_id)
   where w.total > 0
   on conflict do nothing;
   get diagnostics n = row_count;
@@ -96,7 +96,7 @@ begin
   cross join lateral (
     select c.handover_to_user_id as user_id, 'recipient' as role
     union select c.originator_user_id, 'escalated'
-    union select a.user_id, 'escalated' from sweep_assigners a
+    union select a.user_id, 'escalated' from unnest(assigners) as a(user_id)
   ) r
   join public.tenant_memberships m
     on m.tenant_id = c.tenant_id and m.user_id = r.user_id and m.status = 'active'
