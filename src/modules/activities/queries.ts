@@ -7,6 +7,7 @@ import { activities, contacts, opportunities, users } from '@/db/schema';
 import { scopeFilter } from '@/lib/permissions/scope';
 import type { TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
+import { contactScope as contactResponsible } from '@/modules/contacts/access';
 
 import type { TimelineItem } from './types';
 
@@ -67,7 +68,7 @@ export async function getTimeline(
 
 /** Recent activity across the records the viewer can see: the dashboard feed. */
 export async function getRecentActivity(ctx: TenantContext, limit = 12): Promise<TimelineItem[]> {
-  const contactScope = scopeFilter(ctx, 'contacts.view', contacts);
+  const contactScope = scopeFilter(ctx, 'contacts.view', contacts, contactResponsible);
   const opportunityScope = scopeFilter(ctx, 'opportunities.view', opportunities);
 
   return withRls(ctx, (tx) =>

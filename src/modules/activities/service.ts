@@ -8,11 +8,28 @@ import { assertCanAccess } from '@/lib/permissions/scope';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
+import { contactRecord } from '@/modules/contacts/access';
+import { noteOutreach, OUTREACH_TYPES } from '@/modules/leads/outreach';
 
 import type { LogActivityInput } from './schemas';
 
 type SystemActivity = {
-  type: 'stage_changed' | 'owner_changed' | 'created' | 'task_completed' | 'imported';
+  type:
+    | 'stage_changed'
+    | 'owner_changed'
+    | 'created'
+    | 'task_completed'
+    | 'imported'
+    | 'status_changed'
+    | 'assigned'
+    | 'handover'
+    | 'handover_accepted'
+    | 'handover_rejected'
+    | 'converted'
+    | 'merged'
+    | 'approval'
+    | 'enquiry';
+  body?: string | null;
   subject: string;
   contactId?: string | null;
   opportunityId?: string | null;
@@ -26,13 +43,14 @@ type SystemActivity = {
  */
 export async function recordSystemActivity(
   tx: Tx,
-  ctx: TenantContext,
+  ctx: Pick<TenantContext, 'tenantId' | 'userId'>,
   event: SystemActivity,
 ): Promise<void> {
   await tx.insert(activities).values({
     tenantId: ctx.tenantId,
     type: event.type,
     subject: event.subject,
+    body: event.body ?? null,
     contactId: event.contactId ?? null,
     opportunityId: event.opportunityId ?? null,
     taskId: event.taskId ?? null,
@@ -70,7 +88,11 @@ export async function logActivity(
       contactId = contactId ?? opportunity.contactId;
     } else if (contactId) {
       const [contact] = await tx
-        .select({ ownerUserId: contacts.ownerUserId })
+        .select({
+          ownerUserId: contacts.ownerUserId,
+          originatorUserId: contacts.originatorUserId,
+          handoverToUserId: contacts.handoverToUserId,
+        })
         .from(contacts)
         .where(
           and(
@@ -81,7 +103,7 @@ export async function logActivity(
         )
         .limit(1);
       if (!contact) throw new AppError('NOT_FOUND', 'That record was not found.');
-      assertCanAccess(ctx, 'contacts.view', contact);
+      assertCanAccess(ctx, 'contacts.view', contactRecord(contact));
     }
 
     const now = new Date();
@@ -103,6 +125,9 @@ export async function logActivity(
     if (!created) throw new AppError('INTERNAL', 'Could not save the activity.');
 
     // Interactions are what "last activity" and stale detection measure.
+    if (contactId && OUTREACH_TYPES.includes(input.type) && input.direction !== 'inbound') {
+      await noteOutreach(tx, ctx, contactId);
+    }
     if (contactId) {
       await tx
         .update(contacts)

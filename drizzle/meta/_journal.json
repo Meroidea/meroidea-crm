@@ -386,6 +386,20 @@
       "when": 1791973421793,
       "tag": "0054_align_api_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791975634077,
+      "tag": "0055_lead_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1791975662594,
+      "tag": "0056_lead_management_rls",
+      "breakpoints": true
     }
   ]
 }

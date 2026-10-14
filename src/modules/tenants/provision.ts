@@ -4,7 +4,10 @@ import { eq } from 'drizzle-orm';
 
 import {
   auditLogs,
+  leadReasons,
   leadSources,
+  leadStatuses,
+  leadSubSources,
   leaveTypes,
   lostReasons,
   pipelineStages,
@@ -19,7 +22,9 @@ import {
 import { DEFAULT_ROLES } from '@/lib/permissions/catalog';
 import { DEFAULT_LEAVE_TYPES } from '@/modules/timeoff/defaults';
 import {
+  DEFAULT_LEAD_REASONS,
   DEFAULT_LEAD_SOURCES,
+  DEFAULT_LEAD_STATUSES,
   DEFAULT_LOST_REASONS,
   DEFAULT_PIPELINE,
 } from '@/lib/tenant/defaults';
@@ -141,12 +146,45 @@ export async function provisionTenant(
       status: 'active',
     });
 
-    await tx.insert(leadSources).values(
-      DEFAULT_LEAD_SOURCES.map((source, position) => ({
+    const createdSources = await tx
+      .insert(leadSources)
+      .values(
+        DEFAULT_LEAD_SOURCES.map(({ name, type }, position) => ({
+          tenantId: tenant.id,
+          name,
+          type,
+          position,
+        })),
+      )
+      .returning({ id: leadSources.id, name: leadSources.name });
+    const subSources = DEFAULT_LEAD_SOURCES.flatMap((source) => {
+      const sourceId = createdSources.find((created) => created.name === source.name)?.id;
+      return sourceId
+        ? source.subSources.map((name, position) => ({
+            tenantId: tenant.id,
+            sourceId,
+            name,
+            position,
+          }))
+        : [];
+    });
+    if (subSources.length > 0) await tx.insert(leadSubSources).values(subSources);
+    await tx.insert(leadStatuses).values(
+      DEFAULT_LEAD_STATUSES.map((status, position) => ({
         tenantId: tenant.id,
-        ...source,
+        ...status,
         position,
       })),
+    );
+    await tx.insert(leadReasons).values(
+      (['disqualify', 'reject'] as const).flatMap((kind) =>
+        DEFAULT_LEAD_REASONS[kind].map((name, position) => ({
+          tenantId: tenant.id,
+          kind,
+          name,
+          position,
+        })),
+      ),
     );
 
     const [pipeline] = await tx

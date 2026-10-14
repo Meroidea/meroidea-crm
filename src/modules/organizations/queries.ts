@@ -8,6 +8,7 @@ import { AppError } from '@/lib/errors';
 import { scopeFilter } from '@/lib/permissions/scope';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
+import { contactScope } from '@/modules/contacts/access';
 
 import type { OrganizationListFilters } from './schemas';
 import type { OrganizationDetail, OrganizationListRow } from './types';
@@ -148,7 +149,7 @@ export async function getOrganization(ctx: TenantContext, id: string): Promise<O
       })
       .from(contactOrganizations)
       .innerJoin(contacts, linkJoin)
-      .where(and(linkWhere, scopeFilter(ctx, 'contacts.view', contacts)))
+      .where(and(linkWhere, scopeFilter(ctx, 'contacts.view', contacts, contactScope)))
       .orderBy(asc(contacts.fullName))
       .limit(200);
 

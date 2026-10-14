@@ -20,6 +20,7 @@ import { scopeFilter } from '@/lib/permissions/scope';
 import { loadPipelineConfig } from '@/modules/pipelines/queries';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
+import { contactScope } from '@/modules/contacts/access';
 
 /** Dates inside raw SQL need an explicit type; the driver can't infer one for a bare Date. */
 const at = (date: Date) => sql`${date.toISOString()}::timestamptz`;
@@ -110,7 +111,7 @@ export async function getDashboard(ctx: TenantContext): Promise<Dashboard | null
           eq(contacts.tenantId, ctx.tenantId),
           isNull(contacts.deletedAt),
           gte(contacts.createdAt, since30),
-          scopeFilter(ctx, 'contacts.view', contacts),
+          scopeFilter(ctx, 'contacts.view', contacts, contactScope),
         ),
       );
 

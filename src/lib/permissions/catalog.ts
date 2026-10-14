@@ -13,12 +13,18 @@ export const PERMISSIONS = {
   'contacts.view_sensitive': { scoped: false },
   'contacts.import': { scoped: false },
   'contacts.export': { scoped: false },
+  /** Fold a duplicate into another record (moves its history, removes the duplicate). */
+  'contacts.merge': { scoped: false },
+  /** Erase a person's details on request (privacy law); history stays without them. */
+  'contacts.anonymize': { scoped: false },
   'opportunities.view': { scoped: true },
   'opportunities.create': { scoped: false },
   'opportunities.edit': { scoped: true },
   'opportunities.delete': { scoped: true },
   'opportunities.assign': { scoped: true },
   'opportunities.export': { scoped: false },
+  /** Approve moving an opportunity into a stage that needs approval. */
+  'opportunities.approve': { scoped: false },
   'revenue.view': { scoped: true },
   'activities.create': { scoped: false },
   'activities.edit_any': { scoped: false },
@@ -133,6 +139,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'opportunities.delete': 'team',
       'opportunities.assign': 'team',
       'opportunities.export': true,
+      'opportunities.approve': true,
+      'contacts.merge': true,
       'revenue.view': 'team',
       'activities.create': true,
       'tasks.view': 'team',

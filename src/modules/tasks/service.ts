@@ -11,6 +11,7 @@ import { refreshNextTaskDue } from '@/modules/opportunities/service';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
+import { contactRecord } from '@/modules/contacts/access';
 
 import type { CreateTaskInput } from './schemas';
 
@@ -59,7 +60,11 @@ export async function createTask(
       contactId = contactId ?? opportunity.contactId;
     } else if (contactId) {
       const [contact] = await tx
-        .select({ ownerUserId: contacts.ownerUserId })
+        .select({
+          ownerUserId: contacts.ownerUserId,
+          originatorUserId: contacts.originatorUserId,
+          handoverToUserId: contacts.handoverToUserId,
+        })
         .from(contacts)
         .where(
           and(
@@ -70,7 +75,7 @@ export async function createTask(
         )
         .limit(1);
       if (!contact) throw new AppError('NOT_FOUND', 'That record was not found.');
-      assertCanAccess(ctx, 'contacts.view', contact);
+      assertCanAccess(ctx, 'contacts.view', contactRecord(contact));
     }
 
     const [created] = await tx

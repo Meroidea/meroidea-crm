@@ -15,6 +15,7 @@ type DuplicateProbe = {
   email?: string | null | undefined;
   phone?: string | null | undefined;
   dateOfBirth?: string | null | undefined;
+  companyName?: string | null | undefined;
   excludeId?: string | null | undefined;
 };
 
@@ -40,11 +41,20 @@ export async function findDuplicateContacts(
   const phone = normalizePhone(probe.phone, ctx.tenant.country);
   const fullName = [probe.firstName, probe.lastName].filter(Boolean).join(' ').trim() || null;
   const dateOfBirth = probe.dateOfBirth || null;
-  if (!email && !phone && !(fullName && dateOfBirth)) return [];
+  const companyName = probe.companyName?.trim() || null;
+  if (!email && !phone && !(fullName && dateOfBirth) && !(fullName && companyName)) return [];
 
   const rows = (await tx.execute(
     sql`select * from app.find_contact_duplicates(${email}, ${phone}, ${fullName}, ${dateOfBirth}::date, ${probe.excludeId ?? null}::uuid)`,
   )) as unknown as Row[];
+  if (fullName && companyName) {
+    const byCompany = (await tx.execute(
+      sql`select * from app.find_company_contact_duplicates(${companyName}, ${fullName}, ${probe.excludeId ?? null}::uuid)`,
+    )) as unknown as Row[];
+    for (const row of byCompany) {
+      if (!rows.some((existing) => existing.contact_id === row.contact_id)) rows.push(row);
+    }
+  }
 
   return rows.map((row) => ({
     matchKind: row.match_kind,

@@ -17,8 +17,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { contacts, leadSources, organizations } from './crm';
-import { tenantMemberships, tenants } from './tenancy';
+import { contacts, leadSources, leadSubSources, leadType, organizations } from './crm';
+import { teams, tenantMemberships, tenants } from './tenancy';
 
 const timestamps = {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -47,6 +47,8 @@ export const pipelines = pgTable(
     name: text().notNull(),
     description: text(),
     objectType: pipelineObject().notNull().default('opportunity'),
+    /** Converted B2B or B2C leads start here; null means any. */
+    leadType: leadType(),
     isDefault: boolean().notNull().default(false),
     isActive: boolean().notNull().default(true),
     position: integer().notNull().default(0),
@@ -75,10 +77,36 @@ export const pipelineStages = pgTable(
     color: text(),
     staleAfterDays: integer(),
     isActive: boolean().notNull().default(true),
+    /** Who is responsible for opportunities in this stage: a person, or a team in turn. */
+    ownerUserId: uuid(),
+    ownerTeamId: uuid(),
+    /** notify: tell the stage owner. reassign: make them the owner. task: give them a task. */
+    onEnter: text().notNull().default('notify'),
+    /** The team member last given an opportunity here, so a team takes them in turn. */
+    lastAssignedUserId: uuid(),
+    /** Fields that must be filled before an opportunity may enter this stage. */
+    requiredFields: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** Things to tick off in this stage before moving forward: [{ id, label }]. */
+    checklist: jsonb().notNull().default([]),
+    /** Entering this stage needs a manager's approval. */
+    requiresApproval: boolean().notNull().default(false),
     ...timestamps,
   },
   (table) => [
     unique('pipeline_stages_tenant_id_id_key').on(table.tenantId, table.id),
+    foreignKey({
+      columns: [table.tenantId, table.ownerUserId],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+      name: 'pipeline_stages_tenant_owner_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.ownerTeamId],
+      foreignColumns: [teams.tenantId, teams.id],
+      name: 'pipeline_stages_tenant_team_fk',
+    }),
     index('pipeline_stages_pipeline_idx').on(table.tenantId, table.pipelineId, table.position),
     foreignKey({
       columns: [table.tenantId, table.pipelineId],
@@ -160,8 +188,18 @@ export const opportunities = pgTable(
     status: opportunityStatus().notNull().default('open'),
     ownerUserId: uuid(),
     sourceId: uuid(),
+    subSourceId: uuid(),
+    /** The SDR/BDR whose lead this came from, carried over on conversion. */
+    originatorUserId: uuid(),
     partnerId: uuid(),
     partnerReference: text(),
+    /** The product or service being sold, in the business's words. */
+    product: text(),
+    /** Overrides the stage's probability when set. */
+    probability: smallint(),
+    nextStep: text(),
+    /** Ticked checklist items by stage: { [stageId]: [itemId] }. */
+    checklistState: jsonb().notNull().default({}),
     amount: numeric({ precision: 14, scale: 2 }),
     currency: char({ length: 3 }),
     expectedCloseDate: date(),
@@ -230,6 +268,83 @@ export const opportunities = pgTable(
       columns: [table.tenantId, table.lostReasonId],
       foreignColumns: [lostReasons.tenantId, lostReasons.id],
       name: 'opportunities_tenant_lost_reason_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.subSourceId],
+      foreignColumns: [leadSubSources.tenantId, leadSubSources.id],
+      name: 'opportunities_tenant_sub_source_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.originatorUserId],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+      name: 'opportunities_tenant_originator_fk',
+    }),
+  ],
+);
+
+/** Further people on an opportunity besides its primary contact, each with a role. */
+export const opportunityContacts = pgTable(
+  'opportunity_contacts',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    opportunityId: uuid().notNull(),
+    contactId: uuid().notNull(),
+    role: text().notNull(),
+    createdBy: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('opportunity_contacts_key').on(table.tenantId, table.opportunityId, table.contactId),
+    index('opportunity_contacts_contact_idx').on(table.tenantId, table.contactId),
+    foreignKey({
+      columns: [table.tenantId, table.opportunityId],
+      foreignColumns: [opportunities.tenantId, opportunities.id],
+      name: 'opportunity_contacts_tenant_opportunity_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.tenantId, table.contactId],
+      foreignColumns: [contacts.tenantId, contacts.id],
+      name: 'opportunity_contacts_tenant_contact_fk',
+    }).onDelete('cascade'),
+  ],
+);
+
+/** A request to move an opportunity into a stage that needs a manager's approval. */
+export const stageApprovals = pgTable(
+  'stage_approvals',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    opportunityId: uuid().notNull(),
+    stageId: uuid().notNull(),
+    /** pending | approved | declined | withdrawn */
+    status: text().notNull().default('pending'),
+    note: text(),
+    requestedBy: uuid().notNull(),
+    requestedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    decidedBy: uuid(),
+    decidedAt: timestamp({ withTimezone: true }),
+    decisionNote: text(),
+  },
+  (table) => [
+    unique('stage_approvals_tenant_id_id_key').on(table.tenantId, table.id),
+    index('stage_approvals_pending_idx')
+      .on(table.tenantId, table.status, table.requestedAt)
+      .where(sql`${table.status} = 'pending'`),
+    foreignKey({
+      columns: [table.tenantId, table.opportunityId],
+      foreignColumns: [opportunities.tenantId, opportunities.id],
+      name: 'stage_approvals_tenant_opportunity_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.tenantId, table.stageId],
+      foreignColumns: [pipelineStages.tenantId, pipelineStages.id],
+      name: 'stage_approvals_tenant_stage_fk',
     }),
   ],
 );

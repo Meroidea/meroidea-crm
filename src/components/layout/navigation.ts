@@ -4,6 +4,7 @@ import {
   FolderKanban,
   Gauge,
   GraduationCap,
+  Inbox,
   Briefcase,
   BarChart3,
   Boxes,
@@ -90,6 +91,13 @@ export const NAVIGATION: NavGroup[] = [
         icon: KanbanSquare,
         label: { title: 'Pipeline' },
         permission: 'opportunities.view',
+        available: true,
+      },
+      {
+        href: '/leads',
+        icon: Inbox,
+        label: { title: 'Leads' },
+        permission: 'contacts.view',
         available: true,
       },
       {

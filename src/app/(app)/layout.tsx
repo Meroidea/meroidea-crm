@@ -3,17 +3,19 @@ import type { ReactNode } from 'react';
 
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { DotBackground } from '@/components/layout/dot-background';
+import { NotificationBell } from '@/components/layout/notification-bell';
 import { PrivacyBlurToggle } from '@/components/layout/privacy-blur-toggle';
 import { UserMenu } from '@/components/layout/user-menu';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { countUnread } from '@/modules/notifications/queries';
 import { SupportBanner } from '@/modules/platform/components/platform-tools';
 import { requireTenantContext } from '@/server/context';
 import { getPlatformAdmin } from '@/server/platform';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const ctx = await requireTenantContext();
-  const platformAdmin = await getPlatformAdmin();
+  const [platformAdmin, unread] = await Promise.all([getPlatformAdmin(), countUnread(ctx)]);
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -41,6 +43,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   Platform
                 </Link>
               )}
+              <NotificationBell unread={unread} />
               <PrivacyBlurToggle />
               <UserMenu email={ctx.email} roleName={ctx.roleName} />
             </div>

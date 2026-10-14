@@ -52,3 +52,20 @@ export function normalizeEmail(raw: string | null | undefined): string | null {
   const value = raw?.trim().toLowerCase();
   return value ? value : null;
 }
+
+/**
+ * A website's bare host, for spotting the same company twice: "https://www.Example.com/about"
+ * → "example.com". Null when there is nothing that looks like a host.
+ */
+export function domainOf(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const text = raw.trim().toLowerCase();
+  if (!text) return null;
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`);
+    const host = url.hostname.replace(/^www\./, '');
+    return host.includes('.') ? host : null;
+  } catch {
+    return null;
+  }
+}
