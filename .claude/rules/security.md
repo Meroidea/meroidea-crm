@@ -118,6 +118,16 @@ change as touching sensitive personal data.
 - Nobody can change what was asked, to whom or about which payslip (column grants). The asker may
   set only `open` or `resolved`.
 
+## Training (ADR-050)
+
+- The right answers to quiz questions live only in `training_question_keys`. Never select them in
+  a query a learner's page uses, never send them to the browser outside the module editor, and
+  never mark answers anywhere but `app.submit_training_module`.
+- Results (`training_completions`) are written only by that function; keep `authenticated`
+  without insert or update grants on the table.
+- Writing or assigning training needs `training.manage`; a learner sees a course only when it is
+  published and assigned to them, enforced by RLS.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

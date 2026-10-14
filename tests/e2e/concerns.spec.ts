@@ -1,28 +1,6 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-import { choosePassword, onboardBusiness } from './support/flows';
-
-/** The admin adds someone from Settings → Team and gets the password link to pass on. */
-async function addPerson(page: Page, name: string, email: string, role: string) {
-  await page.goto('/settings?tab=team');
-  await page.waitForLoadState('networkidle');
-  await page.getByRole('button', { name: 'Add a person' }).click();
-  await page.getByLabel('Full name').fill(name);
-  await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Role', { exact: true }).selectOption({ label: role });
-  await page.getByRole('button', { name: 'Add and send link' }).click();
-  return page.getByLabel('Password link').inputValue();
-}
-
-/** That person, in their own browser, follows the link and chooses a password. */
-async function signInAs(browser: Browser, link: string, password: string) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  const url = new URL(link);
-  await page.goto(url.pathname + url.search);
-  await choosePassword(page, password);
-  return { context, page };
-}
+import { addPerson, onboardBusiness, signInAs } from './support/flows';
 
 async function raise(page: Page, raisedWith: string, about: string, title: string) {
   await page.goto('/concerns');

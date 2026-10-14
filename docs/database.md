@@ -1177,6 +1177,39 @@ update only `status`, `resolved_at` and `resolved_by`. Both tables carry the res
 `last_activity_at` when a message is added. Migration 0051 also adds `unique (tenant_id, id)` to
 `payslips` for the composite key.
 
+## 7o. Training 🟢
+
+Courses of modules that staff complete online (ADR-050). All six tables are owned by the
+`training` feature and carry its restrictive `feature_switch` policy.
+```sql
+training_courses        id, tenant_id, title (2–150), description (≤ 2000), position,
+                        status 'draft' | 'published' | 'archived', created_by, updated_by,
+                        created_at, updated_at; unique (tenant_id, id)
+training_modules        id, tenant_id, course_id -> (tenant_id) training_courses, title (2–150),
+                        body (≤ 50000, plain text), video_url (https, ≤ 500), pass_mark (1–100,
+                        default 80), position, created_by, updated_by, timestamps
+training_questions      id, tenant_id, module_id -> training_modules (cascade), prompt (3–500),
+                        options text[] (2–6), position, timestamps
+training_question_keys  (tenant_id, question_id) pk -> training_questions (cascade),
+                        correct_option smallint (0–5)
+training_assignments    id, tenant_id, course_id -> training_courses (cascade),
+                        audience 'everyone' | 'role' | 'department' | 'person' with exactly the
+                        matching role_id / department_id / user_id set (check), created_by,
+                        created_at; unique (tenant_id, course_id, audience, target)
+training_completions    id, tenant_id, module_id -> training_modules (restrict), user_id,
+                        passed, best_score, last_score (0–100 or null without a quiz), attempts,
+                        completed_at (set once passed), last_attempt_at;
+                        unique (tenant_id, module_id, user_id)
+```
+RLS: courses are readable with `training.manage` or `training.view_all`, otherwise only when
+published and assigned to the reader (`app.training_assigned_to_me`); modules and questions follow
+their course. Question keys: `training.manage` only, for every operation. Assignments: read with
+`manage` or `view_all`, written with `manage`. Completions: read your own, or everyone's with
+`view_all` / `manage`; `authenticated` has no insert or update grant — results are written only by
+`app.submit_training_module(module, answers jsonb)` (security definer). `app.training_progress()`
+returns (user, course, modules, passed) for the caller, or for every active member with
+`view_all`. `app.training_is_assigned` is internal (no execute grant).
+
 ## 8. Platform tables
 
 ### custom_field_definitions 🟢 (table + validation in MVP; admin UI milestone 9)

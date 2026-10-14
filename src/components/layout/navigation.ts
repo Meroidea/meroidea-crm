@@ -3,6 +3,7 @@ import {
   Star,
   FolderKanban,
   Gauge,
+  GraduationCap,
   Briefcase,
   BarChart3,
   Boxes,
@@ -191,6 +192,13 @@ export const NAVIGATION: NavGroup[] = [
         icon: Palmtree,
         label: { title: 'Time off' },
         permission: 'timeoff.request',
+        available: true,
+      },
+      {
+        href: '/training',
+        icon: GraduationCap,
+        label: { title: 'Training' },
+        permission: 'training.learn',
         available: true,
       },
       {

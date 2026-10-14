@@ -796,3 +796,48 @@ asker's name is always shown. A Manager's question sent to managers is visible t
 managers. Questions can link a payslip but not yet a timesheet day or a roster shift. There are no
 attachments, reminders or reports yet. Without an email provider, nobody is notified and questions
 wait on the list.
+
+## ADR-050 — Staff training: courses and modules, assigned by role, department or person
+
+**Decision.** A feature, **Training** (`training`), lets a business put its training online and
+see who has done it. A **course** (for example "Welcome to the cafe" or "Cash handling") holds
+**modules**. A module has content written as plain text (headings, paragraphs, bullet points),
+an optional video (YouTube and Vimeo play in the page from their privacy-enhanced addresses; any
+other https address is a link), and an optional multiple-choice **quiz** with a pass mark.
+Without a quiz, staff mark the module as read and understood. A course is **assigned** to
+everyone, to everyone with a role (Manager, Staff), to everyone in a department (from their staff
+record), or to named people, in any combination; it reaches staff only once **published**, and
+**archiving** takes it out of everyone's training while keeping every result.
+
+Permissions: `training.learn` (everyone: see and complete your own assigned training),
+`training.view_all` (Admin and Manager: everyone's progress) and `training.manage` (Admin only:
+write courses, modules and quizzes, and assign them). The platform owner writes training for a
+business through support access, which is an Admin seat (ADR-029).
+
+Staff see their overall completion as a ring, each course's progress as a bar, and the selected
+course's modules with status and best score. Those with `training.view_all` see every person as a
+completion ring on a searchable grid, open anyone's individual page, and see each course's average
+across the people assigned to it.
+
+Rules enforced by the database: a learner can read a course, its modules and questions only when
+the course is published and assigned to them; the right answers live in
+`training_question_keys`, which only `training.manage` can read; results are written only by
+`app.submit_training_module`, which runs with the function owner's rights, checks the module is
+published and assigned to the caller, marks the answers and records the result (passed stays
+passed, the best score is kept, attempts are counted); `app.training_progress` returns the caller's
+own progress, or everyone's with `training.view_all`, working out assignment where department
+records can be read. A module someone has completed cannot be deleted; a course with modules
+cannot be deleted, only archived.
+
+**Why.** Small businesses train new starters on the menu, customer service, policies, cash and
+emergency procedures, and need to know who has done what; the kitchen does not need the till
+course. Assigning by role, department or person covers how these businesses are actually split.
+Marking in the database is what keeps the answers from ever reaching a browser: any design that
+sent them to be checked in the page, or let a learner read the answer table, could be read off
+by anyone who opened the developer tools.
+
+**Consequences.** Content is text and video only: no uploaded images, slides or PDFs in a module
+yet, and no SCORM packages. Questions have one right answer each. Editing a quiz does not reset
+results already earned. There is no due date, reminder, certificate or expiry yet, and no shared
+library from which the platform owner can copy a course into several businesses; each business's
+training is its own. Department assignment needs the person's staff record linked to their login.

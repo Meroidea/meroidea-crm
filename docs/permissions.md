@@ -45,7 +45,7 @@ re-implement scope logic.
 Each permission family belongs to a feature the platform owner switches on per business
 (`src/lib/features.ts`): `contacts`, `opportunities`, `revenue`, `activities`, `documents`,
 `partners`, `organizations`, `products`, `reports` → **crm**; `tasks` → **tasks**; `rosters` →
-**roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses`, `concerns` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
+**roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses`, `concerns`, `training` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
 of the same name. `settings`, `users`, `roles` and `audit` are always available. A grant whose
 feature is off is dropped when the context is built, for every role including Admin, and the
 database enforces the same rule: `app.has_permission` refuses it and the feature's own tables
@@ -111,6 +111,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `concerns.raise` | | Ask managers or the admin a question (about a payslip of your own, too), follow it, reply, mark it resolved or reopen it (ADR-049) |
 | `concerns.handle` | | Read, answer and change the status of questions sent to managers. Never those sent to the admin only. Enforced again by RLS on `concerns` / `concern_messages` |
 | `concerns.handle_all` | | Read, answer and change the status of every question, including those sent to the admin only and those about a payslip |
+| `training.learn` | | See and complete your own assigned training, and your own results (ADR-050) |
+| `training.view_all` | | See everyone's training progress, per person and per course. Enforced again by RLS and `app.training_progress` |
+| `training.manage` | | Write courses, modules and quizzes (including the right answers), publish and archive them, and assign them by role, department or person |
 | `payroll.manage` | | Authorise a roster for pay, enter tax withheld, release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
 | `purchasing.manage` | | See and manage suppliers and their price lists, and place, re-send and cancel orders. Enforced again by RLS on `suppliers`, `supplier_items`, `purchase_orders`, `purchase_order_lines` |
 | `inventory.view` | | See stock items, quantities, values and each item's history |
@@ -181,6 +184,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | concerns.raise | ✓ | ✓ | ✓ | ✓ |
 | concerns.handle | ✓ | ✓ | | |
 | concerns.handle_all | ✓ | | | |
+| training.learn | ✓ | ✓ | ✓ | ✓ |
+| training.view_all | ✓ | ✓ | | |
+| training.manage | ✓ | | | |
 | payroll.manage | ✓ | | | |
 | purchasing.manage | ✓ | | | |
 | inventory.view | ✓ | ✓ | ✓ | ✓ |

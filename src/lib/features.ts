@@ -37,6 +37,12 @@ export const FEATURES = [
     description: 'Clocking in and out, approving worked hours, and paying from them.',
   },
   {
+    key: 'training',
+    label: 'Training',
+    description:
+      'Courses and modules staff complete online, with quizzes, assigned by role, department or person, and everyone’s progress.',
+  },
+  {
     key: 'concerns',
     label: 'Questions & concerns',
     description:
@@ -118,6 +124,7 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
   expenses: 'expenses',
   payroll: 'payroll',
   concerns: 'concerns',
+  training: 'training',
 };
 
 /** The feature a permission needs, or null for workspace basics such as settings and users. */
@@ -136,6 +143,7 @@ const PEOPLE = [
   'staff',
   'recruitment',
   'concerns',
+  'training',
 ] as const satisfies readonly FeatureKey[];
 
 /** A starting set of features for each kind of business; the platform owner adjusts from here. */
@@ -193,6 +201,7 @@ export const BUSINESS_TYPES = [
       'staff',
       'recruitment',
       'concerns',
+      'training',
       'projects',
       'productivity',
       'invoices',

@@ -1,4 +1,4 @@
-import { expect, type BrowserContext, type Page } from '@playwright/test';
+import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 import { PLATFORM_OWNER } from './accounts';
 
@@ -74,4 +74,26 @@ export async function onboardBusiness(
   await choosePassword(page, 'harbour-cafe-password-1');
   await expect(page.getByText(company).first()).toBeVisible();
   return { company, adminEmail, agreementLink };
+}
+
+/** The admin adds someone from Settings → Team and gets the password link to pass on. */
+export async function addPerson(page: Page, name: string, email: string, role: string) {
+  await page.goto('/settings?tab=team');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: 'Add a person' }).click();
+  await page.getByLabel('Full name').fill(name);
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByLabel('Role', { exact: true }).selectOption({ label: role });
+  await page.getByRole('button', { name: 'Add and send link' }).click();
+  return page.getByLabel('Password link').inputValue();
+}
+
+/** That person, in their own browser, follows the link and chooses a password. */
+export async function signInAs(browser: Browser, link: string, password: string) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const url = new URL(link);
+  await page.goto(url.pathname + url.search);
+  await choosePassword(page, password);
+  return { context, page };
 }
