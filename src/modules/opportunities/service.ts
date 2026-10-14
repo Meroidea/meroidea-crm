@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { and, eq, inArray, isNull, min } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import {
   contacts,
@@ -13,6 +14,7 @@ import {
   stageApprovals,
   stageHistory,
   tasks,
+  teams,
   tenantMemberships,
 } from '@/db/schema';
 import { diffChanges } from '@/lib/audit-diff';
@@ -476,17 +478,39 @@ export async function updateOpportunity(
   });
 }
 
-/** People who may approve stage moves: members whose role grants opportunities.approve. */
-async function approverIds(tx: Tx, ctx: TenantContext): Promise<string[]> {
+/**
+ * People who may approve this opportunity's stage move: members whose role grants
+ * opportunities.approve and whose opportunities.view scope reaches it — everyone's, or the
+ * owner's team when they share or manage it. Nobody is asked about a deal they cannot open.
+ */
+async function approverIds(
+  tx: Tx,
+  ctx: TenantContext,
+  ownerUserId: string | null,
+): Promise<string[]> {
+  const approve = alias(rolePermissions, 'approve_grant');
+  const view = alias(rolePermissions, 'view_grant');
   const rows = await tx
-    .select({ userId: tenantMemberships.userId })
+    .select({
+      userId: tenantMemberships.userId,
+      teamId: tenantMemberships.teamId,
+      viewScope: view.scope,
+    })
     .from(tenantMemberships)
     .innerJoin(
-      rolePermissions,
+      approve,
       and(
-        eq(rolePermissions.tenantId, tenantMemberships.tenantId),
-        eq(rolePermissions.roleId, tenantMemberships.roleId),
-        eq(rolePermissions.permission, 'opportunities.approve'),
+        eq(approve.tenantId, tenantMemberships.tenantId),
+        eq(approve.roleId, tenantMemberships.roleId),
+        eq(approve.permission, 'opportunities.approve'),
+      ),
+    )
+    .innerJoin(
+      view,
+      and(
+        eq(view.tenantId, tenantMemberships.tenantId),
+        eq(view.roleId, tenantMemberships.roleId),
+        eq(view.permission, 'opportunities.view'),
       ),
     )
     .where(
@@ -496,7 +520,31 @@ async function approverIds(tx: Tx, ctx: TenantContext): Promise<string[]> {
         eq(tenantMemberships.isSupport, false),
       ),
     );
-  return rows.map((row) => row.userId);
+  if (!ownerUserId) return rows.filter((row) => row.viewScope === 'all').map((row) => row.userId);
+
+  const [owner] = await tx
+    .select({ teamId: tenantMemberships.teamId })
+    .from(tenantMemberships)
+    .where(
+      and(eq(tenantMemberships.tenantId, ctx.tenantId), eq(tenantMemberships.userId, ownerUserId)),
+    )
+    .limit(1);
+  const managed = owner?.teamId
+    ? await tx
+        .select({ managerUserId: teams.managerUserId })
+        .from(teams)
+        .where(and(eq(teams.tenantId, ctx.tenantId), eq(teams.id, owner.teamId)))
+    : [];
+  return rows
+    .filter(
+      (row) =>
+        row.viewScope === 'all' ||
+        row.userId === ownerUserId ||
+        (row.viewScope === 'team' &&
+          ((owner?.teamId && row.teamId === owner.teamId) ||
+            managed.some((team) => team.managerUserId === row.userId))),
+    )
+    .map((row) => row.userId);
 }
 
 type MoveResult = { id: string; pendingApproval: boolean };
@@ -572,7 +620,7 @@ async function performMove(
         entityId: request.id,
         context: { opportunityId: existing.id, stageId: target.id },
       });
-      const approvers = await approverIds(tx, ctx);
+      const approvers = await approverIds(tx, ctx, existing.ownerUserId);
       const emails = await notify(
         tx,
         ctx,

@@ -2,8 +2,11 @@ import {
   ArrowLeft,
   Building2,
   CalendarDays,
+  Footprints,
   Handshake,
+  Package,
   Pencil,
+  Percent,
   Radio,
   UserRound,
 } from 'lucide-react';
@@ -29,6 +32,16 @@ import { StageBadge } from '@/modules/opportunities/components/stage-badge';
 import { StageStepper } from '@/modules/opportunities/components/stage-stepper';
 import { getOpportunity } from '@/modules/opportunities/queries';
 import { getPipelineConfig } from '@/modules/pipelines/queries';
+import { formatDateTime } from '@/lib/format';
+import { listContactOptions } from '@/modules/contacts/queries';
+import { getCustomFields } from '@/modules/custom-fields/queries';
+import { displayCustomValue } from '@/modules/custom-fields/validation';
+import { readCrmSettings } from '@/modules/leads/settings';
+import {
+  ApprovalBanner,
+  OpportunityPeople,
+  StageChecklist,
+} from '@/modules/opportunities/components/opportunity-extras';
 import { TaskList } from '@/modules/tasks/components/task-list';
 import { TaskQuickAdd } from '@/modules/tasks/components/task-quick-add';
 import { listTasksFor } from '@/modules/tasks/queries';
@@ -68,11 +81,12 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
       notFound();
     throw error;
   });
-  const [pipeline, timeline, tasks, members] = await Promise.all([
-    getPipelineConfig(ctx),
+  const [pipeline, timeline, tasks, members, customFields] = await Promise.all([
+    getPipelineConfig(ctx, opportunity.pipelineId),
     getTimeline(ctx, { opportunityId: id }),
     listTasksFor(ctx, { opportunityId: id }),
     listActiveMembers(ctx),
+    getCustomFields(ctx, 'opportunity'),
   ]);
 
   const labels = ctx.tenant.labels;
@@ -85,6 +99,12 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
   const assignees = hasPermission(ctx, 'tasks.assign_others')
     ? assignableOwners(ctx, members, 'tasks.manage')
     : undefined;
+  const contactOptions = canEdit ? await listContactOptions(ctx) : [];
+  const currentStage = pipeline.stages.find((stage) => stage.id === opportunity.stageId);
+  const shownCustom = customFields.filter(
+    (field) => field.isActive || opportunity.customFields[field.key] !== undefined,
+  );
+  const contactRoles = readCrmSettings(ctx.tenant.settings).contactRoles;
   const currency = opportunity.currency ?? ctx.tenant.currency;
   const daysInStage = daysBetween(new Date(opportunity.stageEnteredAt), new Date());
 
@@ -139,8 +159,22 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
         canEdit={canEdit}
       />
 
+      {opportunity.pendingApproval && (
+        <ApprovalBanner
+          approval={{
+            id: opportunity.pendingApproval.id,
+            stageName: opportunity.pendingApproval.stageName,
+            requestedByName: opportunity.pendingApproval.requestedByName,
+            note: opportunity.pendingApproval.note,
+            when: formatDateTime(ctx, opportunity.pendingApproval.requestedAt),
+          }}
+          canDecide={hasPermission(ctx, 'opportunities.approve')}
+          canWithdraw={opportunity.pendingApproval.requestedBy === ctx.userId}
+        />
+      )}
+
       <Card>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Fact icon={Radio} label="Value">
             {opportunity.canViewRevenue ? (
               <span className="tabular-nums">{formatMoney(opportunity.amount, currency)}</span>
@@ -174,7 +208,21 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
           <Fact icon={Handshake} label="Source">
             {opportunity.partnerName
               ? `${opportunity.partnerName} (${labels.partner.singular.toLowerCase()})`
-              : (opportunity.sourceName ?? '—')}
+              : opportunity.sourceName
+                ? `${opportunity.sourceName}${opportunity.subSourceName ? ` – ${opportunity.subSourceName}` : ''}`
+                : '—'}
+          </Fact>
+          <Fact icon={Package} label="Product or service">
+            {opportunity.product ?? '—'}
+          </Fact>
+          <Fact icon={Percent} label="Probability">
+            {opportunity.probability === null ? '—' : `${opportunity.probability}%`}
+            {opportunity.probability !== null && !opportunity.probabilityOverridden && (
+              <span className="font-normal text-muted-foreground"> (stage)</span>
+            )}
+          </Fact>
+          <Fact icon={Footprints} label="Next step">
+            {opportunity.nextStep ?? '—'}
           </Fact>
         </CardContent>
       </Card>
@@ -199,6 +247,22 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
         </div>
 
         <div className="flex flex-col gap-4">
+          {currentStage && currentStage.checklist.length > 0 && opportunity.status === 'open' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{currentStage.name} checklist</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <StageChecklist
+                  opportunityId={opportunity.id}
+                  stageId={currentStage.id}
+                  items={currentStage.checklist}
+                  done={opportunity.checklistState[currentStage.id] ?? []}
+                  canEdit={canEdit}
+                />
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Next steps</CardTitle>
@@ -225,16 +289,61 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
             <CardHeader>
               <CardTitle>Owner</CardTitle>
             </CardHeader>
-            <CardContent className="flex items-center gap-3">
-              <Avatar name={opportunity.ownerName ?? 'Unassigned'} className="size-9 text-xs" />
-              <div>
-                <p className="text-sm font-medium">{opportunity.ownerName ?? 'Unassigned'}</p>
-                <p className="text-xs text-muted-foreground">
-                  {opportunity.ownerUserId === ctx.userId ? 'That’s you' : 'Owner'}
-                </p>
+            <CardContent className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <Avatar name={opportunity.ownerName ?? 'Unassigned'} className="size-9 text-xs" />
+                <div>
+                  <p className="text-sm font-medium">{opportunity.ownerName ?? 'Unassigned'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {opportunity.ownerUserId === ctx.userId ? 'That’s you' : 'Owner'}
+                  </p>
+                </div>
               </div>
+              {opportunity.originatorName && (
+                <p className="text-xs text-muted-foreground">
+                  Lead originated by{' '}
+                  <span className="font-medium text-foreground">{opportunity.originatorName}</span>
+                </p>
+              )}
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>People on it</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <OpportunityPeople
+                opportunityId={opportunity.id}
+                people={opportunity.people}
+                options={contactOptions
+                  .filter((option) => option.id !== opportunity.contactId)
+                  .map((option) => ({ value: option.id, label: option.name }))}
+                roles={contactRoles}
+                canEdit={canEdit}
+              />
+            </CardContent>
+          </Card>
+
+          {shownCustom.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>More details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid gap-3">
+                  {shownCustom.map((field) => (
+                    <div key={field.id} className="flex flex-col gap-0.5">
+                      <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                      <dd className="text-sm">
+                        {displayCustomValue(field, opportunity.customFields[field.key])}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -258,9 +367,12 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
                         />
                         <span className="truncate">{visit.stageName}</span>
                       </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
+                      <span className="shrink-0 text-right text-xs text-muted-foreground">
                         {formatDate(ctx, visit.enteredAt)} · {days}d
                         {visit.exitedAt ? '' : ' so far'}
+                        {visit.enteredByName && (
+                          <span className="block">by {visit.enteredByName}</span>
+                        )}
                       </span>
                     </li>
                   );

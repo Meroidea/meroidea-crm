@@ -37,7 +37,12 @@ export default async function NewOpportunityPage({
               ownerUserId: ctx.userId,
               sourceId: '',
               partnerId: '',
+              pipelineId: options.defaultPipelineId,
               stageId: options.stages[0]?.value ?? '',
+              product: '',
+              probability: '',
+              nextStep: '',
+              customFields: {},
             }}
           />
         </CardContent>
