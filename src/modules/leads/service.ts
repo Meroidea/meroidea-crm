@@ -584,6 +584,8 @@ export async function acceptHandover(ctx: TenantContext, input: AcceptHandoverIn
       subject: 'Handover accepted',
       contactId: lead.id,
       opportunityId: result.opportunityId,
+      // A manager may accept on the rep's behalf; reports credit the rep it was handed to.
+      metadata: { acceptedFor: owner },
     });
     const notices = [lead.originatorUserId, lead.ownerUserId]
       .filter((id, index, all): id is string => !!id && all.indexOf(id) === index && id !== owner)

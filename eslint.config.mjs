@@ -52,6 +52,8 @@ const eslintConfig = defineConfig([
       'src/modules/helpdesk/public.ts',
       // A business's website lead form: no session, the form's unguessable key is the credential.
       'src/modules/leads/public.ts',
+      // Scheduled lead alerts across businesses; in the app, only for the caller's own business.
+      'src/modules/notifications/alerts.ts',
       // The platform owner's console works across every business by design (ADR-029).
       'src/modules/platform/service.ts',
       // The admin's service-agreement link: they cannot sign in until they accept (ADR-047).

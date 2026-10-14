@@ -31,8 +31,8 @@ export const LEAD_VIEWS = ['mine', 'queue', 'pending', 'returned', 'overdue', 'a
 export type LeadView = (typeof LEAD_VIEWS)[number];
 
 const OPEN_KINDS = ['new', 'working', 'returned', 'pending_acceptance'] as const;
-const owners = alias(users, 'lead_owner');
-const handoverTo = alias(users, 'lead_handover_to');
+export const owners = alias(users, 'lead_owner');
+export const handoverTo = alias(users, 'lead_handover_to');
 
 export type LeadRow = {
   id: string;
@@ -92,7 +92,11 @@ function viewCondition(
   }
 }
 
-function baseConditions(ctx: TenantContext, filters: LeadQueueFilters, view: LeadView): SQL[] {
+export function baseConditions(
+  ctx: TenantContext,
+  filters: LeadQueueFilters,
+  view: LeadView,
+): SQL[] {
   const settings = readCrmSettings(ctx.tenant.settings);
   const conditions: (SQL | undefined)[] = [
     eq(contacts.tenantId, ctx.tenantId),

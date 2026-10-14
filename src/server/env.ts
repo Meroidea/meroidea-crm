@@ -32,6 +32,11 @@ const serverEnvSchema = z.object({
    * platform console's re-encryption has moved everything onto HR_ENCRYPTION_KEY.
    */
   HR_ENCRYPTION_KEYS_PREVIOUS: z.string().optional(),
+  /**
+   * Sent by the scheduler (Vercel Cron, as `Authorization: Bearer …`) to run the daily lead
+   * alerts. Without it the scheduled route refuses every call; alerts still run in the app.
+   */
+  CRON_SECRET: z.string().min(32).optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

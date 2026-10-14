@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
 import { assignableOwners } from '@/modules/contacts/owners';
+import { ExportLeadsButton } from '@/modules/leads/components/export-leads-button';
 import { LeadsTable } from '@/modules/leads/components/leads-table';
 import { getLeadConfig } from '@/modules/leads/config';
 import { countLeadViews, LEAD_VIEWS, listLeads, type LeadView } from '@/modules/leads/queries';
@@ -73,13 +74,18 @@ export default async function LeadsPage({ searchParams }: PageProps<'/leads'>) {
         title="Leads"
         description="New enquiries and the people your team is qualifying, from first contact to handover."
         actions={
-          hasPermission(ctx, 'contacts.create') && (
-            <Button asChild>
-              <Link href="/contacts/new">
-                <Plus aria-hidden /> New lead
-              </Link>
-            </Button>
-          )
+          <>
+            {hasPermission(ctx, 'contacts.export') && (
+              <ExportLeadsButton filters={{ ...current, cursor: undefined }} />
+            )}
+            {hasPermission(ctx, 'contacts.create') && (
+              <Button asChild>
+                <Link href="/contacts/new">
+                  <Plus aria-hidden /> New lead
+                </Link>
+              </Button>
+            )}
+          </>
         }
       />
 

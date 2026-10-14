@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { after } from 'next/server';
 import type { ReactNode } from 'react';
 
 import { AppSidebar } from '@/components/layout/app-sidebar';
@@ -8,6 +9,7 @@ import { PrivacyBlurToggle } from '@/components/layout/privacy-blur-toggle';
 import { UserMenu } from '@/components/layout/user-menu';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { sweepIfDue } from '@/modules/notifications/alerts';
 import { countUnread } from '@/modules/notifications/queries';
 import { SupportBanner } from '@/modules/platform/components/platform-tools';
 import { requireTenantContext } from '@/server/context';
@@ -16,6 +18,10 @@ import { getPlatformAdmin } from '@/server/platform';
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const ctx = await requireTenantContext();
   const [platformAdmin, unread] = await Promise.all([getPlatformAdmin(), countUnread(ctx)]);
+  // Keeps SLA alerts current between the scheduler's daily runs; never slows the page.
+  if (ctx.tenant.features.includes('crm')) {
+    after(() => sweepIfDue(ctx.tenantId).catch(() => undefined));
+  }
 
   return (
     <TooltipProvider delayDuration={0}>

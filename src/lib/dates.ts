@@ -37,11 +37,12 @@ export function startOfZonedDay(timeZone: string, addDays = 0, now = new Date())
   return new Date(guess - offsetMs(timeZone, new Date(guess)));
 }
 
-/** A date input value ("2026-10-03") at local midnight in the workspace timezone. */
+/**
+ * A date input value ("2026-10-03") at local midnight in the workspace timezone: where that day
+ * starts, for date ranges such as a pay period or a report.
+ */
 export function zonedDateToInstant(timeZone: string, value: string): Date {
-  const [year, month, day] = value.split('-').map(Number);
-  const guess = Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1, 9);
-  return new Date(guess - offsetMs(timeZone, new Date(guess)));
+  return zonedDateTimeToInstant(timeZone, value, '00:00');
 }
 
 export function daysBetween(from: Date, to: Date): number {

@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 
 import { PageHeader } from '@/components/data/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,12 +13,12 @@ import {
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { BarList } from '@/modules/reports/components/charts';
-import { getReports, type ReportRange } from '@/modules/reports/queries';
-import { requirePermission, requireTenantContext } from '@/server/context';
+import { ReportCsv } from '@/modules/reports/components/report-csv';
+import { parseRange, ReportNav } from '@/modules/reports/components/report-nav';
+import { getReports } from '@/modules/reports/queries';
+import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'Reports' };
-
-const RANGES: ReportRange[] = [30, 90, 365];
 
 function pct(part: number, whole: number) {
   return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—';
@@ -29,37 +28,21 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'reports.view');
   const params = await searchParams;
-  const range = (RANGES.find((value) => String(value) === params.range) ?? 90) as ReportRange;
+  const range = parseRange(params.range);
   const report = await getReports(ctx, range);
   const labels = ctx.tenant.labels;
   const scope = ctx.grants.get('reports.view');
   const top = report.funnel[0]?.reached ?? 0;
   const followTotal = report.followUp.onTime + report.followUp.late;
+  const canExport = hasPermission(ctx, 'reports.export');
+  const stamp = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <PageHeader
         title="Reports"
         description={`Who is following up, where things stall, what's coming. ${scope === 'own' ? 'Showing your own records.' : scope === 'team' ? "Showing your team's records." : 'Showing the whole workspace.'}`}
-        actions={
-          <nav aria-label="Date range" className="flex rounded-lg border bg-card p-0.5">
-            {RANGES.map((value) => (
-              <Link
-                key={value}
-                href={`/reports?range=${value}`}
-                aria-current={value === range ? 'page' : undefined}
-                className={cn(
-                  'rounded-md px-3 py-1.5 text-sm',
-                  value === range
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {value === 365 ? '12 months' : `${value} days`}
-              </Link>
-            ))}
-          </nav>
-        }
+        actions={<ReportNav page="/reports" range={range} />}
       />
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -132,11 +115,26 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Sources and win rate</CardTitle>
-            <CardDescription>
-              Where {labels.opportunity.plural.toLowerCase()} came from, and how they ended
-            </CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-2">
+            <div className="flex flex-col gap-1.5">
+              <CardTitle>Sources and win rate</CardTitle>
+              <CardDescription>
+                Where {labels.opportunity.plural.toLowerCase()} came from, and how they ended
+              </CardDescription>
+            </div>
+            {canExport && report.bySource.length > 0 && (
+              <ReportCsv
+                report="sales:sources"
+                fileName={`sales-sources-${range}d-${stamp}.csv`}
+                rows={report.bySource.map((row) => ({
+                  Source: row.name,
+                  Created: row.created,
+                  Won: row.won,
+                  Lost: row.lost,
+                  'Win rate': pct(row.won, row.won + row.lost),
+                }))}
+              />
+            )}
           </CardHeader>
           <CardContent>
             {report.bySource.length === 0 ? (
@@ -171,9 +169,23 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>By owner</CardTitle>
-            <CardDescription>New and won in this period</CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-2">
+            <div className="flex flex-col gap-1.5">
+              <CardTitle>By owner</CardTitle>
+              <CardDescription>New and won in this period</CardDescription>
+            </div>
+            {canExport && report.byOwner.length > 0 && (
+              <ReportCsv
+                report="sales:owners"
+                fileName={`sales-owners-${range}d-${stamp}.csv`}
+                rows={report.byOwner.map((row) => ({
+                  Owner: row.name,
+                  New: row.created,
+                  Won: row.won,
+                  ...(report.showMoney ? { 'Won value': row.value } : {}),
+                }))}
+              />
+            )}
           </CardHeader>
           <CardContent>
             {report.byOwner.length === 0 ? (

@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { contacts, opportunities, tasks } from '@/db/schema';
-import { zonedDateToInstant } from '@/lib/dates';
+import { zonedDateTimeToInstant } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { assertCanAccess } from '@/lib/permissions/scope';
 import { recordSystemActivity } from '@/modules/activities/service';
@@ -97,7 +97,10 @@ export async function createTask(
         title: input.title,
         type: input.type,
         priority: input.priority,
-        dueAt: input.dueDate ? zonedDateToInstant(ctx.tenant.timezone, input.dueDate) : null,
+        // A task due on a day falls due at 9am there: it isn't overdue the moment the day starts.
+        dueAt: input.dueDate
+          ? zonedDateTimeToInstant(ctx.tenant.timezone, input.dueDate, '09:00')
+          : null,
         assignedTo,
         contactId,
         opportunityId,

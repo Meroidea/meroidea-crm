@@ -8,11 +8,13 @@ import {
   contactIdOnlySchema,
   directConvertSchema,
   handoverSchema,
+  leadQueueFiltersSchema,
   linkContactsSchema,
   rejectHandoverSchema,
   setLeadStatusSchema,
   unlinkContactsSchema,
 } from './schemas';
+import { exportLeads } from './export';
 import * as leads from './service';
 
 const paths = ['/contacts', '/leads', '/opportunities', '/pipeline'];
@@ -60,4 +62,9 @@ export const linkContactsAction = authedAction(
 export const unlinkContactsAction = authedAction(
   { permission: 'contacts.edit', input: unlinkContactsSchema, revalidate: ['/contacts'] },
   (ctx, input) => leads.unlinkContacts(ctx, input),
+);
+
+export const exportLeadsAction = authedAction(
+  { permission: 'contacts.export', input: leadQueueFiltersSchema },
+  (ctx, input) => exportLeads(ctx, input),
 );
