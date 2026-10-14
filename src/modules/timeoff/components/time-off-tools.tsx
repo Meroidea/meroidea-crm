@@ -27,11 +27,7 @@ import {
   requestLeaveAction,
   saveLeaveTypeAction,
 } from '@/modules/timeoff/actions';
-import {
-  requestLeaveSchema,
-  type RequestLeaveInput,
-  type RequestLeaveValues,
-} from '@/modules/timeoff/schemas';
+import { requestLeaveSchema, type RequestLeaveValues } from '@/modules/timeoff/schemas';
 
 type TypeOption = { id: string; name: string; isPaid: boolean; isActive: boolean };
 
@@ -57,8 +53,9 @@ export function RequestLeaveButton({
     getValues,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<RequestLeaveValues, unknown, RequestLeaveInput>({
-    resolver: zodResolver(requestLeaveSchema),
+  } = useForm<RequestLeaveValues, unknown, RequestLeaveValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(requestLeaveSchema, undefined, { raw: true }),
     defaultValues: {
       leaveTypeId: active[0]?.id ?? '',
       startsOn: today,

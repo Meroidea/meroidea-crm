@@ -9,7 +9,7 @@ import { consumeRateLimit } from '@/server/rate-limit';
 import { sendNoticeEmails } from './service';
 
 /**
- * Lead and follow-up alerts (docs/leads.md §5). The checks themselves are one SQL function,
+ * Lead and follow-up alerts (docs/leads.md §6.4). The checks themselves are one SQL function,
  * app.sweep_lead_alerts, which writes in-app notices with dedupe keys; this file runs it and
  * emails the notices that ask for an email. It works across businesses for the scheduler, so it
  * uses the privileged client and never takes a business id from a request: the scheduler covers

@@ -188,7 +188,7 @@ export async function mergeContacts(
 }
 
 /**
- * Erases a person on request (docs/leads.md §6): their name, contact details, address, notes,
+ * Erases a person on request (docs/leads.md §6.5): their name, contact details, address, notes,
  * the business's own fields and what was written on the timeline are cleared; the record stays
  * as "Erased" so counts, opportunities and reports still add up, and they are marked do-not-
  * contact so no list or sequence reaches them again. It cannot be undone.

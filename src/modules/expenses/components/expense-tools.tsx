@@ -37,7 +37,6 @@ import {
 import {
   EXPENSE_CATEGORIES,
   submitExpenseSchema,
-  type SubmitExpenseInput,
   type SubmitExpenseValues,
 } from '@/modules/expenses/schemas';
 
@@ -54,8 +53,9 @@ export function NewExpenseButton({ today, currency }: { today: string; currency:
     setError,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<SubmitExpenseValues, unknown, SubmitExpenseInput>({
-    resolver: zodResolver(submitExpenseSchema),
+  } = useForm<SubmitExpenseValues, unknown, SubmitExpenseValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(submitExpenseSchema, undefined, { raw: true }),
     defaultValues: { spentOn: today, category: '', merchant: '', description: '', amount: '' },
   });
 

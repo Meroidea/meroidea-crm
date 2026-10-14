@@ -851,3 +851,47 @@ yet, and no SCORM packages. Questions have one right answer each. Editing a quiz
 results already earned. There is no due date, reminder, certificate or expiry yet, and no shared
 library from which the platform owner can copy a course into several businesses; each business's
 training is its own. Department assignment needs the person's staff record linked to their login.
+
+## ADR-051 — Lead management: a lead is a contact being qualified
+
+**Decision.** Lead management for B2B and B2C (docs/leads.md) is built on the existing contact,
+not on a new Lead table. A contact becomes a lead when it has a **lead status**; the status's
+**kind** (new, working, pending acceptance, returned, converted, closed) drives behaviour and its
+name is the business's. A lead has a **type**, B2B or B2C, and the business chooses which of the
+two workflows it runs. B2B leads go from the SDR/BDR to a sales rep through a **handover** that
+the rep accepts (creating or linking the account, the contact's role and an opportunity) or
+returns with a reason, against a deadline in business days. B2C leads convert directly, with an
+optional SDR step and an optional approval. Pipelines become several per business, and stages
+gain owners, required fields, checklists and approvals. Sources gain **sub-sources**, both
+required for a lead. Routing rules, statuses, reasons, custom fields, templates, sequences and
+website forms are all per-business configuration; nothing about an industry is in code.
+
+The originator (SDR) and the rep a lead is handed to are responsible for it alongside its owner:
+`scopeFilter` and `assertCanAccess` take extra responsible columns, and contacts always pass the
+same two (`contactScope` / `contactRecord`), so the rule is the same in every list and check.
+
+Three things are deliberately done in the database: the duplicate search (security definer, so it
+sees records outside the person's scope and reveals only the owner's name); merging and erasing
+a person, which reach other features' rows and rows people cannot write (support tickets,
+reviews, website submissions, audit values) and each check the permission and the business
+themselves; and the SLA sweep, one set-based function whose dedupe keys make every run safe to
+repeat.
+
+Alerts run from the app (after a page is sent, at most every 15 minutes per business) and daily
+from Vercel Cron. pg_cron was not used: it is not installed on the project yet, and it could
+write notices but not send their emails, which needs the app's mail sender.
+
+**Why.** Every screen, permission, report and integration in Meroidea already works on contacts;
+a separate Lead object would have meant copying a person at conversion, keeping two records in
+step, and deduplicating across two tables. Most of the brief is about the *state* of a person
+(qualifying, waiting for a rep, converted), which a status with a kind models directly while
+letting each business name its steps. Doing merge, erase and alerts in SQL keeps them complete
+(every table that points at a person is covered in one place) and atomic.
+
+**Consequences.** A "lead" in a report is a contact with a lead status; plain contacts are not
+counted. Rejecting a handover clears its handover fields, so acceptance rates are read from the
+timeline events, which are kept. Alerts can be up to a day late for a business nobody opens
+(the daily run covers it). Not built, because each needs an outside account first: mailbox sync
+(Gmail, Microsoft 365) and open tracking, automatic call logging from a phone system, enrichment
+from a data provider, and WhatsApp/SMS. Email is sent from the CRM under the person's name with
+replies to their own inbox; calls and enrichment are entered by hand.

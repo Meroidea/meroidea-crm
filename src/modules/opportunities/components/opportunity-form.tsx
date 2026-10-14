@@ -16,7 +16,6 @@ import type { CustomFieldDefinition } from '@/modules/custom-fields/validation';
 import { createOpportunityAction, updateOpportunityAction } from '@/modules/opportunities/actions';
 import {
   createOpportunitySchema,
-  type CreateOpportunityInput,
   type OpportunityFormValues,
 } from '@/modules/opportunities/schemas';
 
@@ -63,8 +62,9 @@ export function OpportunityForm({
     setValue,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<OpportunityFormValues, unknown, CreateOpportunityInput>({
-    resolver: zodResolver(createOpportunitySchema),
+  } = useForm<OpportunityFormValues, unknown, OpportunityFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(createOpportunitySchema, undefined, { raw: true }),
     defaultValues: defaults,
   });
   const pipelineId = useWatch({ control, name: 'pipelineId' });

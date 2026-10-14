@@ -445,6 +445,157 @@ Written only by the `moveStage()` / `moveItemStage()` services, in the same tran
 
 ---
 
+## 4a. Lead management 🟢
+
+Migrations `0055`–`0058` (docs/leads.md, ADR-051). Every table below has `tenant_id`, the
+standard `tenant_isolation` policy and a restrictive `feature_switch` policy for `crm`; grants
+are explicit. Lists are switched off (`is_active`), never deleted.
+
+### Columns added to existing tables
+```sql
+contacts:
+  lead_type lead_type                      -- b2b | b2c; null for a plain contact
+  lead_status_id uuid                      -- (tenant_id, …) → lead_statuses; set ⇔ the contact is a lead
+  lead_status_changed_at timestamptz, lead_reason_id uuid, lead_reason_note text
+  sub_source_id uuid                       -- (tenant_id, source_id, sub_source_id) → lead_sub_sources
+  campaign_name text, utm jsonb, import_batch_id uuid
+  job_title, company_name, company_website, company_size, industry, linkedin_url,
+  language, interest text
+  originator_user_id uuid                  -- the SDR/BDR, kept after handover
+  assigned_at, first_contacted_at timestamptz
+  handover_to_user_id uuid, handover_at, handover_due_at, handover_meeting_at timestamptz,
+  handover_summary text
+  rejected_reason_id uuid, rejected_note text, rejected_at timestamptz, rejected_by uuid
+  converted_at timestamptz
+  do_not_email, do_not_call boolean not null default false, consent_source text
+  anonymized_at timestamptz                -- erased on request (docs/leads.md §6.5)
+  index (tenant_id, lead_status_id, created_at desc) where deleted_at is null and lead_status_id is not null
+  index (tenant_id, handover_to_user_id) …
+organizations: domain, industry, company_size, linkedin_url text
+pipelines: lead_type lead_type             -- the default pipeline for that workflow
+pipeline_stages: owner_user_id, owner_team_id uuid (at most one), on_enter text (notify | reassign | task),
+  last_assigned_user_id uuid, required_fields text[], checklist jsonb, requires_approval boolean
+opportunities: sub_source_id, originator_user_id uuid, product text, probability int (0–100),
+  next_step text (≤300), checklist_state jsonb
+tasks: sequence_enrollment_id uuid
+activity_type += status_changed, assigned, handover, handover_accepted, handover_rejected,
+  converted, merged, approval, enquiry
+```
+
+### lead_sub_sources
+```sql
+id, tenant_id, source_id uuid not null, name text not null, is_active, position, created_at, updated_at
+unique (tenant_id, source_id, id)          -- target of contacts' composite FK
+```
+
+### lead_statuses
+```sql
+id, tenant_id, name text not null,
+kind lead_status_kind not null             -- new | working | pending_acceptance | returned | converted | closed
+lead_type lead_type                        -- null = both workflows
+requires_reason boolean, is_system boolean, color text, is_active, position, created_at, updated_at
+unique index (tenant_id, kind, lead_type) nulls not distinct where is_system
+```
+
+### lead_reasons
+```sql
+id, tenant_id, kind lead_reason_kind not null   -- disqualify | reject
+name text not null, is_active, position, created_at, updated_at
+```
+
+### custom_field_definitions
+```sql
+id, tenant_id, entity_type custom_entity not null   -- contact | organization | opportunity
+key text not null                          -- ^[a-z][a-z0-9_]{0,39}$, immutable
+label text (1–60), description text,
+field_type custom_field_type not null      -- text | textarea | number | date | boolean | select | multi_select | email | phone | url
+options jsonb (choices), is_required, is_active, show_in_list, position, created_at, updated_at
+unique (tenant_id, entity_type, key)
+```
+Values live in the entity's `custom_fields` jsonb, validated by `cleanCustomFields`.
+
+### import_batches
+```sql
+id, tenant_id, file_name text not null, source_id, sub_source_id uuid, campaign_name text,
+lead_type lead_type, duplicate_strategy text not null   -- skip | merge | create
+row_count, created_count, merged_count, skipped_count, duplicate_created_count, error_count int
+report jsonb not null                      -- {asLeads, assignment, rows: [{row, outcome, reason?, contactId?}]}
+created_by uuid, created_at, completed_at timestamptz
+```
+Only its creator adds rows to a batch, until `completed_at` is set.
+
+### contact_links (households and groups)
+```sql
+id, tenant_id, contact_id, related_contact_id uuid not null, relationship text not null, created_by, created_at
+unique (tenant_id, contact_id, related_contact_id)
+```
+
+### opportunity_contacts (contact roles)
+```sql
+id, tenant_id, opportunity_id, contact_id uuid not null, role text not null, created_by, created_at
+unique (tenant_id, opportunity_id, contact_id)
+```
+
+### stage_approvals
+```sql
+id, tenant_id, opportunity_id, stage_id uuid not null,
+status text not null                       -- pending | approved | declined | withdrawn
+note text, requested_by uuid not null, requested_at, decided_by uuid, decided_at, decision_note text
+unique index (tenant_id, opportunity_id) where status = 'pending'
+```
+
+### routing_rules
+```sql
+id, tenant_id, name text, stage text not null        -- intake | handover
+lead_type lead_type, conditions jsonb not null       -- {sourceIds, subSourceIds, countries, regions, industries, companySizes, languages, interests}
+method text not null                                 -- round_robin | least_loaded
+user_ids uuid[] not null, team_id uuid, last_assigned_user_id uuid, position, is_active, created_at, updated_at
+```
+
+### email_templates, sequences, sequence_enrollments
+```sql
+email_templates: id, tenant_id, name (1–80), subject (1–200), body (1–20000), is_active, created_by, created_at, updated_at
+sequences: id, tenant_id, name, description, steps jsonb not null   -- [{id, day, type, title, templateId}]
+  is_active, created_by, created_at, updated_at
+sequence_enrollments: id, tenant_id, sequence_id, contact_id, assigned_to uuid not null,
+  status text not null (active | completed | stopped), enrolled_by, enrolled_at, ended_at
+  unique index (tenant_id, sequence_id, contact_id) where status = 'active'
+```
+
+### web_forms
+```sql
+id, tenant_id, name (1–80), public_key text not null unique   -- the form's address; unguessable
+source_id uuid not null, sub_source_id uuid, lead_type lead_type not null,
+thank_you_message text, ask_company, ask_message, ask_consent boolean, is_active, created_by, created_at, updated_at
+```
+
+### lead_intake_events
+```sql
+id, tenant_id, channel text not null, web_form_id uuid, payload jsonb not null,
+status text not null                       -- received | created | matched | failed
+contact_id uuid, error text, received_at, processed_at
+```
+Written only by the public form endpoint's privileged connection; `authenticated` may only read.
+
+### notifications
+```sql
+id, tenant_id, user_id uuid not null, type text not null, title text not null, body text, url text,
+dedupe_key text, email_wanted boolean not null default false, emailed_at, read_at, created_at
+unique (tenant_id, user_id, dedupe_key)
+```
+RLS: a person reads and marks read only their own; anyone in the business may insert (a notice
+for a colleague) but not as already read or emailed; only `read_at` is updatable.
+
+### Functions
+- `app.find_company_contact_duplicates(company, full_name, exclude_id)` — duplicate search on a
+  similar name at the same company (security definer, active tenant only).
+- `app.merge_contact_references(keep, drop)` — moves everything that points at a contact; checks
+  `contacts.merge` in the active business itself (docs/leads.md §3.4).
+- `app.erase_contact_traces(contact)` — clears website submissions, ticket and review contact
+  details and audit values for an erased person; checks `contacts.anonymize` (§6.5).
+- `app.sweep_lead_alerts(tenant)` — writes the SLA alerts (§6.4). Not granted to `authenticated`;
+  run by the server for the scheduler and for a signed-in member's own business.
+
 ## 5. Activities & tasks 🟢
 
 ### activities

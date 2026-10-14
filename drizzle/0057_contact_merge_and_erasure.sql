@@ -1,4 +1,4 @@
--- Merging two records of the same person, and erasing a person on request (docs/leads.md §6).
+-- Merging two records of the same person, and erasing a person on request (docs/leads.md §3.4, §6.5).
 --
 -- Both reach rows in other features' tables (support tickets, reviews) and rows people cannot
 -- write themselves (website submissions, audit entries), so they run as security definer. Each

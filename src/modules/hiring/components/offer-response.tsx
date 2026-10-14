@@ -16,11 +16,7 @@ import {
   declineOfferAction,
   submitPayrollDetailsAction,
 } from '@/modules/hiring/public-actions';
-import {
-  payrollDetailsSchema,
-  type PayrollDetailsInput,
-  type PayrollFormValues,
-} from '@/modules/hiring/schemas';
+import { payrollDetailsSchema, type PayrollFormValues } from '@/modules/hiring/schemas';
 
 /** Read, confirm, type your name, accept — or decline. */
 export function AcceptOffer({
@@ -138,8 +134,9 @@ export function PayrollForm({ token }: { token: string }) {
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<PayrollFormValues, unknown, PayrollDetailsInput>({
-    resolver: zodResolver(payrollDetailsSchema),
+  } = useForm<PayrollFormValues, unknown, PayrollFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(payrollDetailsSchema, undefined, { raw: true }),
     defaultValues: {
       token,
       taxFileNumber: '',

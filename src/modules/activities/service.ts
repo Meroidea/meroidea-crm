@@ -86,7 +86,7 @@ export async function recordSystemActivities(
 }
 
 /**
- * Erasure on request (docs/leads.md §6): what people wrote about a person goes; the fact that a
+ * Erasure on request (docs/leads.md §6.5): what people wrote about a person goes; the fact that a
  * call or email happened stays, so reports still add up. System events keep their wording,
  * which never names the person.
  */

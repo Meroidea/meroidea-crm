@@ -14,6 +14,7 @@ in Sydney.
 | [terminology.md](terminology.md) | The words the code uses, and per-industry labels |
 | [architecture.md](architecture.md) | Layers, folder structure, request lifecycle, API conventions, custom fields, board, documents, import, lead intake, reporting, notifications, environments, costs |
 | [database.md](database.md) | ERD, every table/column/index/FK, tenant config, business rules, RLS strategy, cron jobs, seed data |
+| [leads.md](leads.md) | Lead management for B2B and B2C: capture, routing, outreach, handover, conversion, pipelines, SLAs, privacy, reports |
 | [permissions.md](permissions.md) | Permission catalog, scopes, default role matrix, required tests |
 | [decisions.md](decisions.md) | ADRs — including where and why this spec departs from the original stack proposal |
 | [roadmap.md](roadmap.md) | Milestones 0–13 (MVP), Phase 2, Phase 3, non-goals |

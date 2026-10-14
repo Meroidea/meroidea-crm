@@ -27,11 +27,7 @@ import {
   isBelowMinimum,
   type EmploymentType,
 } from '@/modules/hiring/compliance';
-import {
-  createHireSchema,
-  type CreateHireInput,
-  type HireFormValues,
-} from '@/modules/hiring/schemas';
+import { createHireSchema, type HireFormValues } from '@/modules/hiring/schemas';
 
 type Option = { value: string; label: string };
 
@@ -74,8 +70,9 @@ export function HireForm({
     setValue,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<HireFormValues, unknown, CreateHireInput>({
-    resolver: zodResolver(createHireSchema),
+  } = useForm<HireFormValues, unknown, HireFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(createHireSchema, undefined, { raw: true }),
     defaultValues: {
       firstName: initial?.firstName ?? '',
       lastName: initial?.lastName ?? '',

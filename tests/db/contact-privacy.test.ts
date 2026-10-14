@@ -18,7 +18,7 @@ import { withRls } from '@/server/db/with-rls';
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
 
 /*
- * docs/leads.md §3.4 and §6: two records of one person can be merged, and a person can be erased
+ * docs/leads.md §3.4 and §6.5: two records of one person can be merged, and a person can be erased
  * on request. Both are admin-level, scoped, and stay inside one business.
  */
 

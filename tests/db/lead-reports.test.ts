@@ -25,7 +25,7 @@ import { withRls } from '@/server/db/with-rls';
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
 
 /*
- * docs/leads.md §5 and §7: lead reports by source, person and reason; SLA alerts that land once;
+ * docs/leads.md §6.4 and §7: lead reports by source, person and reason; SLA alerts that land once;
  * and the leads export, all within the viewer's scope and business.
  */
 

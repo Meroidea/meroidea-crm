@@ -16,7 +16,6 @@ import {
   PARTNER_STATUS_LABELS,
   PARTNER_STATUSES,
   partnerFieldsSchema,
-  type CreatePartnerInput,
   type PartnerFormValues,
 } from '@/modules/partners/schemas';
 
@@ -38,8 +37,9 @@ export function PartnerForm({
     handleSubmit,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<PartnerFormValues, unknown, CreatePartnerInput>({
-    resolver: zodResolver(partnerFieldsSchema),
+  } = useForm<PartnerFormValues, unknown, PartnerFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(partnerFieldsSchema, undefined, { raw: true }),
     defaultValues: {
       organizationId: '',
       organizationName: '',

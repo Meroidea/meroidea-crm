@@ -61,8 +61,9 @@ export function RaiseConcernButton({
     reset,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<RaiseConcernValues, unknown, RaiseConcernInput>({
-    resolver: zodResolver(raiseConcernSchema),
+  } = useForm<RaiseConcernValues, unknown, RaiseConcernValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(raiseConcernSchema, undefined, { raw: true }),
     defaultValues: {
       raisedWith: preset?.raisedWith ?? 'manager',
       category: preset?.category ?? 'other',

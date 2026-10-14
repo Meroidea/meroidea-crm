@@ -31,10 +31,8 @@ import {
   MOVEMENT_KIND_LABELS,
   MOVEMENT_KINDS,
   recordMovementSchema,
-  type CreateItemInput,
   type ItemFormValues,
   type MovementFormValues,
-  type RecordMovementInput,
 } from '@/modules/inventory/schemas';
 import type { InventoryItemDetail } from '@/modules/inventory/types';
 
@@ -82,8 +80,9 @@ function ItemForm({
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<ItemFormValues, unknown, CreateItemInput>({
-    resolver: zodResolver(createItemSchema),
+  } = useForm<ItemFormValues, unknown, ItemFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(createItemSchema, undefined, { raw: true }),
     defaultValues: {
       name: item?.name ?? '',
       sku: item?.sku ?? '',
@@ -294,8 +293,9 @@ function StockForm({
     control,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<MovementFormValues, unknown, RecordMovementInput>({
-    resolver: zodResolver(recordMovementSchema),
+  } = useForm<MovementFormValues, unknown, MovementFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(recordMovementSchema, undefined, { raw: true }),
     defaultValues: { itemId: item.id, kind: 'received', quantity: '', unitCost: '', note: '' },
   });
   const kind = useWatch({ control, name: 'kind' });

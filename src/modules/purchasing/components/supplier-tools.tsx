@@ -28,11 +28,7 @@ import {
 } from '@/modules/purchasing/actions';
 import { parsePriceList, type ParsedPriceList } from '@/modules/purchasing/price-list';
 import { WEEKDAYS } from '@/modules/purchasing/schedule';
-import {
-  createSupplierSchema,
-  type CreateSupplierInput,
-  type SupplierFormValues,
-} from '@/modules/purchasing/schemas';
+import { createSupplierSchema, type SupplierFormValues } from '@/modules/purchasing/schemas';
 import type { SupplierDetail } from '@/modules/purchasing/types';
 
 function SupplierForm({ supplier, onDone }: { supplier?: SupplierDetail; onDone: () => void }) {
@@ -43,8 +39,9 @@ function SupplierForm({ supplier, onDone }: { supplier?: SupplierDetail; onDone:
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<SupplierFormValues, unknown, CreateSupplierInput>({
-    resolver: zodResolver(createSupplierSchema),
+  } = useForm<SupplierFormValues, unknown, SupplierFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(createSupplierSchema, undefined, { raw: true }),
     defaultValues: {
       name: supplier?.name ?? '',
       contactName: supplier?.contactName ?? '',

@@ -24,7 +24,6 @@ import {
   createContactSchema,
   LEAD_TYPE_LABELS,
   type ContactFormValues,
-  type CreateContactInput,
   type LeadType,
 } from '@/modules/contacts/schemas';
 import type { DuplicateMatch } from '@/modules/contacts/types';
@@ -87,8 +86,9 @@ export function ContactForm({
     setValue,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<ContactFormValues, unknown, CreateContactInput>({
-    resolver: zodResolver(createContactSchema),
+  } = useForm<ContactFormValues, unknown, ContactFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(createContactSchema, undefined, { raw: true }),
     defaultValues: defaults,
   });
   const [isLead, sourceId, leadType, assignment] = useWatch({
@@ -114,7 +114,7 @@ export function ContactForm({
   };
 
   const save = async (
-    values: CreateContactInput,
+    values: ContactFormValues,
     choice: { confirmDuplicate?: boolean; mergeIntoId?: string } = {},
   ) => {
     setFormError(null);

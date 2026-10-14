@@ -1,4 +1,4 @@
--- Scheduled alerts for one business (docs/leads.md §5): leads waiting for an owner, a first
+-- Scheduled alerts for one business (docs/leads.md §6.4): leads waiting for an owner, a first
 -- contact or an acceptance past the business's SLA, leads and opportunities gone quiet, and
 -- tasks just gone overdue. Each alert has a dedupe key, so running the sweep again (every few
 -- minutes while people use the app, and daily from the scheduler) never repeats one.

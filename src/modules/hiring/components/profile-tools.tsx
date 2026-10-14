@@ -23,11 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { endEmploymentAction, updateEmployeeProfileAction } from '@/modules/hiring/staff-actions';
-import {
-  updateProfileSchema,
-  type ProfileFormValues,
-  type UpdateProfileInput,
-} from '@/modules/hiring/staff-schemas';
+import { updateProfileSchema, type ProfileFormValues } from '@/modules/hiring/staff-schemas';
 import type { DepartmentRow, EmployeeDetail } from '@/modules/hiring/types';
 
 function ageOn(dateOfBirth: string, today: string): number | null {
@@ -55,8 +51,9 @@ export function ProfileForm({
     control,
     setError,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm<ProfileFormValues, unknown, UpdateProfileInput>({
-    resolver: zodResolver(updateProfileSchema),
+  } = useForm<ProfileFormValues, unknown, ProfileFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(updateProfileSchema, undefined, { raw: true }),
     defaultValues: {
       id: employee.id,
       firstName: employee.firstName,
