@@ -31,7 +31,7 @@ export const updateStageAction = authedAction(
 );
 export const addStageAction = authedAction(
   { permission: 'settings.manage', input: addStageSchema, revalidate: PATHS },
-  (ctx, input) => settingsService.addStage(ctx, input.name),
+  (ctx, input) => settingsService.addStage(ctx, input.name, input.pipelineId),
 );
 export const moveStagePositionAction = authedAction(
   { permission: 'settings.manage', input: moveStagePositionSchema, revalidate: PATHS },

@@ -221,3 +221,101 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
     },
   },
 ];
+
+/**
+ * Starting points for the roles a sales team usually needs (docs/leads.md §6.2). Not created
+ * automatically: an admin adds one from Settings → Roles and adjusts it.
+ */
+export const ROLE_TEMPLATES: {
+  key: string;
+  name: string;
+  description: string;
+  grants: Partial<Record<PermissionKey, Grant>>;
+}[] = [
+  {
+    key: 'sdr',
+    name: 'SDR / BDR',
+    description: 'Researches, enriches and warms up their leads, then hands them to a sales rep.',
+    grants: {
+      'contacts.view': 'own',
+      'contacts.create': true,
+      'contacts.edit': 'own',
+      'contacts.import': true,
+      'activities.create': true,
+      'tasks.view': 'own',
+      'tasks.manage': 'own',
+      'organizations.view': true,
+      'reports.view': 'own',
+    },
+  },
+  {
+    key: 'sales-rep',
+    name: 'Sales rep',
+    description: 'Accepts handed-over leads and owns the opportunities through to close.',
+    grants: {
+      'contacts.view': 'own',
+      'contacts.create': true,
+      'contacts.edit': 'own',
+      'opportunities.view': 'own',
+      'opportunities.create': true,
+      'opportunities.edit': 'own',
+      'revenue.view': 'own',
+      'activities.create': true,
+      'tasks.view': 'own',
+      'tasks.manage': 'own',
+      'organizations.view': true,
+      'organizations.manage': true,
+      'documents.view': true,
+      'documents.upload': true,
+      'reports.view': 'own',
+    },
+  },
+  {
+    key: 'customer-relations',
+    name: 'Customer relations',
+    description: 'Works B2C leads directly, from first contact to conversion.',
+    grants: {
+      'contacts.view': 'own',
+      'contacts.create': true,
+      'contacts.edit': 'own',
+      'opportunities.view': 'own',
+      'opportunities.create': true,
+      'opportunities.edit': 'own',
+      'activities.create': true,
+      'tasks.view': 'own',
+      'tasks.manage': 'own',
+      'documents.view': true,
+      'documents.upload': true,
+      'reports.view': 'own',
+    },
+  },
+  {
+    key: 'stage-staff',
+    name: 'Stage team (e.g. delivery)',
+    description: 'Works opportunities in the stages they own, such as onboarding after a win.',
+    grants: {
+      'contacts.view': 'own',
+      'opportunities.view': 'own',
+      'opportunities.edit': 'own',
+      'activities.create': true,
+      'tasks.view': 'own',
+      'tasks.manage': 'own',
+      'documents.view': true,
+    },
+  },
+  {
+    key: 'read-only',
+    name: 'Read only',
+    description: 'Sees every record and report, changes nothing.',
+    grants: {
+      'contacts.view': 'all',
+      'opportunities.view': 'all',
+      'revenue.view': 'all',
+      'tasks.view': 'all',
+      'organizations.view': true,
+      'partners.view': true,
+      'documents.view': true,
+      'reports.view': 'all',
+    },
+  },
+];

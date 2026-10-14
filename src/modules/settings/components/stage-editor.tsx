@@ -173,7 +173,7 @@ function StageRow({
   );
 }
 
-export function StageEditor({ stages }: { stages: Stage[] }) {
+export function StageEditor({ stages, pipelineId }: { stages: Stage[]; pipelineId?: string }) {
   const router = useRouter();
   const [newName, setNewName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -214,7 +214,7 @@ export function StageEditor({ stages }: { stages: Stage[] }) {
           event.preventDefault();
           if (!newName.trim()) return;
           run(async () => {
-            const result = await addStageAction({ name: newName });
+            const result = await addStageAction({ name: newName, pipelineId });
             if (result.ok) setNewName('');
             return result;
           });

@@ -43,7 +43,10 @@ export const updateStageSchema = z.object({
   color: z.enum(STAGE_COLORS).optional(),
 });
 
-export const addStageSchema = z.object({ name: z.string().trim().min(1, 'Enter a name').max(40) });
+export const addStageSchema = z.object({
+  name: z.string().trim().min(1, 'Enter a name').max(40),
+  pipelineId: z.uuid().optional(),
+});
 export const moveStagePositionSchema = z.object({
   id: z.uuid(),
   direction: z.enum(['up', 'down']),

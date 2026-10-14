@@ -4,6 +4,8 @@ import { eq, sql } from 'drizzle-orm';
 
 import { auditLogs, tenants } from '@/db/schema';
 import { diffChanges } from '@/lib/audit-diff';
+import type { Labels } from '@/lib/tenant/labels';
+import { readCrmSettings, type CrmSettings } from '@/modules/leads/settings';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 
@@ -76,6 +78,59 @@ export async function updateBusinessDetails(
         settings: sql`${tenants.settings} || ${JSON.stringify({ business: input })}::jsonb`,
       })
       .where(eq(tenants.id, ctx.tenantId));
+    await tx.insert(auditLogs).values({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      action: 'update',
+      entityType: 'tenant',
+      entityId: ctx.tenantId,
+      changes,
+    });
+  });
+  return { id: ctx.tenantId };
+}
+
+/** Replaces one key of `tenants.settings`, audited, keeping every other setting as it was. */
+async function saveSettingsKey(
+  ctx: TenantContext,
+  key: string,
+  value: unknown,
+  changes: Record<string, [unknown, unknown]>,
+): Promise<void> {
+  await adminDb().transaction(async (tx) => {
+    await tx
+      .update(tenants)
+      .set({ settings: sql`${tenants.settings} || ${JSON.stringify({ [key]: value })}::jsonb` })
+      .where(eq(tenants.id, ctx.tenantId));
+    await tx.insert(auditLogs).values({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      action: 'update',
+      entityType: 'tenant',
+      entityId: ctx.tenantId,
+      changes,
+    });
+  });
+}
+
+/** How the business runs its leads: workflow, SLA timers and its picklists (docs/leads.md). */
+export async function updateCrmSettings(
+  ctx: TenantContext,
+  input: CrmSettings,
+): Promise<{ id: string }> {
+  requirePermission(ctx, 'settings.manage');
+  const changes = diffChanges(readCrmSettings(ctx.tenant.settings), input);
+  if (Object.keys(changes).length > 0) await saveSettingsKey(ctx, 'crm', input, changes);
+  return { id: ctx.tenantId };
+}
+
+/** What the business calls its records ("Deal" for Opportunity, "Account" for Organization). */
+export async function updateLabels(ctx: TenantContext, input: Labels): Promise<{ id: string }> {
+  requirePermission(ctx, 'settings.manage');
+  const changes = diffChanges(ctx.tenant.labels, input);
+  if (Object.keys(changes).length === 0) return { id: ctx.tenantId };
+  await adminDb().transaction(async (tx) => {
+    await tx.update(tenants).set({ labels: input }).where(eq(tenants.id, ctx.tenantId));
     await tx.insert(auditLogs).values({
       tenantId: ctx.tenantId,
       actorUserId: ctx.userId,

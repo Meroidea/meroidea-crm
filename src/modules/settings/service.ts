@@ -15,9 +15,20 @@ import { AppError } from '@/lib/errors';
 import { loadPipelineConfig } from '@/modules/pipelines/queries';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
-import { withRls } from '@/server/db/with-rls';
+import { withRls, type Tx } from '@/server/db/with-rls';
 
 type Result = { id: string };
+
+/** The pipeline a stage belongs to, so stage edits work on every pipeline, not just the default. */
+async function pipelineOfStage(tx: Tx, ctx: TenantContext, stageId: string): Promise<string> {
+  const [stage] = await tx
+    .select({ pipelineId: pipelineStages.pipelineId })
+    .from(pipelineStages)
+    .where(and(eq(pipelineStages.tenantId, ctx.tenantId), eq(pipelineStages.id, stageId)))
+    .limit(1);
+  if (!stage) throw new AppError('NOT_FOUND', 'That stage was not found.');
+  return stage.pipelineId;
+}
 
 export async function updateStage(
   ctx: TenantContext,
@@ -57,10 +68,14 @@ export async function updateStage(
 }
 
 /** New stages are open stages, placed just before the first won/lost stage. */
-export async function addStage(ctx: TenantContext, name: string): Promise<Result> {
+export async function addStage(
+  ctx: TenantContext,
+  name: string,
+  pipelineId?: string | null,
+): Promise<Result> {
   requirePermission(ctx, 'settings.manage');
   return withRls(ctx, async (tx) => {
-    const pipeline = await loadPipelineConfig(tx, ctx);
+    const pipeline = await loadPipelineConfig(tx, ctx, pipelineId);
     const firstClosed = pipeline.stages.find((stage) => stage.category !== 'open');
     const position = firstClosed ? firstClosed.position : pipeline.stages.length;
     for (const stage of [...pipeline.stages].reverse()) {
@@ -97,7 +112,7 @@ export async function moveStagePosition(
 ): Promise<Result> {
   requirePermission(ctx, 'settings.manage');
   return withRls(ctx, async (tx) => {
-    const pipeline = await loadPipelineConfig(tx, ctx);
+    const pipeline = await loadPipelineConfig(tx, ctx, await pipelineOfStage(tx, ctx, input.id));
     const open = pipeline.stages.filter((stage) => stage.category === 'open');
     const index = open.findIndex((stage) => stage.id === input.id);
     if (index < 0) throw new AppError('VALIDATION', 'Only open stages can be reordered.');
@@ -132,7 +147,7 @@ export async function toggleStage(
 ): Promise<Result> {
   requirePermission(ctx, 'settings.manage');
   return withRls(ctx, async (tx) => {
-    const pipeline = await loadPipelineConfig(tx, ctx);
+    const pipeline = await loadPipelineConfig(tx, ctx, await pipelineOfStage(tx, ctx, input.id));
     const stage = pipeline.stages.find((candidate) => candidate.id === input.id);
     if (!stage) throw new AppError('NOT_FOUND', 'That stage was not found.');
     if (!input.isActive) {
