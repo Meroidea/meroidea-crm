@@ -1,15 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
-import { PLATFORM_OWNER } from './support/accounts';
-
-async function signIn(page: Page, email: string, password: string) {
-  await page.goto('/login');
-  // The submit handler only exists once React has hydrated.
-  await page.waitForLoadState('networkidle');
-  await page.getByLabel('Work email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-}
+import { onboardBusiness, signIn } from './support/flows';
 
 test('the workspace and the platform console are closed to people who are not signed in', async ({
   page,
@@ -28,52 +19,11 @@ test('the platform owner onboards a business, its admin accepts the agreement an
 }, testInfo) => {
   // Builds routes on first use, creates a login and a workspace, then signs in twice.
   test.slow();
-  const stamp = `${Date.now()}-${testInfo.project.name}`;
-  const company = `Harbour Cafe ${stamp}`;
-  const adminEmail = `admin-${stamp}@example.com`;
-
-  await signIn(page, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
-  await expect(page).toHaveURL(/\/platform$/, { timeout: 30_000 });
-  await expect(page.getByRole('heading', { level: 1, name: 'Businesses' })).toBeVisible();
-  await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
-
-  await page.getByRole('link', { name: 'Onboard a business' }).click();
-  await expect(page).toHaveURL(/\/platform\/new$/);
-  await page.waitForLoadState('networkidle');
-  await page.getByLabel('Business name').fill(company);
-  await page.getByLabel('ABN').fill('51 824 753 556');
-  await page.getByLabel('Type of business').selectOption('restaurant');
-  await page.getByLabel('Name', { exact: true }).fill('Robin Admin');
-  await page.getByLabel('Email', { exact: true }).fill(adminEmail);
-  await page.getByLabel('Phone').fill('02 5550 1234');
-  await page.getByLabel('Admin’s full name').fill('Robin Admin');
-  await page.getByLabel('Admin’s email').fill(adminEmail);
-  await page.getByRole('button', { name: 'Create business and send the agreement' }).click();
-
-  await expect(page.getByRole('heading', { name: `${company} is set up` })).toBeVisible({
-    timeout: 30_000,
-  });
-  // No email provider in tests, so the console shows the link once to pass on.
-  const link = ((await page.locator('pre').textContent()) ?? '').trim();
-  expect(link, 'the handover shows the agreement link').toMatch(/\/agreement\/[\w-]{40,50}$/);
-
-  // Hand over: the owner leaves; the business's admin opens the link from their email.
-  await context.clearCookies();
-  await page.goto(new URL(link).pathname);
-  await expect(page.getByText('Test service agreement')).toBeVisible();
-  await page.waitForLoadState('networkidle');
-  await page.getByRole('checkbox').check();
-  await page.getByLabel('Type your full name to accept').fill('Robin Admin');
-  await page.getByRole('button', { name: 'Accept and choose my password' }).click();
-
-  // Accepting signs them in once to choose their own password; nobody else ever knew it.
-  await expect(page).toHaveURL(/\/set-password$/, { timeout: 30_000 });
-  await page.waitForLoadState('networkidle');
-  await page.getByLabel('New password').fill('harbour-cafe-password-1');
-  await page.getByLabel('Type it again').fill('harbour-cafe-password-1');
-  await page.getByRole('button', { name: 'Save password' }).click();
-  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
-  await expect(page.getByText(company).first()).toBeVisible();
+  const { agreementLink: link } = await onboardBusiness(
+    page,
+    context,
+    `${Date.now()}-${testInfo.project.name}`,
+  );
 
   // The link is spent: opening it again cannot sign anyone in.
   await page.goto(new URL(link).pathname);

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { employeePayrollDetails, employees, employmentContracts } from '@/db/schema';
+import { employeePayrollDetails, employees, employmentContracts, roles } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
@@ -42,6 +42,8 @@ export async function createHire(
   warnings: string[];
 }> {
   requirePermission(ctx, 'employees.manage');
+  // Choosing a login for them is giving someone access, which is users.manage's to decide.
+  if (input.loginRoleId) requirePermission(ctx, 'users.manage');
   const contractor = input.employmentType === 'contractor';
 
   let minimumRate = contractor ? null : input.minimumRate;
@@ -92,10 +94,24 @@ export async function createHire(
   }
 
   return withRls(ctx, async (tx) => {
+    if (input.loginRoleId) {
+      const [role] = await tx
+        .select({ key: roles.key })
+        .from(roles)
+        .where(and(eq(roles.tenantId, ctx.tenantId), eq(roles.id, input.loginRoleId)))
+        .limit(1);
+      // The Admin role is given deliberately from Settings → Team, never through hiring.
+      if (!role || role.key === 'owner') {
+        throw new AppError('VALIDATION', 'Choose the login they will get.', {
+          loginRoleId: ['Choose Staff, Manager or no login'],
+        });
+      }
+    }
     const [employee] = await tx
       .insert(employees)
       .values({
         tenantId: ctx.tenantId,
+        loginRoleId: input.loginRoleId,
         firstName: input.firstName,
         lastName: input.lastName,
         email: input.email.toLowerCase(),
@@ -137,6 +153,7 @@ export async function createHire(
         employmentType: input.employmentType,
         rateSource,
         warnings,
+        loginRoleId: input.loginRoleId,
       },
     });
     return {

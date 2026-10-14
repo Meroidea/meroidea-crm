@@ -145,7 +145,7 @@ id           uuid pk
 tenant_id    uuid not null
 user_id      uuid not null references users(id)
 role_id      uuid not null            -- (tenant_id, role_id) → roles
-team_id      uuid                     -- (tenant_id, team_id) → teams
+team_id      uuid                     -- (tenant_id, team_id) → teams; the business's first team by default (ADR-048)
 status       membership_status not null default 'invited'  -- invited | active | deactivated
 job_title    text
 invited_by   uuid
@@ -155,6 +155,9 @@ unique (tenant_id, user_id)
 index (user_id) where status = 'active'
 ```
 Deactivating a membership keeps all their records (owner stays for history); reassign via bulk action.
+Everyone added to a business, by an admin or on accepting an offer, joins the team made when the
+business was created, so a Manager's `team` scope covers them; migration 0050 put existing
+team-less members (support seats excepted) into it.
 
 ### invitations 🟢 (designed, not built — staff are added directly, see ADR-031)
 ```sql
@@ -737,6 +740,7 @@ they are later given a login.
 id, tenant_id,
 employee_number integer not null generated always as identity (start 100001)  -- the Employee ID; unique across the platform; a trigger refuses any change (migrations 0047, 0048)
 user_id     uuid                       -- nullable
+login_role_id uuid                     -- fk (tenant_id, login_role_id) -> roles; the role their login gets on accepting the offer, null for none (ADR-048)
 first_name, last_name text not null    -- legal names, as on the contract
 preferred_name text                    -- shown in lists instead, when set
 email       text not null

@@ -35,7 +35,7 @@ export async function addMember(
   tenantId: string,
   email: string,
   fullName: string,
-  roleKey: 'manager' | 'member' | 'support',
+  roleKey: 'manager' | 'member',
   teamId?: string,
 ): Promise<string> {
   const userId = await createAuthUser(email, fullName);

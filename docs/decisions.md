@@ -728,3 +728,37 @@ web service could, later). Businesses onboarded before this change have no agree
 stay active; asking them to accept, and asking every business to accept a new version, are not
 built yet. Changing a business's admin to someone else is not built yet. The accept page has no
 per-sender rate limit; the link's 256-bit secret is the protection.
+
+## ADR-048 — Admin, Manager and Staff; a login when a hire accepts their offer
+
+**Decision.**
+- A business's roles are **Admin**, **Manager** and **Staff**: the display names of the role keys
+  `owner`, `manager` and `member`. Keys stay as they are because code and database policies refer
+  to them. New businesses no longer get the `support` role, a leftover of the CRM-only design;
+  businesses that already have it keep it. Migration 0050 renames roles that still carry their
+  old default name and description, and leaves any name a business chose.
+- Everyone added to a business, by an admin or by accepting an offer, joins the team made when the
+  business was created. Existing members without a team join it in the same migration (support
+  seats excepted).
+- The hire form asks which login the person gets when they accept: Staff (default), Manager or
+  none. Choosing one needs `users.manage` as well as `employees.manage`; the Admin role cannot be
+  chosen. It is stored on `employees.login_role_id`. When the hire accepts, after that acceptance
+  is committed, `src/modules/access/hire-login.ts` creates the login with an unusable password,
+  adds it to the business with that role and team, links it to the employee record, audits it,
+  and emails them a one-time link to choose their password (ADR-031). The offer page tells them
+  they have a login and how to get in.
+
+**Why.** The owner's clients have one admin and two levels of staff; the old names (Owner,
+Member, Support) came from a sales CRM. A Manager's records are scoped to their team, and staff
+added until now had no team, so a Manager who assigned a task to a staff member could no longer
+see it. One team per business by default makes "Manager sees their staff" true without giving
+Managers every record in a business that does split into teams later. Creating the login on
+acceptance removes a step the admin would otherwise forget, and links the person's roster,
+timesheets and payslips to them from day one.
+
+**Consequences.** Logins are only created on acceptance, so someone who never accepts never gets
+one. If the hire's email already has a login (one email holds one login, ADR-031), or anything
+else fails, the acceptance still stands, nothing is created, the reason is audited, and the
+admin can give a login from the profile. Without an email provider the hire is not sent the
+password link; the admin sends one from Settings → Team (shown once to pass on), or the hire uses
+"Forgot password" once email is set up. Moving people between teams has no screen yet.

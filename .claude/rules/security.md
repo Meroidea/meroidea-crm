@@ -126,6 +126,10 @@ change as touching sensitive personal data.
 - The new hire's one-time link path (`src/modules/hiring/public.ts`) is the only place outside
   provisioning that may use `adminDb` in a request. It must start from the link's hash and never
   accept a tenant or record id from the caller (ADR-026).
+- Accepting an offer creates the login chosen at hire through `src/modules/access/hire-login.ts`
+  (ADR-048), which may use `adminDb`. It is called only after the acceptance is committed, with
+  ids read from the link's own contract. Choosing a login at hire needs `users.manage` as well as
+  `employees.manage`, and the Admin (`owner`) role is never given this way.
 
 ## Audit
 

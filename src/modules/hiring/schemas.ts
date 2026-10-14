@@ -55,6 +55,11 @@ export const createHireSchema = z.object({
   belowMinimumReason: optionalText(300),
   contractorAbn: optionalText(20),
   probationMonths: optionalWith(z.coerce.number().int().min(1).max(12)),
+  /** The role their login gets when they accept the offer; blank for no login (ADR-048). */
+  loginRoleId: z
+    .union([z.uuid(), z.literal('')])
+    .nullish()
+    .transform((value) => value || null),
 });
 
 export const contractIdSchema = z.object({ id: z.uuid() });

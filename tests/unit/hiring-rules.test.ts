@@ -169,7 +169,12 @@ describe('form schemas', () => {
       hoursPerWeek: '',
       probationMonths: '',
     });
-    expect(once).toMatchObject({ endDate: null, hoursPerWeek: null, probationMonths: null });
+    expect(once).toMatchObject({
+      endDate: null,
+      hoursPerWeek: null,
+      probationMonths: null,
+      loginRoleId: null,
+    });
     expect(createHireSchema.parse(once)).toEqual(once);
   });
 
