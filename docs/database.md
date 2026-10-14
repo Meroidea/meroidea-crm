@@ -1502,6 +1502,10 @@ verbs may touch. `tenants` and `tenant_subscriptions` are `select` only (changed
 through `adminDb`), `users` is `select, update`, and `audit_logs` is `select, insert` so it stays
 append-only. Business records with soft delete (`contacts`, `organizations`, …) get
 `select, insert, update` only — no `delete`.
+A hosted project may have been created with the auto-grant on; migration `0054` resets every
+`public` table to exactly the grants the migrations give (`anon` gets nothing) and revokes those
+default privileges, and `tests/db/database.test.ts` fails if `anon` gains any privilege, a
+soft-deleted table gains `delete`, or anyone gains `truncate`.
 
 `audit_logs` also has an insert policy (`audit_append`, migration `0006`): a member may append
 rows only for their active tenant, with `actor_user_id` = themselves and `actor_type = 'user'`.

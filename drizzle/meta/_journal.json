@@ -379,6 +379,13 @@
       "when": 1791968933641,
       "tag": "0053_revoke_touch_concern",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791973421793,
+      "tag": "0054_align_api_grants",
+      "breakpoints": true
     }
   ]
 }

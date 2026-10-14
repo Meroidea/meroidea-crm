@@ -58,6 +58,10 @@ harder to debug; tenant isolation is not deferred because it's the resale-critic
 Supabase Data API's exposed schemas. The browser uses Supabase only for auth.
 **Why:** Supabase exposes `public` over REST with a key that is shipped to every browser. A
 Drizzle-created table without RLS is readable by anyone.
+**Consequence:** Grants are explicit per migration. A project created with Supabase's default
+"expose new tables" privileges is brought back to them by migration `0054`; every policy except
+the self/colleague ones on `users` and the agreement reads also needs `app.tenant_id`, which only
+`withRls` sets, so a user token sent straight to the Data API sees nothing.
 
 ### ADR-008 · Local development on the Supabase CLI stack, not plain Docker Postgres
 **Decision:** `npx supabase start` runs Postgres + Auth + Storage + pg_cron locally.
