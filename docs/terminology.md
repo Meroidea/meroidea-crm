@@ -60,5 +60,18 @@ UI via `tenants.labels`, but the **code name never changes**.
 | agent (for referrers) | partner |
 | status (for pipeline position) | stage |
 
-"Lead" is still fine as **UI copy** and in report names ("Leads by source" = opportunities
-created in a period, grouped by source) — it is just not a data object.
+**Lead** is a contact with a lead status (`contacts.lead_status_id`), being qualified before it
+becomes an opportunity (docs/leads.md, ADR-051). It is a state of a contact, not a separate data
+object: code says "lead" for that state (`modules/leads`), and the contact stays the record.
+
+| Word | Meaning |
+|---|---|
+| **Lead type** | `b2b` (selling to a business, through the SDR → rep handover) or `b2c` (selling to a person) |
+| **Lead status** | The business's named step for a lead; its **kind** (new, working, pending_acceptance, returned, converted, closed) drives behaviour |
+| **Sub-source** | The detail under a lead source (Marketing → Meta ads) |
+| **Originator** | The SDR/BDR who worked a lead before handing it over; credited in reports |
+| **Handover** | Passing a qualified lead to a sales rep, who **accepts** (converting it) or **returns** it with a reason |
+| **Routing rule** | How a new or handed-over lead picks its person: conditions, round robin or least loaded |
+| **Upload batch** | One spreadsheet import, with its shared source, campaign and per-row report |
+| **Sequence** | A named list of outreach steps that becomes tasks for a lead |
+| **Erase** (anonymise) | Clearing a person's personal data on request; the record stays as "Erased" |

@@ -6,11 +6,14 @@ import { alias } from 'drizzle-orm/pg-core';
 import {
   contacts,
   leadSources,
+  leadSubSources,
   lostReasons,
   opportunities,
+  opportunityContacts,
   organizations,
   partners,
   pipelineStages,
+  stageApprovals,
   stageHistory,
   users,
 } from '@/db/schema';
@@ -45,6 +48,7 @@ const BOARD_COLUMN_LIMIT = 50;
 const CLOSED_WINDOW_DAYS = 30;
 
 const ownerUsers = alias(users, 'owner_users');
+const originatorUsers = alias(users, 'originator_users');
 
 const rowColumns = {
   id: opportunities.id,
@@ -171,7 +175,7 @@ export async function countOpportunitiesByStage(
  */
 export async function getBoard(
   ctx: TenantContext,
-  filters: Pick<OpportunityListFilters, 'q' | 'owner'>,
+  filters: Pick<OpportunityListFilters, 'q' | 'owner' | 'pipeline'>,
 ): Promise<{
   pipeline: PipelineConfig;
   columns: BoardColumn[];
@@ -180,7 +184,7 @@ export async function getBoard(
 }> {
   requirePermission(ctx, 'opportunities.view');
   return withRls(ctx, async (tx) => {
-    const pipeline = await loadPipelineConfig(tx, ctx);
+    const pipeline = await loadPipelineConfig(tx, ctx, filters.pipeline);
     const closedSince = new Date(Date.now() - CLOSED_WINDOW_DAYS * 86_400_000);
     const conditions = baseConditions(ctx, filters);
     conditions.push(eq(opportunities.pipelineId, pipeline.id));
@@ -299,6 +303,14 @@ export async function getOpportunity(ctx: TenantContext, id: string): Promise<Op
         lostReasonName: lostReasons.name,
         lostReasonNote: opportunities.lostReasonNote,
         closedAt: opportunities.closedAt,
+        subSourceName: leadSubSources.name,
+        originatorName: originatorUsers.fullName,
+        product: opportunities.product,
+        probability: opportunities.probability,
+        stageProbability: pipelineStages.probability,
+        nextStep: opportunities.nextStep,
+        checklistState: opportunities.checklistState,
+        customFields: opportunities.customFields,
       })
       .from(opportunities)
       .innerJoin(contacts, contactJoin)
@@ -339,6 +351,14 @@ export async function getOpportunity(ctx: TenantContext, id: string): Promise<Op
           eq(lostReasons.id, opportunities.lostReasonId),
         ),
       )
+      .leftJoin(
+        leadSubSources,
+        and(
+          eq(leadSubSources.tenantId, opportunities.tenantId),
+          eq(leadSubSources.id, opportunities.subSourceId),
+        ),
+      )
+      .leftJoin(originatorUsers, eq(originatorUsers.id, opportunities.originatorUserId))
       .where(
         and(
           eq(opportunities.tenantId, ctx.tenantId),
@@ -371,6 +391,59 @@ export async function getOpportunity(ctx: TenantContext, id: string): Promise<Op
       .where(and(eq(stageHistory.tenantId, ctx.tenantId), eq(stageHistory.opportunityId, id)))
       .orderBy(asc(stageHistory.enteredAt));
 
+    const [people, approvals] = await Promise.all([
+      tx
+        .select({
+          linkId: opportunityContacts.id,
+          contactId: contacts.id,
+          name: contacts.fullName,
+          role: opportunityContacts.role,
+        })
+        .from(opportunityContacts)
+        .innerJoin(
+          contacts,
+          and(
+            eq(contacts.tenantId, opportunityContacts.tenantId),
+            eq(contacts.id, opportunityContacts.contactId),
+          ),
+        )
+        .where(
+          and(
+            eq(opportunityContacts.tenantId, ctx.tenantId),
+            eq(opportunityContacts.opportunityId, id),
+            isNull(contacts.deletedAt),
+          ),
+        )
+        .orderBy(asc(contacts.fullName)),
+      tx
+        .select({
+          id: stageApprovals.id,
+          stageId: stageApprovals.stageId,
+          stageName: pipelineStages.name,
+          requestedBy: stageApprovals.requestedBy,
+          requestedByName: enteredByUsers.fullName,
+          requestedAt: stageApprovals.requestedAt,
+          note: stageApprovals.note,
+        })
+        .from(stageApprovals)
+        .innerJoin(
+          pipelineStages,
+          and(
+            eq(pipelineStages.tenantId, stageApprovals.tenantId),
+            eq(pipelineStages.id, stageApprovals.stageId),
+          ),
+        )
+        .leftJoin(enteredByUsers, eq(enteredByUsers.id, stageApprovals.requestedBy))
+        .where(
+          and(
+            eq(stageApprovals.tenantId, ctx.tenantId),
+            eq(stageApprovals.opportunityId, id),
+            eq(stageApprovals.status, 'pending'),
+          ),
+        )
+        .limit(1),
+    ]);
+
     return {
       ...present(ctx, row),
       pipelineId: row.pipelineId,
@@ -386,6 +459,16 @@ export async function getOpportunity(ctx: TenantContext, id: string): Promise<Op
       closedAt: row.closedAt,
       canViewRevenue: canAccess(ctx, 'revenue.view', row),
       history,
+      subSourceName: row.subSourceName,
+      originatorName: row.originatorName,
+      product: row.product,
+      probability: row.probability ?? row.stageProbability,
+      probabilityOverridden: row.probability !== null,
+      nextStep: row.nextStep,
+      checklistState: (row.checklistState ?? {}) as Record<string, string[]>,
+      customFields: (row.customFields ?? {}) as Record<string, unknown>,
+      people: people.map((person) => ({ ...person, name: person.name ?? '' })),
+      pendingApproval: approvals[0] ?? null,
     };
   });
 }

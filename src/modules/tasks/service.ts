@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { contacts, opportunities, tasks } from '@/db/schema';
-import { zonedDateToInstant } from '@/lib/dates';
+import { zonedDateTimeToInstant } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { assertCanAccess } from '@/lib/permissions/scope';
 import { recordSystemActivity } from '@/modules/activities/service';
@@ -11,8 +11,21 @@ import { refreshNextTaskDue } from '@/modules/opportunities/service';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
+import { contactRecord } from '@/modules/contacts/access';
 
 import type { CreateTaskInput } from './schemas';
+
+/** Erasure on request: a task's own words may name the person; its type and dates stay. */
+export async function redactContactTasks(
+  tx: Tx,
+  ctx: Pick<TenantContext, 'tenantId'>,
+  contactId: string,
+): Promise<void> {
+  await tx
+    .update(tasks)
+    .set({ title: 'Details erased on request', description: null })
+    .where(and(eq(tasks.tenantId, ctx.tenantId), eq(tasks.contactId, contactId)));
+}
 
 async function loadForWrite(tx: Tx, ctx: TenantContext, id: string) {
   const [row] = await tx
@@ -59,7 +72,11 @@ export async function createTask(
       contactId = contactId ?? opportunity.contactId;
     } else if (contactId) {
       const [contact] = await tx
-        .select({ ownerUserId: contacts.ownerUserId })
+        .select({
+          ownerUserId: contacts.ownerUserId,
+          originatorUserId: contacts.originatorUserId,
+          handoverToUserId: contacts.handoverToUserId,
+        })
         .from(contacts)
         .where(
           and(
@@ -70,7 +87,7 @@ export async function createTask(
         )
         .limit(1);
       if (!contact) throw new AppError('NOT_FOUND', 'That record was not found.');
-      assertCanAccess(ctx, 'contacts.view', contact);
+      assertCanAccess(ctx, 'contacts.view', contactRecord(contact));
     }
 
     const [created] = await tx
@@ -80,7 +97,10 @@ export async function createTask(
         title: input.title,
         type: input.type,
         priority: input.priority,
-        dueAt: input.dueDate ? zonedDateToInstant(ctx.tenant.timezone, input.dueDate) : null,
+        // A task due on a day falls due at 9am there: it isn't overdue the moment the day starts.
+        dueAt: input.dueDate
+          ? zonedDateTimeToInstant(ctx.tenant.timezone, input.dueDate, '09:00')
+          : null,
         assignedTo,
         contactId,
         opportunityId,

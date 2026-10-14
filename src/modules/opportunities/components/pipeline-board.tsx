@@ -225,6 +225,11 @@ export function PipelineBoard({ columns: initial, currency, lostReasons, canEdit
         setError(result.error.message);
         return;
       }
+      if (result.data.pendingApproval) {
+        // The stage needs a manager's approval: the card stays put until it is given.
+        setColumns(before);
+        setError('That stage needs approval. The request has been sent to your approvers.');
+      }
       setPendingLost(null);
       router.refresh();
     });

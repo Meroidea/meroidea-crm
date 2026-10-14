@@ -18,11 +18,7 @@ import {
   sendInvoiceAction,
   voidInvoiceAction,
 } from '@/modules/invoices/actions';
-import {
-  saveInvoiceSchema,
-  type InvoiceFormValues,
-  type SaveInvoiceInput,
-} from '@/modules/invoices/schemas';
+import { saveInvoiceSchema, type InvoiceFormValues } from '@/modules/invoices/schemas';
 import type { InvoiceDetail, InvoiceStatus } from '@/modules/invoices/types';
 
 /** Whole-number previews: cents × thousandths, rounded half up. The saved figures come from the database. */
@@ -54,8 +50,9 @@ export function InvoiceEditor({
     control,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<InvoiceFormValues, unknown, SaveInvoiceInput>({
-    resolver: zodResolver(saveInvoiceSchema),
+  } = useForm<InvoiceFormValues, unknown, InvoiceFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(saveInvoiceSchema, undefined, { raw: true }),
     defaultValues: {
       id: invoice?.id,
       customerName: invoice?.customerName ?? '',

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { activities, contacts, opportunities } from '@/db/schema';
 import { AppError } from '@/lib/errors';
@@ -8,11 +8,29 @@ import { assertCanAccess } from '@/lib/permissions/scope';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
+import { contactRecord } from '@/modules/contacts/access';
+import { noteOutreach, OUTREACH_TYPES } from '@/modules/leads/outreach';
+import { readCrmSettings } from '@/modules/leads/settings';
 
-import type { LogActivityInput } from './schemas';
+import { CALL_OUTCOMES, type LogActivityInput } from './schemas';
 
 type SystemActivity = {
-  type: 'stage_changed' | 'owner_changed' | 'created' | 'task_completed' | 'imported';
+  type:
+    | 'stage_changed'
+    | 'owner_changed'
+    | 'created'
+    | 'task_completed'
+    | 'imported'
+    | 'status_changed'
+    | 'assigned'
+    | 'handover'
+    | 'handover_accepted'
+    | 'handover_rejected'
+    | 'converted'
+    | 'merged'
+    | 'approval'
+    | 'enquiry';
+  body?: string | null;
   subject: string;
   contactId?: string | null;
   opportunityId?: string | null;
@@ -26,13 +44,15 @@ type SystemActivity = {
  */
 export async function recordSystemActivity(
   tx: Tx,
-  ctx: TenantContext,
+  // userId is null for events with no person behind them, e.g. a website enquiry.
+  ctx: { tenantId: string; userId: string | null },
   event: SystemActivity,
 ): Promise<void> {
   await tx.insert(activities).values({
     tenantId: ctx.tenantId,
     type: event.type,
     subject: event.subject,
+    body: event.body ?? null,
     contactId: event.contactId ?? null,
     opportunityId: event.opportunityId ?? null,
     taskId: event.taskId ?? null,
@@ -40,6 +60,55 @@ export async function recordSystemActivity(
     createdBy: ctx.userId,
     metadata: event.metadata ?? {},
   });
+}
+
+/** Several system events at once, e.g. one per row of an upload. */
+export async function recordSystemActivities(
+  tx: Tx,
+  ctx: Pick<TenantContext, 'tenantId' | 'userId'>,
+  events: SystemActivity[],
+): Promise<void> {
+  if (events.length === 0) return;
+  await tx.insert(activities).values(
+    events.map((event) => ({
+      tenantId: ctx.tenantId,
+      type: event.type,
+      subject: event.subject,
+      body: event.body ?? null,
+      contactId: event.contactId ?? null,
+      opportunityId: event.opportunityId ?? null,
+      taskId: event.taskId ?? null,
+      actorUserId: ctx.userId,
+      createdBy: ctx.userId,
+      metadata: event.metadata ?? {},
+    })),
+  );
+}
+
+/**
+ * Erasure on request (docs/leads.md §6.5): what people wrote about a person goes; the fact that a
+ * call or email happened stays, so reports still add up. System events keep their wording,
+ * which never names the person.
+ */
+export async function redactContactActivities(
+  tx: Tx,
+  ctx: Pick<TenantContext, 'tenantId'>,
+  contactId: string,
+): Promise<void> {
+  await tx
+    .update(activities)
+    .set({ body: null })
+    .where(and(eq(activities.tenantId, ctx.tenantId), eq(activities.contactId, contactId)));
+  await tx
+    .update(activities)
+    .set({ subject: 'Details erased on request' })
+    .where(
+      and(
+        eq(activities.tenantId, ctx.tenantId),
+        eq(activities.contactId, contactId),
+        inArray(activities.type, ['call', 'email', 'meeting', 'message', 'note', 'enquiry']),
+      ),
+    );
 }
 
 /** Logs a call, email, meeting, message or note against a record the person can see. */
@@ -70,7 +139,11 @@ export async function logActivity(
       contactId = contactId ?? opportunity.contactId;
     } else if (contactId) {
       const [contact] = await tx
-        .select({ ownerUserId: contacts.ownerUserId })
+        .select({
+          ownerUserId: contacts.ownerUserId,
+          originatorUserId: contacts.originatorUserId,
+          handoverToUserId: contacts.handoverToUserId,
+        })
         .from(contacts)
         .where(
           and(
@@ -81,7 +154,18 @@ export async function logActivity(
         )
         .limit(1);
       if (!contact) throw new AppError('NOT_FOUND', 'That record was not found.');
-      assertCanAccess(ctx, 'contacts.view', contact);
+      assertCanAccess(ctx, 'contacts.view', contactRecord(contact));
+    }
+
+    let outcome: string | null = null;
+    if (input.type === 'call' && input.outcome) {
+      const allowed = [...readCrmSettings(ctx.tenant.settings).callOutcomes, ...CALL_OUTCOMES];
+      if (!allowed.includes(input.outcome)) {
+        throw new AppError('VALIDATION', 'Choose one of the call outcomes.', {
+          outcome: ['Invalid'],
+        });
+      }
+      outcome = input.outcome;
     }
 
     const now = new Date();
@@ -90,9 +174,9 @@ export async function logActivity(
       .values({
         tenantId: ctx.tenantId,
         type: input.type,
-        body: input.body,
+        body: input.body || null,
         direction: input.type === 'note' ? null : (input.direction ?? 'outbound'),
-        outcome: input.type === 'call' ? (input.outcome ?? null) : null,
+        outcome: input.type === 'call' ? outcome : null,
         occurredAt: now,
         contactId,
         opportunityId,
@@ -103,6 +187,9 @@ export async function logActivity(
     if (!created) throw new AppError('INTERNAL', 'Could not save the activity.');
 
     // Interactions are what "last activity" and stale detection measure.
+    if (contactId && OUTREACH_TYPES.includes(input.type) && input.direction !== 'inbound') {
+      await noteOutreach(tx, ctx, contactId);
+    }
     if (contactId) {
       await tx
         .update(contacts)

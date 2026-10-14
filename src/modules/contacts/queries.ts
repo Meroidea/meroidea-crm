@@ -1,18 +1,53 @@
 import 'server-only';
 
-import { and, asc, count, desc, eq, ilike, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
-import { contactOrganizations, contacts, leadSources, organizations, users } from '@/db/schema';
+import { alias } from 'drizzle-orm/pg-core';
+
+import {
+  contactLinks,
+  contactOrganizations,
+  contacts,
+  importBatches,
+  leadReasons,
+  leadSources,
+  leadStatuses,
+  leadSubSources,
+  organizations,
+  users,
+} from '@/db/schema';
 import { decodeCursor, encodeCursor, likePattern } from '@/lib/cursor';
 import { AppError } from '@/lib/errors';
 import { assertCanAccess, scopeFilter } from '@/lib/permissions/scope';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
+import { contactRecord, contactScope } from './access';
+import { findDuplicateContacts } from './duplicates';
 
 import type { ContactListFilters, ContactStatus } from './schemas';
 import type { ContactDetail, ContactListRow } from './types';
 
 export const CONTACT_PAGE_SIZE = 50;
+
+const originators = alias(users, 'originator_users');
+const handoverUsers = alias(users, 'handover_users');
+const creators = alias(users, 'creator_users');
+const reasons = alias(leadReasons, 'lead_reason');
+const rejectedReasons = alias(leadReasons, 'rejected_reason');
+const relatedContacts = alias(contacts, 'related_contacts');
 
 function baseConditions(
   ctx: TenantContext,
@@ -21,7 +56,7 @@ function baseConditions(
   const conditions: (SQL | undefined)[] = [
     eq(contacts.tenantId, ctx.tenantId),
     isNull(contacts.deletedAt),
-    scopeFilter(ctx, 'contacts.view', contacts),
+    scopeFilter(ctx, 'contacts.view', contacts, contactScope),
   ];
 
   if (filters.q) {
@@ -134,12 +169,60 @@ export async function getContact(ctx: TenantContext, id: string): Promise<Contac
         contact: contacts,
         ownerName: users.fullName,
         sourceName: leadSources.name,
+        subSourceName: leadSubSources.name,
+        originatorName: originators.fullName,
+        handoverToName: handoverUsers.fullName,
+        createdByName: creators.fullName,
+        importBatch: { id: importBatches.id, fileName: importBatches.fileName },
+        status: {
+          id: leadStatuses.id,
+          name: leadStatuses.name,
+          kind: leadStatuses.kind,
+          color: leadStatuses.color,
+        },
+        reasonName: reasons.name,
+        rejectedReasonName: rejectedReasons.name,
       })
       .from(contacts)
       .leftJoin(users, eq(users.id, contacts.ownerUserId))
+      .leftJoin(originators, eq(originators.id, contacts.originatorUserId))
+      .leftJoin(handoverUsers, eq(handoverUsers.id, contacts.handoverToUserId))
+      .leftJoin(creators, eq(creators.id, contacts.createdBy))
+      .leftJoin(
+        importBatches,
+        and(
+          eq(importBatches.tenantId, contacts.tenantId),
+          eq(importBatches.id, contacts.importBatchId),
+        ),
+      )
       .leftJoin(
         leadSources,
         and(eq(leadSources.tenantId, contacts.tenantId), eq(leadSources.id, contacts.sourceId)),
+      )
+      .leftJoin(
+        leadSubSources,
+        and(
+          eq(leadSubSources.tenantId, contacts.tenantId),
+          eq(leadSubSources.id, contacts.subSourceId),
+        ),
+      )
+      .leftJoin(
+        leadStatuses,
+        and(
+          eq(leadStatuses.tenantId, contacts.tenantId),
+          eq(leadStatuses.id, contacts.leadStatusId),
+        ),
+      )
+      .leftJoin(
+        reasons,
+        and(eq(reasons.tenantId, contacts.tenantId), eq(reasons.id, contacts.leadReasonId)),
+      )
+      .leftJoin(
+        rejectedReasons,
+        and(
+          eq(rejectedReasons.tenantId, contacts.tenantId),
+          eq(rejectedReasons.id, contacts.rejectedReasonId),
+        ),
       )
       .where(
         and(eq(contacts.tenantId, ctx.tenantId), eq(contacts.id, id), isNull(contacts.deletedAt)),
@@ -147,32 +230,70 @@ export async function getContact(ctx: TenantContext, id: string): Promise<Contac
       .limit(1);
 
     if (!row) throw new AppError('NOT_FOUND', 'That record was not found.');
-    assertCanAccess(ctx, 'contacts.view', row.contact);
+    assertCanAccess(ctx, 'contacts.view', contactRecord(row.contact));
 
-    const links = await tx
-      .select({
-        linkId: contactOrganizations.id,
-        organizationId: organizations.id,
-        organizationName: organizations.name,
-        relationship: contactOrganizations.relationship,
-        isPrimary: contactOrganizations.isPrimary,
-      })
-      .from(contactOrganizations)
-      .innerJoin(
-        organizations,
-        and(
-          eq(organizations.tenantId, contactOrganizations.tenantId),
-          eq(organizations.id, contactOrganizations.organizationId),
-        ),
-      )
-      .where(
-        and(
-          eq(contactOrganizations.tenantId, ctx.tenantId),
-          eq(contactOrganizations.contactId, id),
-          isNull(organizations.deletedAt),
-        ),
-      )
-      .orderBy(desc(contactOrganizations.isPrimary), asc(organizations.name));
+    const [links, household] = await Promise.all([
+      tx
+        .select({
+          linkId: contactOrganizations.id,
+          organizationId: organizations.id,
+          organizationName: organizations.name,
+          relationship: contactOrganizations.relationship,
+          isPrimary: contactOrganizations.isPrimary,
+        })
+        .from(contactOrganizations)
+        .innerJoin(
+          organizations,
+          and(
+            eq(organizations.tenantId, contactOrganizations.tenantId),
+            eq(organizations.id, contactOrganizations.organizationId),
+          ),
+        )
+        .where(
+          and(
+            eq(contactOrganizations.tenantId, ctx.tenantId),
+            eq(contactOrganizations.contactId, id),
+            isNull(organizations.deletedAt),
+          ),
+        )
+        .orderBy(desc(contactOrganizations.isPrimary), asc(organizations.name)),
+      // Household links in either direction, limited to people the viewer may see.
+      tx
+        .select({
+          linkId: contactLinks.id,
+          contactId: relatedContacts.id,
+          name: relatedContacts.fullName,
+          relationship: contactLinks.relationship,
+          linkedFrom: contactLinks.contactId,
+        })
+        .from(contactLinks)
+        .innerJoin(
+          relatedContacts,
+          and(
+            eq(relatedContacts.tenantId, contactLinks.tenantId),
+            or(
+              and(
+                eq(contactLinks.contactId, id),
+                eq(relatedContacts.id, contactLinks.relatedContactId),
+              ),
+              and(
+                eq(contactLinks.relatedContactId, id),
+                eq(relatedContacts.id, contactLinks.contactId),
+              ),
+            ),
+          ),
+        )
+        .where(
+          and(
+            eq(contactLinks.tenantId, ctx.tenantId),
+            isNull(relatedContacts.deletedAt),
+            scopeFilter(ctx, 'contacts.view', relatedContacts, {
+              alsoResponsible: [relatedContacts.originatorUserId, relatedContacts.handoverToUserId],
+            }),
+          ),
+        )
+        .orderBy(asc(relatedContacts.fullName)),
+    ]);
 
     const c = row.contact;
     return {
@@ -201,6 +322,58 @@ export async function getContact(ctx: TenantContext, id: string): Promise<Contac
       updatedAt: c.updatedAt,
       lastActivityAt: c.lastActivityAt,
       organizations: links,
+      alsoResponsible: [c.originatorUserId, c.handoverToUserId],
+      lead: row.status?.id
+        ? {
+            type: c.leadType,
+            statusId: row.status.id,
+            statusName: row.status.name,
+            statusKind: row.status.kind,
+            statusColor: row.status.color,
+            statusChangedAt: c.leadStatusChangedAt,
+            reasonName: row.reasonName,
+            reasonNote: c.leadReasonNote,
+            originatorUserId: c.originatorUserId,
+            originatorName: row.originatorName,
+            assignedAt: c.assignedAt,
+            firstContactedAt: c.firstContactedAt,
+            handoverToUserId: c.handoverToUserId,
+            handoverToName: row.handoverToName,
+            handoverAt: c.handoverAt,
+            handoverDueAt: c.handoverDueAt,
+            handoverMeetingAt: c.handoverMeetingAt,
+            handoverSummary: c.handoverSummary,
+            rejectedReasonName: row.rejectedReasonName,
+            rejectedNote: c.rejectedNote,
+            rejectedAt: c.rejectedAt,
+            convertedAt: c.convertedAt,
+          }
+        : null,
+      subSourceId: c.subSourceId,
+      subSourceName: row.subSourceName,
+      campaignName: c.campaignName,
+      createdByName: row.createdByName,
+      importBatch: row.importBatch?.id ? row.importBatch : null,
+      utm: (c.utm as Record<string, string> | null) ?? null,
+      jobTitle: c.jobTitle,
+      companyName: c.companyName,
+      companyWebsite: c.companyWebsite,
+      companySize: c.companySize,
+      industry: c.industry,
+      linkedinUrl: c.linkedinUrl,
+      language: c.language,
+      interest: c.interest,
+      doNotEmail: c.doNotEmail,
+      doNotCall: c.doNotCall,
+      consentSource: c.consentSource,
+      customFields: (c.customFields ?? {}) as Record<string, unknown>,
+      anonymizedAt: c.anonymizedAt,
+      household: household.map((link) => ({
+        linkId: link.linkId,
+        contactId: link.contactId,
+        name: link.name ?? '',
+        relationship: link.relationship,
+      })),
     };
   });
 }
@@ -219,4 +392,49 @@ export async function listContactOptions(
       .limit(1000),
   );
   return rows.map((row) => ({ id: row.id, name: row.name ?? '' }));
+}
+
+/**
+ * Other records that look like the same person (same email or phone, or the same name at the
+ * same company), limited to ones the viewer may see: the starting point for a merge.
+ */
+export async function listPossibleDuplicates(
+  ctx: TenantContext,
+  contact: Pick<
+    ContactDetail,
+    'id' | 'firstName' | 'lastName' | 'email' | 'phone' | 'companyName' | 'anonymizedAt'
+  >,
+): Promise<{ id: string; name: string; email: string | null; matchKind: string }[]> {
+  if (contact.anonymizedAt) return [];
+  return withRls(ctx, async (tx) => {
+    const matches = await findDuplicateContacts(tx, ctx, {
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      email: contact.email,
+      phone: contact.phone,
+      companyName: contact.companyName,
+      excludeId: contact.id,
+    });
+    const visible = matches.flatMap((match) =>
+      match.contact ? [{ id: match.contact.id, matchKind: match.matchKind }] : [],
+    );
+    if (visible.length === 0) return [];
+    const rows = await tx
+      .select({ id: contacts.id, name: contacts.fullName, email: contacts.email })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.tenantId, ctx.tenantId),
+          inArray(
+            contacts.id,
+            visible.map((match) => match.id),
+          ),
+          isNull(contacts.deletedAt),
+        ),
+      );
+    return visible.flatMap((match) => {
+      const row = rows.find((candidate) => candidate.id === match.id);
+      return row ? [{ ...row, name: row.name ?? '', matchKind: match.matchKind }] : [];
+    });
+  });
 }

@@ -30,6 +30,7 @@ export async function onboardBusiness(
   page: Page,
   context: BrowserContext,
   stamp: string,
+  businessType = 'restaurant',
 ): Promise<{ company: string; adminEmail: string; agreementLink: string }> {
   const company = `Harbour Cafe ${stamp}`;
   const adminEmail = `admin-${stamp}@example.com`;
@@ -44,7 +45,7 @@ export async function onboardBusiness(
   await page.waitForLoadState('networkidle');
   await page.getByLabel('Business name').fill(company);
   await page.getByLabel('ABN').fill('51 824 753 556');
-  await page.getByLabel('Type of business').selectOption('restaurant');
+  await page.getByLabel('Type of business').selectOption(businessType);
   await page.getByLabel('Name', { exact: true }).fill('Robin Admin');
   await page.getByLabel('Email', { exact: true }).fill(adminEmail);
   await page.getByLabel('Phone').fill('02 5550 1234');
@@ -72,7 +73,12 @@ export async function onboardBusiness(
 
   // Accepting signs them in once to choose their own password; nobody else ever knew it.
   await choosePassword(page, 'harbour-cafe-password-1');
-  await expect(page.getByText(company).first()).toBeVisible();
+  // The business's name is in the sidebar, which a phone keeps closed until asked.
+  if ((await page.getByText(company).filter({ visible: true }).count()) === 0) {
+    await page.getByRole('button', { name: 'Toggle Sidebar' }).first().click();
+  }
+  await expect(page.getByText(company).filter({ visible: true }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
   return { company, adminEmail, agreementLink };
 }
 

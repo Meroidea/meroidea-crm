@@ -9,6 +9,13 @@ export const CONTACT_STATUS_LABELS: Record<ContactStatus, string> = {
   do_not_contact: 'Do not contact',
 };
 
+export const LEAD_TYPES = ['b2b', 'b2c'] as const;
+export type LeadType = (typeof LEAD_TYPES)[number];
+export const LEAD_TYPE_LABELS: Record<LeadType, string> = {
+  b2b: 'Business (B2B)',
+  b2c: 'Individual (B2C)',
+};
+
 /** Form inputs arrive as strings; an empty field means "no value", stored as null. */
 const optionalText = (max: number) =>
   z
@@ -48,16 +55,54 @@ export const contactFieldsSchema = z.object({
   ownerUserId: optionalId,
   sourceId: optionalId,
   marketingConsent: z.boolean().default(false),
+
+  // Lead details (docs/leads.md §3.3). Company fields matter for B2B leads.
+  leadType: z
+    .union([z.literal(''), z.enum(LEAD_TYPES)])
+    .optional()
+    .transform((value) => value || null),
+  subSourceId: optionalId,
+  campaignName: optionalText(120),
+  jobTitle: optionalText(120),
+  companyName: optionalText(160),
+  companyWebsite: optionalText(200),
+  companySize: optionalText(40),
+  industry: optionalText(80),
+  linkedinUrl: z
+    .union([z.literal(''), z.url('Enter the full address, starting https://').max(300)])
+    .optional()
+    .transform((value) => value || null),
+  language: optionalText(40),
+  interest: optionalText(160),
+  doNotEmail: z.boolean().default(false),
+  doNotCall: z.boolean().default(false),
+  consentSource: optionalText(80),
+  /** Values for the business's own fields, checked against their definitions by the service. */
+  customFields: z.record(z.string(), z.unknown()).default({}),
 });
 
+/** choose: the owner picked on the form. auto: the routing rules. queue: nobody yet. */
+export const ASSIGNMENTS = ['choose', 'auto', 'queue'] as const;
+
 export const createContactSchema = contactFieldsSchema.extend({
+  /**
+   * Add as a lead to qualify (status New), or as a plain contact. Off unless asked for, so every
+   * existing way of adding a contact keeps working; the new-contact form ticks it by default.
+   */
+  isLead: z.boolean().default(false),
+  assignment: z.enum(ASSIGNMENTS).default('choose'),
   /** Duplicates warn rather than block (families share phones); this is the "create anyway". */
   confirmDuplicate: z.boolean().default(false),
+  /** Instead of creating, fold these details into an existing record (the "merge"). */
+  mergeIntoId: z.uuid().optional(),
 });
 
 export const updateContactSchema = contactFieldsSchema.extend({ id: z.uuid() });
 
 export const contactIdSchema = z.object({ id: z.uuid() });
+
+/** Keep one record of a person and fold the other into it. */
+export const mergeContactsSchema = z.object({ keepId: z.uuid(), dropId: z.uuid() });
 
 export const duplicateCheckSchema = z.object({
   firstName: z.string().trim().max(80).optional(),
@@ -68,6 +113,7 @@ export const duplicateCheckSchema = z.object({
     .union([z.literal(''), z.iso.date()])
     .optional()
     .transform((value) => value || null),
+  companyName: z.string().trim().max(160).optional(),
   excludeId: z.uuid().optional(),
 });
 
@@ -80,6 +126,7 @@ export const linkOrganizationSchema = z.object({
 export const unlinkOrganizationSchema = z.object({ contactId: z.uuid(), linkId: z.uuid() });
 
 export type ContactFormValues = z.input<typeof createContactSchema>;
+export type ContactFieldsInput = z.output<typeof contactFieldsSchema>;
 export type CreateContactInput = z.output<typeof createContactSchema>;
 export type UpdateContactInput = z.output<typeof updateContactSchema>;
 export type DuplicateCheckInput = z.output<typeof duplicateCheckSchema>;

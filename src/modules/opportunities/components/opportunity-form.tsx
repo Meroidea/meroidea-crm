@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 
 import { Field, fieldA11y } from '@/components/forms/field';
 import { FormSection } from '@/components/forms/form-section';
@@ -11,10 +11,11 @@ import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Labels } from '@/lib/tenant/labels';
+import { CustomFieldInputs } from '@/modules/custom-fields/components/custom-field-inputs';
+import type { CustomFieldDefinition } from '@/modules/custom-fields/validation';
 import { createOpportunityAction, updateOpportunityAction } from '@/modules/opportunities/actions';
 import {
   createOpportunitySchema,
-  type CreateOpportunityInput,
   type OpportunityFormValues,
 } from '@/modules/opportunities/schemas';
 
@@ -27,6 +28,8 @@ export function OpportunityForm({
   contacts,
   organizations,
   stages,
+  pipelines = [],
+  customFields = [],
   owners,
   sources,
   partners,
@@ -40,6 +43,9 @@ export function OpportunityForm({
   contacts: Option[];
   organizations: Option[];
   stages: Option[];
+  /** Pipelines with their open stages; the form offers a choice when there is more than one. */
+  pipelines?: (Option & { stages: Option[] })[];
+  customFields?: CustomFieldDefinition[];
   owners: Option[];
   sources: Option[];
   partners: Option[];
@@ -53,11 +59,21 @@ export function OpportunityForm({
     register,
     handleSubmit,
     setError,
+    setValue,
+    control,
     formState: { errors, isSubmitting },
-  } = useForm<OpportunityFormValues, unknown, CreateOpportunityInput>({
-    resolver: zodResolver(createOpportunitySchema),
+  } = useForm<OpportunityFormValues, unknown, OpportunityFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(createOpportunitySchema, undefined, { raw: true }),
     defaultValues: defaults,
   });
+  const pipelineId = useWatch({ control, name: 'pipelineId' });
+  const stageOptions =
+    pipelines.length > 1
+      ? (pipelines.find((pipeline) => pipeline.value === pipelineId)?.stages ?? stages)
+      : stages;
+  const customError = (key: string) =>
+    (errors.customFields as Record<string, { message?: string }> | undefined)?.[key]?.message;
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -66,7 +82,8 @@ export function OpportunityForm({
       : await createOpportunityAction(values);
     if (!result.ok) {
       for (const [field, messages] of Object.entries(result.error.fieldErrors ?? {})) {
-        setError(field as keyof OpportunityFormValues, { message: messages[0] });
+        const path = field.startsWith('custom.') ? `customFields.${field.slice(7)}` : field;
+        setError(path as keyof OpportunityFormValues, { message: messages[0] });
       }
       setFormError(result.error.message);
       return;
@@ -119,13 +136,34 @@ export function OpportunityForm({
             {...register('expectedCloseDate')}
           />
         </Field>
+        {!opportunityId && pipelines.length > 1 && (
+          <Field name="pipelineId" label="Pipeline" error={errors.pipelineId?.message}>
+            <NativeSelect
+              {...fieldA11y('pipelineId', errors.pipelineId?.message)}
+              {...register('pipelineId', {
+                onChange: (event: { target: { value: string } }) =>
+                  setValue(
+                    'stageId',
+                    pipelines.find((pipeline) => pipeline.value === event.target.value)?.stages[0]
+                      ?.value ?? '',
+                  ),
+              })}
+            >
+              {pipelines.map((pipeline) => (
+                <option key={pipeline.value} value={pipeline.value}>
+                  {pipeline.label}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+        )}
         {!opportunityId && (
           <Field name="stageId" label="Starting stage" error={errors.stageId?.message}>
             <NativeSelect
               {...fieldA11y('stageId', errors.stageId?.message)}
               {...register('stageId')}
             >
-              {stages.map((stage) => (
+              {stageOptions.map((stage) => (
                 <option key={stage.value} value={stage.value}>
                   {stage.label}
                 </option>
@@ -134,6 +172,57 @@ export function OpportunityForm({
           </Field>
         )}
       </FormSection>
+
+      <FormSection
+        title="The deal"
+        description="What is being sold, how likely it is, and what happens next."
+      >
+        <Field name="product" label="Product or service" error={errors.product?.message}>
+          <Input
+            autoComplete="off"
+            {...fieldA11y('product', errors.product?.message)}
+            {...register('product')}
+          />
+        </Field>
+        <Field
+          name="probability"
+          label="Probability (%)"
+          hint="Leave empty to use the stage's probability"
+          error={errors.probability?.message}
+        >
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            inputMode="numeric"
+            {...fieldA11y('probability', errors.probability?.message)}
+            {...register('probability')}
+          />
+        </Field>
+        <Field
+          name="nextStep"
+          label="Next step"
+          error={errors.nextStep?.message}
+          className="sm:col-span-2"
+        >
+          <Input
+            autoComplete="off"
+            placeholder="e.g. Send revised quote by Friday"
+            {...fieldA11y('nextStep', errors.nextStep?.message)}
+            {...register('nextStep')}
+          />
+        </Field>
+      </FormSection>
+
+      {customFields.some((field) => field.isActive) && (
+        <FormSection title="More details" description="Fields your business has added.">
+          <CustomFieldInputs
+            fields={customFields}
+            register={(key) => register(`customFields.${key}`)}
+            errorFor={customError}
+          />
+        </FormSection>
+      )}
 
       <FormSection
         title="Who"

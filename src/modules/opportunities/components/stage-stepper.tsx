@@ -62,6 +62,9 @@ export function StageStepper({
         setError(result.error.message);
         return;
       }
+      if (result.data.pendingApproval) {
+        setError('That stage needs approval. The request has been sent to your approvers.');
+      }
       setAskLost(null);
       router.refresh();
     });

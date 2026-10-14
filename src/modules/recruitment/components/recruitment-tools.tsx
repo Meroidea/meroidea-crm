@@ -37,7 +37,6 @@ import {
   STAGE_LABELS,
   STAGES,
   type OpeningStatus,
-  type SaveOpeningInput,
   type SaveOpeningValues,
   type Stage,
 } from '@/modules/recruitment/schemas';
@@ -81,8 +80,9 @@ export function OpeningButton({ opening }: { opening?: SaveOpeningValues & { id:
     setError,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<SaveOpeningValues, unknown, SaveOpeningInput>({
-    resolver: zodResolver(saveOpeningSchema),
+  } = useForm<SaveOpeningValues, unknown, SaveOpeningValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(saveOpeningSchema, undefined, { raw: true }),
     defaultValues: opening ?? {
       title: '',
       employmentType: 'part_time',

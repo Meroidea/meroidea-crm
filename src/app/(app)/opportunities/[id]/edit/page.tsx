@@ -55,6 +55,12 @@ export default async function EditOpportunityPage({
               sourceId: opportunity.sourceId ?? '',
               partnerId: opportunity.partnerId ?? '',
               stageId: '',
+              product: opportunity.product ?? '',
+              probability: opportunity.probabilityOverridden
+                ? String(opportunity.probability ?? '')
+                : '',
+              nextStep: opportunity.nextStep ?? '',
+              customFields: opportunity.customFields,
             }}
           />
         </CardContent>

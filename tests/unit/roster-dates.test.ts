@@ -6,6 +6,7 @@ import {
   instantToZoned,
   mondayOf,
   zonedDateTimeToInstant,
+  zonedDateToInstant,
 } from '@/lib/dates';
 import { formatHours, teamCode } from '@/modules/roster/hours';
 import { saveShiftSchema } from '@/modules/roster/schemas';
@@ -13,6 +14,13 @@ import { saveShiftSchema } from '@/modules/roster/schemas';
 const SYDNEY = 'Australia/Sydney';
 
 describe('workspace wall-clock time', () => {
+  it('starts a local day at midnight, so pay periods and reports keep early-morning work', () => {
+    expect(zonedDateToInstant(SYDNEY, '2026-07-15').toISOString()).toBe('2026-07-14T14:00:00.000Z');
+    expect(zonedDateToInstant(SYDNEY, '2026-01-15').toISOString()).toBe('2026-01-14T13:00:00.000Z');
+    // The day clocks go forward still starts at midnight standard time.
+    expect(zonedDateToInstant(SYDNEY, '2026-10-04').toISOString()).toBe('2026-10-03T14:00:00.000Z');
+  });
+
   it('turns a local date and time into the right instant, in and out of daylight saving', () => {
     // Sydney is UTC+10 in July and UTC+11 in January.
     expect(zonedDateTimeToInstant(SYDNEY, '2026-07-15', '09:30').toISOString()).toBe(

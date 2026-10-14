@@ -33,11 +33,7 @@ import {
   shiftLength,
   unpaidMinutes,
 } from '@/modules/roster/rules';
-import {
-  saveShiftSchema,
-  type SaveShiftInput,
-  type ShiftFormValues,
-} from '@/modules/roster/schemas';
+import { saveShiftSchema, type ShiftFormValues } from '@/modules/roster/schemas';
 import type {
   RosterLeave,
   RosterPerson,
@@ -103,8 +99,9 @@ export function ShiftEditor({
     setValue,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<ShiftFormValues, unknown, SaveShiftInput>({
-    resolver: zodResolver(saveShiftSchema),
+  } = useForm<ShiftFormValues, unknown, ShiftFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(saveShiftSchema, undefined, { raw: true }),
     defaultValues: {
       id: editing?.id,
       rosterId,

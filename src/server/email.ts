@@ -21,6 +21,8 @@ export async function sendEmail(message: {
   html: string;
   /** Where replies should go, when not to the sending address. */
   replyTo?: string;
+  /** Shown as the sender's name instead of the platform's, e.g. "Sam at ABC Cafe". */
+  fromName?: string;
 }): Promise<EmailResult> {
   const env = serverEnv();
   // Automated tests share a developer's env file; they must never send real mail.
@@ -35,7 +37,7 @@ export async function sendEmail(message: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: env.EMAIL_FROM,
+        from: message.fromName ? withSenderName(env.EMAIL_FROM, message.fromName) : env.EMAIL_FROM,
         to: message.to,
         subject: message.subject,
         text: message.text,
@@ -55,4 +57,14 @@ export async function sendEmail(message: {
     });
     return { sent: false, reason: 'failed' };
   }
+}
+
+/** "Meroidea <info@x.com>" + "Sam at ABC" → "Sam at ABC <info@x.com>"; the address never changes. */
+function withSenderName(from: string, name: string): string {
+  const address = /<([^>]+)>/.exec(from)?.[1] ?? from.trim();
+  const safe = name
+    .replace(/["<>\r\n]/g, '')
+    .trim()
+    .slice(0, 70);
+  return safe ? `"${safe}" <${address}>` : from;
 }

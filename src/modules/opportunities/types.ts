@@ -56,4 +56,23 @@ export type OpportunityDetail = OpportunityRow & {
   closedAt: Date | null;
   canViewRevenue: boolean;
   history: StageVisit[];
+  subSourceName: string | null;
+  originatorName: string | null;
+  product: string | null;
+  /** The opportunity's own probability, else its stage's. */
+  probability: number | null;
+  probabilityOverridden: boolean;
+  nextStep: string | null;
+  checklistState: Record<string, string[]>;
+  customFields: Record<string, unknown>;
+  people: { linkId: string; contactId: string; name: string; role: string }[];
+  pendingApproval: {
+    id: string;
+    stageId: string;
+    stageName: string;
+    requestedBy: string;
+    requestedByName: string | null;
+    requestedAt: Date;
+    note: string | null;
+  } | null;
 };

@@ -1,11 +1,19 @@
 import {
   ArrowRightLeft,
   CheckCircle2,
+  GitMerge,
+  Inbox,
   Mail,
   MessageSquare,
+  Pencil,
   Phone,
   PlusCircle,
+  Send,
+  ShieldCheck,
   StickyNote,
+  Tag,
+  Trophy,
+  Undo2,
   Upload,
   UserRoundCog,
   Users,
@@ -27,6 +35,16 @@ const ICONS: Record<string, LucideIcon> = {
   created: PlusCircle,
   task_completed: CheckCircle2,
   imported: Upload,
+  status_changed: Tag,
+  assigned: UserRoundCog,
+  handover: Send,
+  handover_accepted: CheckCircle2,
+  handover_rejected: Undo2,
+  converted: Trophy,
+  merged: GitMerge,
+  approval: ShieldCheck,
+  enquiry: Inbox,
+  field_changed: Pencil,
 };
 
 const INTERACTIONS = new Set(['call', 'email', 'meeting', 'message', 'note']);
@@ -39,7 +57,12 @@ const OUTCOMES: Record<string, string> = {
 };
 
 function title(item: TimelineItem): string {
-  if (!INTERACTIONS.has(item.type)) return item.subject ?? 'Update';
+  if (!INTERACTIONS.has(item.type)) {
+    const subject = item.subject ?? 'Update';
+    return item.actorName && item.type === 'field_changed'
+      ? `${item.actorName}: ${subject}`
+      : subject;
+  }
   const who = item.actorName ?? 'Someone';
   const verb: Record<string, string> = {
     call: item.direction === 'inbound' ? 'received a call' : 'logged a call',
@@ -109,6 +132,9 @@ export function Timeline({
                     </Link>
                   ) : null}
                 </p>
+              )}
+              {INTERACTIONS.has(item.type) && item.subject && (
+                <p className="mt-0.5 text-sm text-muted-foreground">{item.subject}</p>
               )}
               {item.outcome && (
                 <span className="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">

@@ -33,39 +33,44 @@ export function scopeDecision(ctx: ScopeContext, key: PermissionKey): ScopeDecis
   return { kind: 'owners', userIds, includeUnassigned };
 }
 
+/**
+ * Besides its owner, a record can name other people responsible for it — a lead's SDR/BDR who
+ * found it and the sales rep it was handed to (docs/leads.md). Each of them sees it as their own.
+ */
+export type ScopeOptions = { alsoResponsible?: PgColumn[] };
+
 export function scopeFilter(
   ctx: ScopeContext,
   key: PermissionKey,
   table: { ownerUserId: PgColumn },
+  options: ScopeOptions = {},
 ): SQL | undefined {
   const decision = scopeDecision(ctx, key);
   if (decision.kind === 'all') return undefined;
   if (decision.kind === 'none') return sql`false`;
 
-  const owned =
+  const match = (column: PgColumn) =>
     decision.userIds.length === 1 && decision.userIds[0]
-      ? eq(table.ownerUserId, decision.userIds[0])
-      : inArray(table.ownerUserId, decision.userIds);
+      ? eq(column, decision.userIds[0])
+      : inArray(column, decision.userIds);
+  const owned = or(match(table.ownerUserId), ...(options.alsoResponsible ?? []).map(match));
   return decision.includeUnassigned ? or(owned, isNull(table.ownerUserId)) : owned;
 }
 
-export function canAccess(
-  ctx: ScopeContext,
-  key: PermissionKey,
-  record: { ownerUserId: string | null },
-): boolean {
+type ScopedRecord = { ownerUserId: string | null; alsoResponsible?: (string | null)[] };
+
+export function canAccess(ctx: ScopeContext, key: PermissionKey, record: ScopedRecord): boolean {
   const decision = scopeDecision(ctx, key);
   if (decision.kind === 'all') return true;
   if (decision.kind === 'none') return false;
+  if ((record.alsoResponsible ?? []).some((id) => id !== null && decision.userIds.includes(id))) {
+    return true;
+  }
   if (record.ownerUserId === null) return decision.includeUnassigned;
   return decision.userIds.includes(record.ownerUserId);
 }
 
 /** NOT_FOUND rather than FORBIDDEN: a record outside scope must not reveal that it exists. */
-export function assertCanAccess(
-  ctx: ScopeContext,
-  key: PermissionKey,
-  record: { ownerUserId: string | null },
-): void {
+export function assertCanAccess(ctx: ScopeContext, key: PermissionKey, record: ScopedRecord): void {
   if (!canAccess(ctx, key, record)) throw new AppError('NOT_FOUND', 'That record was not found.');
 }

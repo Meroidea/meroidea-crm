@@ -16,7 +16,7 @@ import {
 
 const PLACEHOLDER: Record<InteractionType, string> = {
   note: 'Write a note for the team…',
-  call: 'What was discussed? What happens next?',
+  call: 'What was discussed? What happens next? (optional — the outcome is enough)',
   email: 'Summary of the email…',
   meeting: 'Who was there and what was agreed?',
   message: 'Summary of the WhatsApp/SMS conversation…',
@@ -26,14 +26,18 @@ const PLACEHOLDER: Record<InteractionType, string> = {
 export function ActivityComposer({
   contactId,
   opportunityId,
+  callOutcomes,
 }: {
   contactId?: string;
   opportunityId?: string;
+  /** The business's call outcomes; older pages without them get the built-in four. */
+  callOutcomes?: string[];
 }) {
+  const outcomes = callOutcomes && callOutcomes.length > 0 ? callOutcomes : null;
   const router = useRouter();
   const [type, setType] = useState<InteractionType>('note');
   const [body, setBody] = useState('');
-  const [outcome, setOutcome] = useState('connected');
+  const [outcome, setOutcome] = useState(outcomes?.[0] ?? 'connected');
   const [direction, setDirection] = useState<'outbound' | 'inbound'>('outbound');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -108,14 +112,29 @@ export function ActivityComposer({
             onChange={(event) => setOutcome(event.target.value)}
             className="h-8 w-auto"
           >
-            <option value="connected">Connected</option>
-            <option value="no_answer">No answer</option>
-            <option value="left_voicemail">Left voicemail</option>
-            <option value="busy">Busy</option>
+            {outcomes ? (
+              outcomes.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="connected">Connected</option>
+                <option value="no_answer">No answer</option>
+                <option value="left_voicemail">Left voicemail</option>
+                <option value="busy">Busy</option>
+              </>
+            )}
           </NativeSelect>
         )}
         <span className="hidden text-xs text-muted-foreground sm:inline">⌘↵ to save</span>
-        <Button size="sm" className="ml-auto" disabled={isPending || !body.trim()} onClick={submit}>
+        <Button
+          size="sm"
+          className="ml-auto"
+          disabled={isPending || (!body.trim() && type !== 'call')}
+          onClick={submit}
+        >
           {isPending ? 'Saving…' : `Log ${INTERACTION_LABELS[type].toLowerCase()}`}
         </Button>
       </div>

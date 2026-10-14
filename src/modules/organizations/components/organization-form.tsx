@@ -17,7 +17,6 @@ import {
 import {
   organizationFieldsSchema,
   type OrganizationFormValues,
-  type OrganizationInput,
 } from '@/modules/organizations/schemas';
 
 export function OrganizationForm({
@@ -38,8 +37,9 @@ export function OrganizationForm({
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<OrganizationFormValues, unknown, OrganizationInput>({
-    resolver: zodResolver(organizationFieldsSchema),
+  } = useForm<OrganizationFormValues, unknown, OrganizationFormValues>({
+    // Submits what was typed; the Server Action parses it with the same schema.
+    resolver: zodResolver(organizationFieldsSchema, undefined, { raw: true }),
     defaultValues: defaults,
   });
 

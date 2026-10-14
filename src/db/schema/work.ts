@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   foreignKey,
   index,
   integer,
@@ -8,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -26,6 +28,15 @@ export const activityType = pgEnum('activity_type', [
   'created',
   'task_completed',
   'imported',
+  'status_changed',
+  'assigned',
+  'handover',
+  'handover_accepted',
+  'handover_rejected',
+  'converted',
+  'merged',
+  'approval',
+  'enquiry',
 ]);
 export const activityDirection = pgEnum('activity_direction', ['inbound', 'outbound']);
 export const taskType = pgEnum('task_type', [
@@ -38,6 +49,64 @@ export const taskType = pgEnum('task_type', [
 ]);
 export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled']);
 export const taskPriority = pgEnum('task_priority', ['low', 'normal', 'high']);
+
+/** A cadence of outreach steps, e.g. email on day 1, call on day 3, email on day 7. */
+export const sequences = pgTable(
+  'sequences',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    name: text().notNull(),
+    description: text(),
+    /** [{ id, day, type: call|email|meeting|follow_up|other, title, templateId? }] */
+    steps: jsonb().notNull().default([]),
+    isActive: boolean().notNull().default(true),
+    createdBy: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('sequences_tenant_id_id_key').on(table.tenantId, table.id)],
+);
+
+/** One contact going through a sequence; its steps become tasks for the person enrolling. */
+export const sequenceEnrollments = pgTable(
+  'sequence_enrollments',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    sequenceId: uuid().notNull(),
+    contactId: uuid().notNull(),
+    assignedTo: uuid().notNull(),
+    /** active | completed | stopped */
+    status: text().notNull().default('active'),
+    enrolledBy: uuid(),
+    enrolledAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp({ withTimezone: true }),
+  },
+  (table) => [
+    unique('sequence_enrollments_tenant_id_id_key').on(table.tenantId, table.id),
+    index('sequence_enrollments_contact_idx').on(table.tenantId, table.contactId),
+    foreignKey({
+      columns: [table.tenantId, table.sequenceId],
+      foreignColumns: [sequences.tenantId, sequences.id],
+      name: 'sequence_enrollments_tenant_sequence_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.contactId],
+      foreignColumns: [contacts.tenantId, contacts.id],
+      name: 'sequence_enrollments_tenant_contact_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.assignedTo],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+      name: 'sequence_enrollments_tenant_assignee_fk',
+    }),
+  ],
+);
 
 export const tasks = pgTable(
   'tasks',
@@ -56,6 +125,7 @@ export const tasks = pgTable(
     assignedTo: uuid().notNull(),
     contactId: uuid(),
     opportunityId: uuid(),
+    sequenceEnrollmentId: uuid(),
     completedAt: timestamp({ withTimezone: true }),
     completedBy: uuid(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -86,6 +156,11 @@ export const tasks = pgTable(
       columns: [table.tenantId, table.opportunityId],
       foreignColumns: [opportunities.tenantId, opportunities.id],
       name: 'tasks_tenant_opportunity_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.sequenceEnrollmentId],
+      foreignColumns: [sequenceEnrollments.tenantId, sequenceEnrollments.id],
+      name: 'tasks_tenant_sequence_enrollment_fk',
     }),
   ],
 );

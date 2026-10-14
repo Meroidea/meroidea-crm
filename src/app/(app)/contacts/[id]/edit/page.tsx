@@ -8,7 +8,7 @@ import { canAccess } from '@/lib/permissions/scope';
 import { ContactForm } from '@/modules/contacts/components/contact-form';
 import { assignableOwners } from '@/modules/contacts/owners';
 import { getContact } from '@/modules/contacts/queries';
-import { listActiveLeadSources } from '@/modules/lead-sources/queries';
+import { contactFormSetup } from '@/modules/leads/form-setup';
 import { listActiveMembers } from '@/modules/members/queries';
 import { hasPermission, requireTenantContext } from '@/server/context';
 
@@ -26,9 +26,9 @@ export default async function EditContactPage({ params }: PageProps<'/contacts/[
   });
   if (!hasPermission(ctx, 'contacts.edit') || !canAccess(ctx, 'contacts.edit', contact)) notFound();
 
-  const [members, sources] = await Promise.all([
+  const [members, setup] = await Promise.all([
     listActiveMembers(ctx),
-    listActiveLeadSources(ctx),
+    contactFormSetup(ctx, { sourceId: contact.sourceId, subSourceId: contact.subSourceId }),
   ]);
   const mayReassign =
     hasPermission(ctx, 'contacts.assign') && canAccess(ctx, 'contacts.assign', contact);
@@ -48,7 +48,14 @@ export default async function EditContactPage({ params }: PageProps<'/contacts/[
             contactId={contact.id}
             label={ctx.tenant.labels.contact}
             owners={owners}
-            sources={sources.map((source) => ({ value: source.id, label: source.name }))}
+            isLeadRecord={contact.lead !== null}
+            sources={setup.sources}
+            leadTypes={
+              contact.lead?.type && !setup.leadTypes.includes(contact.lead.type)
+                ? [...setup.leadTypes, contact.lead.type]
+                : setup.leadTypes
+            }
+            customFields={setup.customFields}
             canAssign={mayReassign && owners.length > 1}
             ownerHint={
               mayReassign ? undefined : 'Only someone who can reassign records can change this.'
@@ -69,7 +76,22 @@ export default async function EditContactPage({ params }: PageProps<'/contacts/[
               status: contact.status,
               ownerUserId: contact.ownerUserId ?? '',
               sourceId: contact.sourceId ?? '',
+              subSourceId: contact.subSourceId ?? '',
               marketingConsent: contact.marketingConsent,
+              leadType: contact.lead?.type ?? '',
+              campaignName: contact.campaignName ?? '',
+              jobTitle: contact.jobTitle ?? '',
+              companyName: contact.companyName ?? '',
+              companyWebsite: contact.companyWebsite ?? '',
+              companySize: contact.companySize ?? '',
+              industry: contact.industry ?? '',
+              linkedinUrl: contact.linkedinUrl ?? '',
+              language: contact.language ?? '',
+              interest: contact.interest ?? '',
+              doNotEmail: contact.doNotEmail,
+              doNotCall: contact.doNotCall,
+              consentSource: contact.consentSource ?? '',
+              customFields: contact.customFields,
             }}
           />
         </CardContent>

@@ -66,14 +66,16 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `contacts.assign` | ✓ | Change owner (within scope) |
 | `contacts.view_sensitive` | | See DOB, passport number, and fields flagged sensitive |
 | `contacts.import` | | Run CSV/Excel imports |
-| `contacts.export` | | Export contact lists (audited) |
-| `contacts.merge` 🟡 | | Merge duplicates |
+| `contacts.export` | | Export contact and lead lists as CSV, within view scope (audited) |
+| `contacts.merge` | | Merge two records of the same person: the kept one fills its gaps and takes the other's timeline, tasks, opportunities and links (needs edit access to both; docs/leads.md §3.4) |
+| `contacts.anonymize` | | Erase a person's personal data on request, everywhere it is held; cannot be undone (docs/leads.md §6.5) |
 | `opportunities.view` | ✓ | See opportunities, board, list |
 | `opportunities.create` | | Create opportunities |
 | `opportunities.edit` | ✓ | Edit fields and move stages |
 | `opportunities.delete` | ✓ | Soft-delete |
 | `opportunities.assign` | ✓ | Change owner |
 | `opportunities.export` | | Export (audited) |
+| `opportunities.approve` | | Approve or decline a move into a stage that needs approval, and approve B2C conversions when the business asks for it, for opportunities in your `opportunities.view` scope (docs/leads.md §4.8, §5.4) |
 | — opportunity items | | Follow the parent: view/create/edit/delete an application = the same permission on its opportunity. Ops staff who own an item's processing still need access to the parent. |
 | `revenue.view` | ✓ | See service fees, tuition, commission rates and expected revenue (masked otherwise) |
 | `revenue.manage` 🟡 | | Record invoices/receipts in the revenue ledger |
@@ -124,7 +126,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `rosters.view_all` | | See everyone's published shifts and who is in each team. Enforced by RLS on `roster_shifts` / `roster_team_members` |
 | `rosters.manage` | | Create, edit, publish and delete rosters and shifts, including unpublished ones; manage teams, pay loadings, break rules and public holidays; email staff their roster. Enforced again by RLS on every roster table. Shift cost is shown only to someone who also holds `employees.manage`, because it is worked out from contract pay rates |
 | `reports.view` | ✓ | Dashboards and reports, limited to scope |
-| `reports.export` | | Export report data |
+| `reports.export` | | Download report tables as CSV (audited) |
 | `settings.manage` | | Pipelines, stages, sources, lost reasons, document types, custom fields, labels, branding |
 | `users.manage` | | Invite, deactivate, change role/team |
 | `roles.manage` | | Edit roles and their permissions |
@@ -142,12 +144,15 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | contacts.view_sensitive | ✓ | ✓ | ✓ | ✓ |
 | contacts.import | ✓ | ✓ | | |
 | contacts.export | ✓ | ✓ | | |
+| contacts.merge | ✓ | ✓ | | |
+| contacts.anonymize | ✓ | | | |
 | opportunities.view | all | team | own | all |
 | opportunities.create | ✓ | ✓ | ✓ | |
 | opportunities.edit | all | team | own | all |
 | opportunities.delete | all | team | | |
 | opportunities.assign | all | team | | |
 | opportunities.export | ✓ | ✓ | | |
+| opportunities.approve | ✓ | ✓ | | |
 | revenue.view | all | team | own | |
 | revenue.manage 🟡 | ✓ | | | |
 | activities.create | ✓ | ✓ | ✓ | ✓ |
@@ -209,6 +214,24 @@ Examples from the requirements, expressed in this model:
   (and optionally no `contacts.view` — reports show aggregates and owner names only).
 - *Ops working on another consultant's application* → Ops role has `opportunities.edit: all`
   but no delete/assign/export. Record-level sharing (`record_shares`) is Phase 2 if needed.
+
+
+## Sales team role templates (docs/leads.md §6.2)
+
+Settings → Roles can start a role from a template; nothing is created until an Admin saves it,
+and every permission stays editable. Templates live in `ROLE_TEMPLATES`
+(`src/lib/permissions/catalog.ts`).
+
+| Template | Shape |
+|---|---|
+| SDR / BDR | Own contacts and leads: add, edit, import, log activity, own tasks, see organizations, own reports. No opportunities |
+| Sales rep | Own leads handed to them and own opportunities (with their revenue), organizations, documents, own reports |
+| Customer relations | Works B2C leads directly: own contacts and opportunities, activity, tasks, documents, own reports |
+| Stage team (e.g. delivery) | Own opportunities in the stages they look after, activity and tasks, documents to view |
+| Read only | Sees every record and report (`all`), changes nothing |
+
+A lead counts as the responsibility of its owner, its originator (the SDR who handed it over) and
+the rep it was handed to; `own` and `team` scopes include all three.
 
 ## Required tests (tests/db/permissions.test.ts)
 
