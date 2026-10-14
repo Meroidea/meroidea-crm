@@ -123,6 +123,7 @@ export const linkOrganizationSchema = z.object({
 export const unlinkOrganizationSchema = z.object({ contactId: z.uuid(), linkId: z.uuid() });
 
 export type ContactFormValues = z.input<typeof createContactSchema>;
+export type ContactFieldsInput = z.output<typeof contactFieldsSchema>;
 export type CreateContactInput = z.output<typeof createContactSchema>;
 export type UpdateContactInput = z.output<typeof updateContactSchema>;
 export type DuplicateCheckInput = z.output<typeof duplicateCheckSchema>;

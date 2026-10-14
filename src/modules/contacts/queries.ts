@@ -8,6 +8,7 @@ import {
   contactLinks,
   contactOrganizations,
   contacts,
+  importBatches,
   leadReasons,
   leadSources,
   leadStatuses,
@@ -29,6 +30,7 @@ export const CONTACT_PAGE_SIZE = 50;
 
 const originators = alias(users, 'originator_users');
 const handoverUsers = alias(users, 'handover_users');
+const creators = alias(users, 'creator_users');
 const reasons = alias(leadReasons, 'lead_reason');
 const rejectedReasons = alias(leadReasons, 'rejected_reason');
 const relatedContacts = alias(contacts, 'related_contacts');
@@ -156,6 +158,8 @@ export async function getContact(ctx: TenantContext, id: string): Promise<Contac
         subSourceName: leadSubSources.name,
         originatorName: originators.fullName,
         handoverToName: handoverUsers.fullName,
+        createdByName: creators.fullName,
+        importBatch: { id: importBatches.id, fileName: importBatches.fileName },
         status: {
           id: leadStatuses.id,
           name: leadStatuses.name,
@@ -169,6 +173,14 @@ export async function getContact(ctx: TenantContext, id: string): Promise<Contac
       .leftJoin(users, eq(users.id, contacts.ownerUserId))
       .leftJoin(originators, eq(originators.id, contacts.originatorUserId))
       .leftJoin(handoverUsers, eq(handoverUsers.id, contacts.handoverToUserId))
+      .leftJoin(creators, eq(creators.id, contacts.createdBy))
+      .leftJoin(
+        importBatches,
+        and(
+          eq(importBatches.tenantId, contacts.tenantId),
+          eq(importBatches.id, contacts.importBatchId),
+        ),
+      )
       .leftJoin(
         leadSources,
         and(eq(leadSources.tenantId, contacts.tenantId), eq(leadSources.id, contacts.sourceId)),
@@ -326,6 +338,8 @@ export async function getContact(ctx: TenantContext, id: string): Promise<Contac
       subSourceId: c.subSourceId,
       subSourceName: row.subSourceName,
       campaignName: c.campaignName,
+      createdByName: row.createdByName,
+      importBatch: row.importBatch?.id ? row.importBatch : null,
       utm: (c.utm as Record<string, string> | null) ?? null,
       jobTitle: c.jobTitle,
       companyName: c.companyName,

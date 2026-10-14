@@ -211,6 +211,29 @@ export function WebFormsEditor({
         {forms.map((form) => {
           const link = `${appUrl}/f/${form.publicKey}`;
           const embed = `<iframe src="${link}?embed=1" title="${form.name.replace(/"/g, '&quot;')}" style="width:100%;min-height:640px;border:0"></iframe>`;
+          // For a site that styles its own form: post these field names to the form's address.
+          const html = [
+            `<form action="${appUrl}/api/forms/${form.publicKey}" method="post">`,
+            '  <input name="firstName" required placeholder="First name">',
+            '  <input name="lastName" placeholder="Last name">',
+            '  <input name="email" type="email" required placeholder="Email">',
+            '  <input name="phone" placeholder="Phone">',
+            ...(form.askCompany
+              ? [
+                  '  <input name="companyName" placeholder="Company">',
+                  '  <input name="jobTitle" placeholder="Job title">',
+                ]
+              : []),
+            ...(form.askMessage
+              ? ['  <textarea name="message" placeholder="Message"></textarea>']
+              : []),
+            ...(form.askConsent
+              ? ['  <label><input type="checkbox" name="consent"> Send me news and offers</label>']
+              : []),
+            '  <input name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px">',
+            '  <button type="submit">Send</button>',
+            '</form>',
+          ].join('\n');
           return (
             <li key={form.id} className="rounded-xl border bg-card px-4 py-3">
               {editing === form.id ? (
@@ -261,6 +284,7 @@ export function WebFormsEditor({
                       </a>
                       <CopyButton text={link} label="Copy link" />
                       <CopyButton text={embed} label="Copy embed code" />
+                      <CopyButton text={html} label="Copy HTML form" />
                     </div>
                   )}
                 </div>

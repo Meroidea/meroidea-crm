@@ -189,7 +189,11 @@ export const importBatches = pgTable(
     skippedCount: integer().notNull().default(0),
     duplicateCreatedCount: integer().notNull().default(0),
     errorCount: integer().notNull().default(0),
-    /** Row-level outcomes for the report: [{row, outcome, reason?, contactId?}]. */
+    /**
+     * The upload's choices and its row-level outcomes:
+     * {asLeads, assignment, rows: [{row, outcome, reason?, contactId?}]}. Reasons name the
+     * column, never the value.
+     */
     report: jsonb().notNull().default([]),
     createdBy: uuid(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

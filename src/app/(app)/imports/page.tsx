@@ -1,35 +1,44 @@
 import { FileSpreadsheet, ShieldCheck, Users } from 'lucide-react';
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { PageHeader } from '@/components/data/page-header';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDateTime } from '@/lib/format';
+import { scopeDecision } from '@/lib/permissions/scope';
+import { LEAD_TYPE_LABELS } from '@/modules/contacts/schemas';
 import { ImportWizard } from '@/modules/imports/components/import-wizard';
-import { listActiveLeadSources } from '@/modules/lead-sources/queries';
-import { requirePermission, requireTenantContext } from '@/server/context';
+import { listImportBatches } from '@/modules/imports/queries';
+import { contactFormSetup } from '@/modules/leads/form-setup';
+import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'Imports' };
 
 export default async function ImportsPage() {
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'contacts.import');
-  const sources = await listActiveLeadSources(ctx);
+  const [setup, batches] = await Promise.all([contactFormSetup(ctx), listImportBatches(ctx)]);
   const label = ctx.tenant.labels.contact;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Imports"
-        description={`Bring your existing ${label.plural.toLowerCase()} in from a spreadsheet.`}
+        description={`Upload leads or existing ${label.plural.toLowerCase()} from Excel or CSV.`}
       />
       <div className="grid gap-3 sm:grid-cols-3">
         {[
           [
             FileSpreadsheet,
             'Map your columns',
-            'Name, email, phone, city, country — we suggest matches.',
+            'Name, email, phone, company and your own fields — we suggest matches.',
           ],
-          [ShieldCheck, 'Duplicates checked', 'Against your workspace and within the file itself.'],
-          [Users, 'Owned by you', 'Imported records are assigned to you; reassign any time.'],
+          [
+            ShieldCheck,
+            'Duplicates handled',
+            'Skip them, merge into the existing record, or create anyway.',
+          ],
+          [Users, 'Routed or yours', 'Leads go to you, the routing rules, or the queue.'],
         ].map(([Icon, title, body]) => {
           const I = Icon as typeof FileSpreadsheet;
           return (
@@ -46,11 +55,61 @@ export default async function ImportsPage() {
       <Card>
         <CardContent>
           <ImportWizard
-            sources={sources.map((source) => ({ value: source.id, label: source.name }))}
+            sources={setup.sources}
+            leadTypes={setup.leadTypes}
+            customFields={setup.customFields
+              .filter((field) => field.isActive)
+              .map((field) => ({ key: field.key, label: field.label }))}
             contactLabel={label.singular}
+            canMerge={hasPermission(ctx, 'contacts.edit')}
+            canQueue={
+              hasPermission(ctx, 'contacts.assign') &&
+              scopeDecision(ctx, 'contacts.assign').kind === 'all'
+            }
           />
         </CardContent>
       </Card>
+
+      {batches.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Earlier uploads</CardTitle>
+          </CardHeader>
+          <CardContent className="px-0">
+            <ul className="flex flex-col divide-y">
+              {batches.map((batch) => (
+                <li key={batch.id}>
+                  <Link
+                    href={`/imports/${batch.id}`}
+                    className="flex flex-col gap-1 px-6 py-3 hover:bg-accent/40 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{batch.fileName}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDateTime(ctx, batch.createdAt)}
+                        {batch.createdByName ? ` · ${batch.createdByName}` : ''}
+                        {batch.asLeads
+                          ? ` · Leads${batch.leadType ? `, ${LEAD_TYPE_LABELS[batch.leadType]}` : ''}`
+                          : ''}
+                        {batch.sourceName
+                          ? ` · ${batch.sourceName}${batch.subSourceName ? ` – ${batch.subSourceName}` : ''}`
+                          : ''}
+                        {batch.campaignName ? ` · ${batch.campaignName}` : ''}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {batch.createdCount + batch.duplicateCreatedCount} created ·{' '}
+                      {batch.mergedCount} merged · {batch.skippedCount} skipped · {batch.errorCount}{' '}
+                      problems
+                      {!batch.completedAt && ' · unfinished'}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

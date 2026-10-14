@@ -51,7 +51,7 @@ export type PendingEmail = { userId: string; type: string; url: string };
  */
 export async function notify(
   tx: Tx,
-  ctx: { tenantId: string; userId: string },
+  ctx: { tenantId: string; userId: string | null },
   notices: NoticeInput[],
 ): Promise<PendingEmail[]> {
   const wanted = notices.filter((notice) => notice.userId !== ctx.userId);
@@ -89,6 +89,18 @@ export async function deliverEmails(ctx: TenantContext, pending: PendingEmail[])
         ),
       ),
   );
+  await sendNoticeEmails(ctx.tenant.name, pending, recipients);
+}
+
+/**
+ * The emails themselves, once the recipients' addresses are known. Public intake (a website
+ * form has no session) looks the addresses up its own way and calls this directly.
+ */
+export async function sendNoticeEmails(
+  businessName: string,
+  pending: PendingEmail[],
+  recipients: { id: string; email: string }[],
+): Promise<void> {
   const appUrl = serverEnv().APP_URL;
   await Promise.all(
     pending.map(async (item) => {
@@ -96,7 +108,7 @@ export async function deliverEmails(ctx: TenantContext, pending: PendingEmail[])
       if (!to) return;
       const subject = NOTIFICATION_EMAIL[item.type] ?? 'You have a new notification';
       const link = new URL(item.url, appUrl).toString();
-      const intro = `${subject} in ${ctx.tenant.name} on Meroidea.`;
+      const intro = `${subject} in ${businessName} on Meroidea.`;
       await sendEmail({
         to,
         subject,

@@ -44,7 +44,8 @@ type SystemActivity = {
  */
 export async function recordSystemActivity(
   tx: Tx,
-  ctx: Pick<TenantContext, 'tenantId' | 'userId'>,
+  // userId is null for events with no person behind them, e.g. a website enquiry.
+  ctx: { tenantId: string; userId: string | null },
   event: SystemActivity,
 ): Promise<void> {
   await tx.insert(activities).values({
@@ -59,6 +60,29 @@ export async function recordSystemActivity(
     createdBy: ctx.userId,
     metadata: event.metadata ?? {},
   });
+}
+
+/** Several system events at once, e.g. one per row of an upload. */
+export async function recordSystemActivities(
+  tx: Tx,
+  ctx: Pick<TenantContext, 'tenantId' | 'userId'>,
+  events: SystemActivity[],
+): Promise<void> {
+  if (events.length === 0) return;
+  await tx.insert(activities).values(
+    events.map((event) => ({
+      tenantId: ctx.tenantId,
+      type: event.type,
+      subject: event.subject,
+      body: event.body ?? null,
+      contactId: event.contactId ?? null,
+      opportunityId: event.opportunityId ?? null,
+      taskId: event.taskId ?? null,
+      actorUserId: ctx.userId,
+      createdBy: ctx.userId,
+      metadata: event.metadata ?? {},
+    })),
+  );
 }
 
 /** Logs a call, email, meeting, message or note against a record the person can see. */

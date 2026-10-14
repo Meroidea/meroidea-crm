@@ -280,6 +280,24 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
                     : '—'}
                 </Detail>
                 <Detail label="Campaign or event">{contact.campaignName ?? '—'}</Detail>
+                <Detail label="Added">
+                  {formatDateTime(ctx, contact.createdAt)}
+                  {contact.createdByName && ` by ${contact.createdByName}`}
+                  {contact.importBatch &&
+                    (hasPermission(ctx, 'contacts.import') ? (
+                      <>
+                        {' · '}
+                        <Link
+                          href={`/imports/${contact.importBatch.id}`}
+                          className="text-primary hover:underline"
+                        >
+                          upload {contact.importBatch.fileName}
+                        </Link>
+                      </>
+                    ) : (
+                      ` · upload ${contact.importBatch.fileName}`
+                    ))}
+                </Detail>
                 <Detail label="Interested in">{contact.interest ?? '—'}</Detail>
                 {contact.utm && Object.keys(contact.utm).length > 0 && (
                   <Detail label="Web tracking (UTM)">

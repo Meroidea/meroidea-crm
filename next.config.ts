@@ -18,6 +18,9 @@ const nextConfig: NextConfig = {
         /^\/api\/reviews\//,
         /^\/support\//,
         /^\/api\/support\//,
+        // A website form's key is what lets anyone post to it.
+        /^\/f\//,
+        /^\/api\/forms\//,
       ],
     },
   },

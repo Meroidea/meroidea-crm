@@ -54,6 +54,9 @@ export type ContactDetail = {
   subSourceId: string | null;
   subSourceName: string | null;
   campaignName: string | null;
+  createdByName: string | null;
+  /** The upload that added this person, when one did. */
+  importBatch: { id: string; fileName: string } | null;
   utm: Record<string, string> | null;
   jobTitle: string | null;
   companyName: string | null;

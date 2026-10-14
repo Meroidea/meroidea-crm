@@ -20,7 +20,12 @@ import { withRls, type Tx } from '@/server/db/with-rls';
 
 import { assertCanAssignContact, contactRecord } from './access';
 import { findDuplicateContacts } from './duplicates';
-import type { CreateContactInput, DuplicateCheckInput, UpdateContactInput } from './schemas';
+import type {
+  ContactFieldsInput,
+  CreateContactInput,
+  DuplicateCheckInput,
+  UpdateContactInput,
+} from './schemas';
 import type { DuplicateMatch } from './types';
 
 const MATCH_WORDS: Record<DuplicateMatch['matchKind'], string> = {
@@ -43,7 +48,7 @@ async function loadForWrite(tx: Tx, ctx: TenantContext, id: string) {
   return row;
 }
 
-function normalizedFields(ctx: TenantContext, input: CreateContactInput | UpdateContactInput) {
+function normalizedFields(ctx: TenantContext, input: ContactFieldsInput) {
   return {
     firstName: input.firstName,
     lastName: input.lastName,
@@ -117,7 +122,9 @@ export async function createContact(
     const customFields = await validatedCustomFields(tx, ctx, input.customFields);
 
     if (input.mergeIntoId) {
-      const merged = await mergeDetailsInto(tx, ctx, input.mergeIntoId, input, customFields);
+      const merged = await mergeDetailsInto(tx, ctx, input.mergeIntoId, input, customFields, {
+        subject: 'New details merged into this record',
+      });
       return { id: merged, merged: true, emails: [] as PendingEmail[] };
     }
 
@@ -232,15 +239,16 @@ export async function createContact(
 }
 
 /**
- * The "merge" answer to a duplicate warning: details from the form fill the gaps in the existing
- * record (nothing there is overwritten), and the timeline notes it.
+ * The "merge" answer to a duplicate warning (from the form or an upload): the new details fill
+ * the gaps in the existing record (nothing there is overwritten), and the timeline notes it.
  */
-async function mergeDetailsInto(
+export async function mergeDetailsInto(
   tx: Tx,
   ctx: TenantContext,
   targetId: string,
-  input: CreateContactInput,
+  input: ContactFieldsInput,
   customFields: Record<string, unknown>,
+  note: { subject: string; metadata?: Record<string, unknown> },
 ): Promise<string> {
   requirePermission(ctx, 'contacts.edit');
   const existing = await loadForWrite(tx, ctx, targetId);
@@ -263,15 +271,15 @@ async function mergeDetailsInto(
   }
   await recordSystemActivity(tx, ctx, {
     type: 'merged',
-    subject: 'New details merged into this record',
+    subject: note.subject,
     contactId: existing.id,
-    metadata: { filled: Object.keys(fill) },
+    metadata: { filled: Object.keys(fill), ...note.metadata },
   });
   await audit(tx, ctx, {
     action: 'update',
     entityType: 'contact',
     entityId: existing.id,
-    context: { mergedFromForm: Object.keys(fill) },
+    context: { mergedFields: Object.keys(fill), ...note.metadata },
   });
   return existing.id;
 }
