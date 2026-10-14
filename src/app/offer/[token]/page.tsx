@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { DotBackground } from '@/components/layout/dot-background';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,6 +59,17 @@ export default async function OfferPage({ params }: PageProps<'/offer/[token]'>)
                 Recorded on{' '}
                 {formatDateTime({ tenant: { timezone: offer.timezone } }, offer.acceptedAt)}. Keep a
                 copy of the wording below for your records.
+              </Done>
+            )}
+
+            {offer.loginEmail && (
+              <Done title={`You have a login for ${offer.employerName}`}>
+                We emailed {offer.loginEmail} a link to choose your password. If it has expired or
+                not arrived, use “Forgot password” on the{' '}
+                <Link href="/login" className="text-primary underline underline-offset-4">
+                  sign-in page
+                </Link>{' '}
+                with that address. You can then see your roster, payslips, time and tasks.
               </Done>
             )}
 

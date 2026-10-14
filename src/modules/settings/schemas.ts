@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 export const workspaceSchema = z.object({
-  name: z.string().trim().min(2, 'Enter a name').max(80),
   timezone: z
     .string()
     .trim()

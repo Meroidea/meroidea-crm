@@ -16,3 +16,16 @@ export async function listRoleOptions(ctx: TenantContext) {
       .orderBy(asc(roles.name)),
   );
 }
+
+/**
+ * Roles a new hire's login can be given when they accept (ADR-048): every role but Admin, with
+ * Staff first as the usual choice.
+ */
+export async function listHireLoginRoles(ctx: TenantContext) {
+  const options = await listRoleOptions(ctx);
+  const rank = (key: string) => (key === 'member' ? 0 : key === 'manager' ? 1 : 2);
+  return options
+    .filter((role) => role.key !== 'owner')
+    .sort((a, b) => rank(a.key) - rank(b.key) || a.name.localeCompare(b.name))
+    .map(({ id, name }) => ({ id, name }));
+}

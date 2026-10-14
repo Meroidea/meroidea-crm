@@ -5,7 +5,12 @@ import type { z } from 'zod';
 
 import { AppError, toActionError, type ActionResult } from '@/lib/errors';
 import type { PermissionKey } from '@/lib/permissions/catalog';
-import { getTenantContext, requirePermission, type TenantContext } from '@/server/context';
+import {
+  getTenantContext,
+  requirePermission,
+  workspaceClosedReason,
+  type TenantContext,
+} from '@/server/context';
 
 type ActionOptions<S extends z.ZodType> = {
   /** Checked at any scope here; the service checks the record's scope. */
@@ -27,8 +32,10 @@ export function authedAction<S extends z.ZodType, T>(
     try {
       const ctx = await getTenantContext();
       if (!ctx) throw new AppError('UNAUTHENTICATED', 'Please sign in again.');
-      if (ctx.tenant.status === 'suspended' && !ctx.isSupport) {
-        throw new AppError('FORBIDDEN', 'This workspace is suspended.');
+      const closed = workspaceClosedReason(ctx);
+      if (closed === 'suspended') throw new AppError('FORBIDDEN', 'This workspace is suspended.');
+      if (closed === 'awaiting_agreement') {
+        throw new AppError('FORBIDDEN', 'The service agreement has not been accepted yet.');
       }
       if (options.permission) requirePermission(ctx, options.permission);
       const input = options.input.parse(raw);

@@ -56,6 +56,12 @@ export const PERMISSIONS = {
   'timesheets.manage': { scoped: false },
   'expenses.submit': { scoped: false },
   'expenses.manage': { scoped: false },
+  'concerns.raise': { scoped: false },
+  'concerns.handle': { scoped: false },
+  'concerns.handle_all': { scoped: false },
+  'training.learn': { scoped: false },
+  'training.view_all': { scoped: false },
+  'training.manage': { scoped: false },
   'reviews.view': { scoped: false },
   'reviews.manage': { scoped: false },
   'tickets.work': { scoped: false },
@@ -91,14 +97,16 @@ export type RoleDefinition = {
 };
 
 /**
- * Default roles applied when a workspace is provisioned. Keys stay industry-neutral; a tenant
- * renames them freely (docs/terminology.md).
+ * Default roles applied when a workspace is provisioned: the business's Admin and its two staff
+ * levels, Manager and Staff (ADR-048). The keys are what code and the database refer to and
+ * never change; the names are what people see.
  */
 export const DEFAULT_ROLES: RoleDefinition[] = [
   {
     key: 'owner',
-    name: 'Owner',
-    description: 'Full access to everything, including billing and settings.',
+    name: 'Admin',
+    description:
+      'Runs the business: every feature switched on for it, settings, people, hiring and pay.',
     isSystem: true,
     grants: Object.fromEntries(
       PERMISSION_KEYS.map((key) => [key, isScoped(key) ? 'all' : true]),
@@ -107,7 +115,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
   {
     key: 'manager',
     name: 'Manager',
-    description: "Their team's records and reports.",
+    description:
+      'Runs the team day to day: sees everyone’s roster, assigns tasks, approves time and leave. Not pay, hiring or settings.',
     isSystem: false,
     grants: {
       'contacts.view': 'team',
@@ -158,14 +167,19 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'timesheets.manage': true,
       'expenses.submit': true,
       'expenses.manage': true,
+      'concerns.raise': true,
+      'concerns.handle': true,
+      'training.learn': true,
+      'training.view_all': true,
       'reports.view': 'team',
       'reports.export': true,
     },
   },
   {
     key: 'member',
-    name: 'Member',
-    description: 'Their own records.',
+    name: 'Staff',
+    description:
+      'Their own roster, payslips, time, leave, tasks and expenses, and the records they work on.',
     isSystem: false,
     grants: {
       'contacts.view': 'own',
@@ -191,41 +205,11 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'timeoff.request': true,
       'timesheets.clock': true,
       'expenses.submit': true,
+      'concerns.raise': true,
+      'training.learn': true,
       'projects.view': true,
       'tickets.work': true,
       'reports.view': 'own',
-    },
-  },
-  {
-    key: 'support',
-    name: 'Support',
-    description: 'Processing and document handling across the workspace.',
-    isSystem: false,
-    grants: {
-      'contacts.view': 'all',
-      'contacts.edit': 'all',
-      'contacts.view_sensitive': true,
-      'opportunities.view': 'all',
-      'opportunities.edit': 'all',
-      'activities.create': true,
-      'tasks.view': 'own',
-      'tasks.manage': 'own',
-      'tasks.assign_others': true,
-      'documents.view': true,
-      'documents.upload': true,
-      'documents.download': true,
-      'documents.verify': true,
-      'partners.view': true,
-      'organizations.view': true,
-      'files.view': true,
-      'files.edit': true,
-      'inventory.view': true,
-      'rosters.view': true,
-      'timeoff.request': true,
-      'timesheets.clock': true,
-      'expenses.submit': true,
-      'projects.view': true,
-      'tickets.work': true,
     },
   },
 ];

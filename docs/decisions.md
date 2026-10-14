@@ -58,6 +58,10 @@ harder to debug; tenant isolation is not deferred because it's the resale-critic
 Supabase Data API's exposed schemas. The browser uses Supabase only for auth.
 **Why:** Supabase exposes `public` over REST with a key that is shipped to every browser. A
 Drizzle-created table without RLS is readable by anyone.
+**Consequence:** Grants are explicit per migration. A project created with Supabase's default
+"expose new tables" privileges is brought back to them by migration `0054`; every policy except
+the self/colleague ones on `users` and the agreement reads also needs `app.tenant_id`, which only
+`withRls` sets, so a user token sent straight to the Data API sees nothing.
 
 ### ADR-008 · Local development on the Supabase CLI stack, not plain Docker Postgres
 **Decision:** `npx supabase start` runs Postgres + Auth + Storage + pg_cron locally.
@@ -689,3 +693,161 @@ Payslips made before this have no lines, employer details or number; they are sh
 of hours at their hourly rate, with the employer text typed at the time. Treating all
 non-overtime lines as ordinary time earnings for super is a simplification an accountant
 should confirm (expense-type allowances, when they are added, will need excluding).
+
+## ADR-047 — Onboarding records who the business is; its admin accepts a service agreement before getting in
+
+**Supersedes:** the temporary password in ADR-029.
+
+**Decision.** When onboarding a business, the platform owner records its name, legal name, ABN
+(check digit validated), primary contact (name, email, phone), and optionally its clock-in
+location, alongside its features and its admin's name and email. These identity fields live in
+columns on `tenants` that only the platform console writes; the business's admin sees them in
+Settings but cannot change them (contact details printed on payslips, such as address and phone,
+stay theirs to edit).
+
+The admin's login is created with an unusable password and the business starts as
+`awaiting_agreement`, closed to its own people (a support seat can still enter). The workspace,
+its identity, the agreement request and the audit entry are written in one transaction
+(`provisionTenant`'s `finish` step), so a failure leaves no half-made business; the login is
+removed again if anything fails. The admin is
+emailed a one-time link (`/agreement/{token}`, secret stored as a SHA-256 hash, 14 days) to the
+current version of the service agreement. Accepting requires ticking a box and typing the name
+the platform owner recorded; the acceptance stores the version, time, typed name, IP address and
+browser, spends the link and opens the business. The admin is then sent straight into the
+existing set-your-password flow (ADR-031). Agreement versions are immutable; new wording is a
+new version, and businesses keep the version they accepted. Reactivating a suspended business
+that has not accepted returns it to `awaiting_agreement`.
+
+**Why.** If the platform owner chose or saw the admin's password, nothing done under that login
+could be told apart from the platform owner's own actions, which defeats the audit log in any
+dispute; the platform owner already has audited support access, so they never need it. One
+link that both records the agreement and leads to choosing a password is one step for the
+client. Recording the exact version, typed name, time and network details is what makes a
+click-through acceptance defensible as an electronic signature (Electronic Transactions Act 1999
+(Cth) s10: a method that identifies the person and shows their intention, as reliable as is
+appropriate). Locking identity fields keeps payslips and invoices from being issued under a
+name or ABN the platform owner never verified.
+
+**Consequences.** A service agreement must be published before any business can be onboarded.
+Its wording is for a lawyer to write; the system only stores and records it. The ABN check
+catches typing errors but does not prove the ABN is registered to that business (the ABN Lookup
+web service could, later). Businesses onboarded before this change have no agreement record and
+stay active; asking them to accept, and asking every business to accept a new version, are not
+built yet. Changing a business's admin to someone else is not built yet. The accept page has no
+per-sender rate limit; the link's 256-bit secret is the protection.
+
+## ADR-048 — Admin, Manager and Staff; a login when a hire accepts their offer
+
+**Decision.**
+- A business's roles are **Admin**, **Manager** and **Staff**: the display names of the role keys
+  `owner`, `manager` and `member`. Keys stay as they are because code and database policies refer
+  to them. New businesses no longer get the `support` role, a leftover of the CRM-only design;
+  businesses that already have it keep it. Migration 0050 renames roles that still carry their
+  old default name and description, and leaves any name a business chose.
+- Everyone added to a business, by an admin or by accepting an offer, joins the team made when the
+  business was created. Existing members without a team join it in the same migration (support
+  seats excepted).
+- The hire form asks which login the person gets when they accept: Staff (default), Manager or
+  none. Choosing one needs `users.manage` as well as `employees.manage`; the Admin role cannot be
+  chosen. It is stored on `employees.login_role_id`. When the hire accepts, after that acceptance
+  is committed, `src/modules/access/hire-login.ts` creates the login with an unusable password,
+  adds it to the business with that role and team, links it to the employee record, audits it,
+  and emails them a one-time link to choose their password (ADR-031). The offer page tells them
+  they have a login and how to get in.
+
+**Why.** The owner's clients have one admin and two levels of staff; the old names (Owner,
+Member, Support) came from a sales CRM. A Manager's records are scoped to their team, and staff
+added until now had no team, so a Manager who assigned a task to a staff member could no longer
+see it. One team per business by default makes "Manager sees their staff" true without giving
+Managers every record in a business that does split into teams later. Creating the login on
+acceptance removes a step the admin would otherwise forget, and links the person's roster,
+timesheets and payslips to them from day one.
+
+**Consequences.** Logins are only created on acceptance, so someone who never accepts never gets
+one. If the hire's email already belongs to an active member of the same business (an admin added
+them before they accepted), the staff record is linked to that login instead. If it belongs to
+anyone else (one email holds one login, ADR-031), or anything else fails, the acceptance still
+stands, nothing is created, the reason is audited, and the admin can give a login from the
+profile. Without an email provider the hire is not sent the
+password link; the admin sends one from Settings → Team (shown once to pass on), or the hire uses
+"Forgot password" once email is set up. Moving people between teams has no screen yet.
+
+## ADR-049 — Questions and concerns: staff ask managers or the admin, inside the workspace
+
+**Decision.** A feature, **Questions & concerns** (`concerns`), gives staff one place to ask the
+business something and get an answer: hours on a payslip that look wrong, a shift swap, leave, or
+anything they need to talk about. A question has a topic (pay, hours, shifts, leave, workplace,
+anything else), a title and a conversation, and is sent to **managers** or to **the admin only**.
+From one of their own released payslips, staff can press "Ask about this payslip": the question
+is sent to the admin, filed under pay, and linked to that payslip, which the admin can open from
+the question. Statuses are open, being looked at (set automatically when the business first
+replies) and resolved. The person who asked can mark it resolved when they have their answer, or
+reopen it; replying to a resolved question reopens it. Those who answer can set any status.
+
+Permissions: `concerns.raise` (everyone), `concerns.handle` (Manager and Admin: questions sent to
+managers) and `concerns.handle_all` (Admin: every question). RLS decides who can read a question,
+so one sent to the admin only is invisible to managers at the database. A question can link only
+to the asker's own released payslip (checked in the service and by the insert policy). What was
+asked, to whom and about which payslip never changes afterwards (column grants). Those who can
+answer are emailed that a question is waiting, without its content, which also stays out of the
+audit log. Questions are never deleted. The feature is in the starting set for every kind of
+business with staff; existing businesses get the role grants, but the feature stays off until the
+platform owner switches it on (ADR-029).
+
+**Why.** Staff otherwise ask in passing on shift or by text, the answer is lost, and a pay mistake
+is easy to forget. Keeping the conversation next to the payslip it is about means the admin sees
+exactly which pay run is questioned. Managers have no access to pay (they lack `payroll.manage`),
+so pay questions belong with the admin; "the admin only" is also there for anything a person would
+rather not share with their manager, and RLS makes that a guarantee rather than a screen setting.
+
+**Consequences.** It is not anonymous and not a formal complaints or whistleblowing process; the
+asker's name is always shown. A Manager's question sent to managers is visible to the other
+managers. Questions can link a payslip but not yet a timesheet day or a roster shift. There are no
+attachments, reminders or reports yet. Without an email provider, nobody is notified and questions
+wait on the list.
+
+## ADR-050 — Staff training: courses and modules, assigned by role, department or person
+
+**Decision.** A feature, **Training** (`training`), lets a business put its training online and
+see who has done it. A **course** (for example "Welcome to the cafe" or "Cash handling") holds
+**modules**. A module has content written as plain text (headings, paragraphs, bullet points),
+an optional video (YouTube and Vimeo play in the page from their privacy-enhanced addresses; any
+other https address is a link), and an optional multiple-choice **quiz** with a pass mark.
+Without a quiz, staff mark the module as read and understood. A course is **assigned** to
+everyone, to everyone with a role (Manager, Staff), to everyone in a department (from their staff
+record), or to named people, in any combination; it reaches staff only once **published**, and
+**archiving** takes it out of everyone's training while keeping every result.
+
+Permissions: `training.learn` (everyone: see and complete your own assigned training),
+`training.view_all` (Admin and Manager: everyone's progress) and `training.manage` (Admin only:
+write courses, modules and quizzes, and assign them). The platform owner writes training for a
+business through support access, which is an Admin seat (ADR-029).
+
+Staff see their overall completion as a ring, each course's progress as a bar, and the selected
+course's modules with status and best score. Those with `training.view_all` see every person as a
+completion ring on a searchable grid, open anyone's individual page, and see each course's average
+across the people assigned to it.
+
+Rules enforced by the database: a learner can read a course, its modules and questions only when
+the course is published and assigned to them; the right answers live in
+`training_question_keys`, which only `training.manage` can read; results are written only by
+`app.submit_training_module`, which runs with the function owner's rights, checks the module is
+published and assigned to the caller, marks the answers and records the result (passed stays
+passed, the best score is kept, attempts are counted); `app.training_progress` returns the caller's
+own progress, or everyone's with `training.view_all`, working out assignment where department
+records can be read. A module someone has completed cannot be deleted, nor the only module of a
+published course (it would read as complete); a course with modules cannot be deleted, only
+archived. Assigning checks the role or department belongs to the business.
+
+**Why.** Small businesses train new starters on the menu, customer service, policies, cash and
+emergency procedures, and need to know who has done what; the kitchen does not need the till
+course. Assigning by role, department or person covers how these businesses are actually split.
+Marking in the database is what keeps the answers from ever reaching a browser: any design that
+sent them to be checked in the page, or let a learner read the answer table, could be read off
+by anyone who opened the developer tools.
+
+**Consequences.** Content is text and video only: no uploaded images, slides or PDFs in a module
+yet, and no SCORM packages. Questions have one right answer each. Editing a quiz does not reset
+results already earned. There is no due date, reminder, certificate or expiry yet, and no shared
+library from which the platform owner can copy a course into several businesses; each business's
+training is its own. Department assignment needs the person's staff record linked to their login.

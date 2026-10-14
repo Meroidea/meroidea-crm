@@ -22,6 +22,8 @@ export type PayslipRow = {
 };
 
 export type PayslipDetail = PayslipRow & {
+  /** The reader's own released payslip, as opposed to one they see because they run payroll. */
+  mine: boolean;
   /** Null on payslips made before Employee IDs existed. */
   employeeNumber: number | null;
   employerDetails: string | null;

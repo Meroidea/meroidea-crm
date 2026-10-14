@@ -39,10 +39,16 @@ export function HireForm({
   fairWorkConnected,
   currency,
   initial,
+  loginRoles,
 }: {
   /** The Fair Work pay database is connected, so awards and minimums are looked up, not typed. */
   fairWorkConnected: boolean;
   currency: string;
+  /**
+   * Roles a login made on acceptance can have, Staff first (ADR-048). Absent when the person
+   * hiring may not give logins, and then no login is made.
+   */
+  loginRoles?: { id: string; name: string }[];
   /** Carried over from a successful applicant, so nothing is typed twice. */
   initial?: {
     firstName: string;
@@ -74,6 +80,7 @@ export function HireForm({
       firstName: initial?.firstName ?? '',
       lastName: initial?.lastName ?? '',
       email: initial?.email ?? '',
+      loginRoleId: loginRoles?.[0]?.id ?? '',
       phone: initial?.phone ?? '',
       employmentType: initial?.employmentType ?? 'full_time',
       positionTitle: initial?.positionTitle ?? '',
@@ -222,6 +229,24 @@ export function HireForm({
         <Field name="phone" label="Phone" error={errors.phone?.message}>
           <Input type="tel" autoComplete="off" {...input('phone')} />
         </Field>
+        {loginRoles && (
+          <Field
+            name="loginRoleId"
+            label="Login when they accept"
+            hint="Once they accept the offer they get a login and an email to choose their password. Managers also see everyone’s roster and assign tasks."
+            error={errors.loginRoleId?.message}
+            className="sm:col-span-2"
+          >
+            <NativeSelect {...input('loginRoleId')}>
+              {loginRoles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+              <option value="">No login</option>
+            </NativeSelect>
+          </Field>
+        )}
       </FormSection>
 
       <FormSection

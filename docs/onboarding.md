@@ -1,5 +1,15 @@
 # Sign-up, Provisioning & Onboarding
 
+> **How it works today (ADR-029, ADR-047).** Self-serve sign-up is closed. The platform owner
+> onboards each business from `/platform/new`: name, legal name, ABN, type, primary contact,
+> the admin's name and email, optional clock-in location, and features. Those identity details
+> are locked to the platform console. The business starts as `awaiting_agreement`; its admin is
+> emailed a one-time link to read and accept the current service agreement (typed name, version,
+> time, IP and browser are recorded), which opens the workspace and takes them straight to
+> choosing their own password. Nobody else ever knows it. The admin then adds staff
+> (ADR-031). Agreement versions are published at `/platform/agreement`. The self-serve flow
+> below is kept as the design for if sign-up reopens.
+
 How a company becomes a Meroidea workspace, and how its people get in. This is the flow the
 marketing site promises, so it is core product, not a Phase 3 extra (ADR-021).
 

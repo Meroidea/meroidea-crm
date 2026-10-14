@@ -18,7 +18,7 @@ import {
 
 import type { AwardRateSchedule } from '@/modules/hiring/award-rates';
 
-import { tenants } from './tenancy';
+import { roles, tenants } from './tenancy';
 
 export const employmentType = pgEnum('employment_type', [
   'full_time',
@@ -75,6 +75,11 @@ export const employees = pgTable(
       .generatedAlwaysAsIdentity({ name: 'employees_employee_number_seq', startWith: 100001 }),
     /** Set once the person is given a login; nothing requires one. */
     userId: uuid(),
+    /**
+     * The role their login gets when they accept their offer (ADR-048). Null means no login is
+     * created automatically; an admin can still give one from their profile.
+     */
+    loginRoleId: uuid(),
     firstName: text().notNull(),
     lastName: text().notNull(),
     email: text().notNull(),
@@ -108,6 +113,11 @@ export const employees = pgTable(
       columns: [table.tenantId, table.departmentId],
       foreignColumns: [departments.tenantId, departments.id],
       name: 'employees_tenant_department_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.loginRoleId],
+      foreignColumns: [roles.tenantId, roles.id],
+      name: 'employees_tenant_login_role_fk',
     }),
   ],
 );

@@ -105,6 +105,22 @@ created_at, updated_at
 switched on for the business. `tenant_memberships.is_support boolean not null default false`
 marks a platform owner's temporary seat (check: a support seat is always `active`).
 
+**Added by ADR-047:** who the business is, recorded by the platform owner at onboarding and
+written only by `src/modules/platform/service.ts` (the business's admin reads them but has no
+way to change them; `tenants` is read-only to `authenticated`):
+```sql
+legal_name            text   -- registered name, when it differs from name
+business_number       text   -- ABN, check digit validated, stored as '51 824 753 556'
+primary_contact_name  text
+primary_contact_email text
+primary_contact_phone text
+```
+`status` gains `awaiting_agreement`: a business onboarded by the platform owner whose admin has
+not yet accepted the service agreement. Its own people are shut out (as for `suspended`); a
+support seat is not. Migration 0048 moved any `settings.business.legalName` / `businessNumber`
+into these columns and removed them from `settings`. `app.my_context` also returns
+`tenant_legal_name` and `tenant_business_number`.
+
 ### users
 Global application profile, 1:1 with `auth.users`. **Not** tenant-owned (a user can belong
 to several tenants — needed for resellers, partner staff, and our own support access).
@@ -129,7 +145,7 @@ id           uuid pk
 tenant_id    uuid not null
 user_id      uuid not null references users(id)
 role_id      uuid not null            -- (tenant_id, role_id) → roles
-team_id      uuid                     -- (tenant_id, team_id) → teams
+team_id      uuid                     -- (tenant_id, team_id) → teams; the business's first team by default (ADR-048)
 status       membership_status not null default 'invited'  -- invited | active | deactivated
 job_title    text
 invited_by   uuid
@@ -139,6 +155,9 @@ unique (tenant_id, user_id)
 index (user_id) where status = 'active'
 ```
 Deactivating a membership keeps all their records (owner stays for history); reassign via bulk action.
+Everyone added to a business, by an admin or on accepting an offer, joins the team made when the
+business was created, so a Manager's `team` scope covers them; migration 0050 put existing
+team-less members (support seats excepted) into it.
 
 ### invitations 🟢 (designed, not built — staff are added directly, see ADR-031)
 ```sql
@@ -721,6 +740,7 @@ they are later given a login.
 id, tenant_id,
 employee_number integer not null generated always as identity (start 100001)  -- the Employee ID; unique across the platform; a trigger refuses any change (migrations 0047, 0048)
 user_id     uuid                       -- nullable
+login_role_id uuid                     -- fk (tenant_id, login_role_id) -> roles; the role their login gets on accepting the offer, null for none (ADR-048)
 first_name, last_name text not null    -- legal names, as on the contract
 preferred_name text                    -- shown in lists instead, when set
 email       text not null
@@ -1119,6 +1139,77 @@ colleague. Form settings and deleting need `tickets.manage`. Numbers are allocat
 per-tenant advisory lock. Customer messages and form submissions are written by
 `src/modules/helpdesk/public.ts` (ADR-037).
 
+## 7n. Questions and concerns 🟢
+
+A question a member of staff sends to managers or to the admin only (ADR-049). Kept as the record
+of what was asked and answered; never deleted.
+```sql
+concerns
+id, tenant_id
+raised_by        uuid not null        -- the signed-in user who asked (RLS)
+raised_with      text not null        -- 'manager' | 'admin' (check)
+category         text not null        -- pay | hours | roster | leave | workplace | other (check)
+subject          text not null        -- 3–150 characters (check)
+payslip_id       uuid                 -- fk (tenant_id, payslip_id) -> payslips; the asker's own (RLS)
+status           text not null default 'open'   -- open | in_progress | resolved (check)
+resolved_at      timestamptz          -- set exactly when status = 'resolved' (check)
+resolved_by      uuid
+last_activity_at timestamptz not null default now()   -- moved by a trigger on every reply
+created_at, updated_at
+unique (tenant_id, id); index (tenant_id, last_activity_at); index (tenant_id, raised_by)
+
+concern_messages
+id, tenant_id
+concern_id     uuid not null          -- fk (tenant_id, concern_id) -> concerns
+author_user_id uuid not null          -- the signed-in user (RLS)
+body           text not null          -- 1–5000 characters (check)
+created_at
+unique (tenant_id, id); index (tenant_id, concern_id, created_at)
+```
+RLS: a question is readable by the person who asked it, by holders of `concerns.handle_all`, and by
+holders of `concerns.handle` only when `raised_with = 'manager'`; messages follow their question.
+Anyone may insert only as themselves: a question only with `concerns.raise`, status `open`, and a
+`payslip_id` that is null or one of their own released payslips; a message only on a question they
+can see that is not resolved (the service reopens a resolved one first). Updates are open to those
+who may answer it and to the asker, who may set only `open` or `resolved`; `authenticated` may
+update only `status`, `resolved_at` and `resolved_by`. Both tables carry the restrictive
+`feature_switch` policy for `concerns`. `app.touch_concern()` (security definer) moves
+`last_activity_at` when a message is added. Migration 0051 also adds `unique (tenant_id, id)` to
+`payslips` for the composite key.
+
+## 7o. Training 🟢
+
+Courses of modules that staff complete online (ADR-050). All six tables are owned by the
+`training` feature and carry its restrictive `feature_switch` policy.
+```sql
+training_courses        id, tenant_id, title (2–150), description (≤ 2000), position,
+                        status 'draft' | 'published' | 'archived', created_by, updated_by,
+                        created_at, updated_at; unique (tenant_id, id)
+training_modules        id, tenant_id, course_id -> (tenant_id) training_courses, title (2–150),
+                        body (≤ 50000, plain text), video_url (https, ≤ 500), pass_mark (1–100,
+                        default 80), position, created_by, updated_by, timestamps
+training_questions      id, tenant_id, module_id -> training_modules (cascade), prompt (3–500),
+                        options text[] (2–6), position, timestamps
+training_question_keys  (tenant_id, question_id) pk -> training_questions (cascade),
+                        correct_option smallint (0–5)
+training_assignments    id, tenant_id, course_id -> training_courses (cascade),
+                        audience 'everyone' | 'role' | 'department' | 'person' with exactly the
+                        matching role_id / department_id / user_id set (check), created_by,
+                        created_at; unique (tenant_id, course_id, audience, target)
+training_completions    id, tenant_id, module_id -> training_modules (restrict), user_id,
+                        passed, best_score, last_score (0–100 or null without a quiz), attempts,
+                        completed_at (set once passed), last_attempt_at;
+                        unique (tenant_id, module_id, user_id)
+```
+RLS: courses are readable with `training.manage` or `training.view_all`, otherwise only when
+published and assigned to the reader (`app.training_assigned_to_me`); modules and questions follow
+their course. Question keys: `training.manage` only, for every operation. Assignments: read with
+`manage` or `view_all`, written with `manage`. Completions: read your own, or everyone's with
+`view_all` / `manage`; `authenticated` has no insert or update grant — results are written only by
+`app.submit_training_module(module, answers jsonb)` (security definer). `app.training_progress()`
+returns (user, course, modules, passed) for the caller, or for every active member with
+`view_all`. `app.training_is_assigned` is internal (no execute grant).
+
 ## 8. Platform tables
 
 ### custom_field_definitions 🟢 (table + validation in MVP; admin UI milestone 9)
@@ -1221,6 +1312,46 @@ window_start  timestamptz not null   -- start of the fixed one-hour window
 hits          integer not null default 1
 primary key (bucket, subject_hash, window_start)
 index (window_start)                 -- for sweeping windows older than a day
+```
+
+### service_agreements 🟢 (not tenant data; ADR-047)
+The agreement between Meroidea and the businesses it serves. A published version is never
+edited; new wording is a new version. Written only through `adminDb` by the platform console.
+RLS on; `authenticated` may read a version that an accepted `tenant_agreements` row it can see
+points at.
+```sql
+id            uuid pk
+version       integer not null unique   -- 1, 2, 3…
+title         text not null
+body          text not null             -- "## " lines are headings, blank lines split paragraphs
+published_by  uuid not null             -- the platform owner's auth user id
+published_at  timestamptz not null default now()
+```
+
+### tenant_agreements 🟢 (ADR-047)
+One request to a business's admin to accept the agreement, and the record of their acceptance.
+Written only through `adminDb` (the console, and `src/modules/platform/agreement-public.ts` from
+the link's secret). RLS: `select` for members holding `settings.manage` in that tenant, and only
+the columns `id, tenant_id, agreement_id, recipient_name, recipient_email, sent_at,
+accepted_at, accepted_name` are granted, so the link's hash and the recorded IP and browser are
+never readable through a session.
+```sql
+id                  uuid pk
+tenant_id           uuid not null fk tenants
+agreement_id        uuid not null fk service_agreements   -- the exact version shown
+recipient_user_id   uuid not null       -- the admin login the acceptance opens
+recipient_name      text not null       -- must be typed to accept
+recipient_email     text not null
+token_hash          text unique         -- SHA-256 of the link's secret; null once accepted
+token_expires_at    timestamptz         -- 14 days after sending
+sent_at             timestamptz not null default now()
+accepted_at         timestamptz
+accepted_name       text
+accepted_ip         text
+accepted_user_agent text
+created_at          timestamptz not null default now()
+unique (tenant_id, id)
+unique (tenant_id) where accepted_at is null   -- at most one open request per business
 ```
 
 ### audit_logs 🟢
@@ -1371,6 +1502,10 @@ verbs may touch. `tenants` and `tenant_subscriptions` are `select` only (changed
 through `adminDb`), `users` is `select, update`, and `audit_logs` is `select, insert` so it stays
 append-only. Business records with soft delete (`contacts`, `organizations`, …) get
 `select, insert, update` only — no `delete`.
+A hosted project may have been created with the auto-grant on; migration `0054` resets every
+`public` table to exactly the grants the migrations give (`anon` gets nothing) and revokes those
+default privileges, and `tests/db/database.test.ts` fails if `anon` gains any privilege, a
+soft-deleted table gains `delete`, or anyone gains `truncate`.
 
 `audit_logs` also has an insert policy (`audit_append`, migration `0006`): a member may append
 rows only for their active tenant, with `actor_user_id` = themselves and `actor_type = 'user'`.

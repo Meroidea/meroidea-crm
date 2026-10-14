@@ -31,6 +31,9 @@ export type TenantContext = {
   isSupport: boolean;
   tenant: {
     name: string;
+    /** Registered name and business number, set only by the platform owner (ADR-047). */
+    legalName: string | null;
+    businessNumber: string | null;
     slug: string;
     timezone: string;
     currency: string;
@@ -67,6 +70,8 @@ type ContextRow = {
   location_longitude: string | null;
   clock_radius_metres: number;
   team_user_ids: string[] | null;
+  tenant_legal_name: string | null;
+  tenant_business_number: string | null;
 };
 
 /**
@@ -109,6 +114,8 @@ export async function loadTenantContext(
     isSupport: row.is_support,
     tenant: {
       name: row.tenant_name,
+      legalName: row.tenant_legal_name,
+      businessNumber: row.tenant_business_number,
       slug: row.tenant_slug,
       timezone: row.tenant_timezone,
       currency: row.tenant_currency,
@@ -149,12 +156,31 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
   );
 });
 
-/** For pages: sends anyone without a workspace back to sign-in, and a suspended business to a notice. */
+/**
+ * Why a business's own people cannot use it right now, or null when they can. A platform owner
+ * on a support seat is never shut out, so they can help a business that is suspended or has not
+ * yet accepted the service agreement (ADR-047).
+ */
+export function workspaceClosedReason(
+  ctx: Pick<TenantContext, 'isSupport' | 'tenant'>,
+): 'suspended' | 'awaiting_agreement' | null {
+  if (ctx.isSupport) return null;
+  if (ctx.tenant.status === 'suspended') return 'suspended';
+  if (ctx.tenant.status === 'awaiting_agreement') return 'awaiting_agreement';
+  return null;
+}
+
+/**
+ * For pages: sends anyone without a workspace back to sign-in, a suspended business to a
+ * notice, and a business whose admin has not accepted the service agreement to one as well.
+ */
 export async function requireTenantContext(): Promise<TenantContext> {
   const ctx = await getTenantContext();
   // A platform owner with no workspace of their own belongs in the console, not back at sign-in.
   if (!ctx) redirect((await getPlatformAdmin()) ? '/platform' : '/login');
-  if (ctx.tenant.status === 'suspended' && !ctx.isSupport) redirect('/suspended');
+  const closed = workspaceClosedReason(ctx);
+  if (closed === 'suspended') redirect('/suspended');
+  if (closed === 'awaiting_agreement') redirect('/awaiting-agreement');
   return ctx;
 }
 

@@ -4,6 +4,7 @@ import { Check, Copy, KeyRound, LifeBuoy, LogOut, MapPin, Pause, Play } from 'lu
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
+import { Field, fieldA11y } from '@/components/forms/field';
 import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,98 +59,157 @@ function FeaturePicker({
   );
 }
 
+type NewBusiness = {
+  companyName: string;
+  legalName: string;
+  businessNumber: string;
+  businessType: string;
+  primaryContactName: string;
+  primaryContactEmail: string;
+  primaryContactPhone: string;
+  adminName: string;
+  adminEmail: string;
+  latitude: string;
+  longitude: string;
+  radiusMetres: string;
+};
+
+/** Hands over a one-time link: says it was emailed, or shows it once to pass on. */
+export function LinkHandover({
+  emailed,
+  link,
+  to,
+}: {
+  emailed: boolean;
+  link: string;
+  to: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  if (emailed) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        The link to accept the service agreement was emailed to {to}.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm text-muted-foreground">
+        Email is not set up, so send this link to {to} yourself. It is shown only now, works once
+        and expires in 14 days.
+      </p>
+      <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-sm" data-sensitive>
+        {link}
+      </pre>
+      <Button
+        variant="outline"
+        className="self-start"
+        onClick={async () => {
+          await navigator.clipboard.writeText(link);
+          setCopied(true);
+        }}
+      >
+        {copied ? <Check aria-hidden /> : <Copy aria-hidden />} {copied ? 'Copied' : 'Copy link'}
+      </Button>
+    </div>
+  );
+}
+
 export function NewBusinessForm() {
   const router = useRouter();
-  const [companyName, setCompanyName] = useState('');
-  const [businessType, setBusinessType] = useState<string>(BUSINESS_TYPES[0].key);
+  const [values, setValues] = useState<NewBusiness>({
+    companyName: '',
+    legalName: '',
+    businessNumber: '',
+    businessType: BUSINESS_TYPES[0].key,
+    primaryContactName: '',
+    primaryContactEmail: '',
+    primaryContactPhone: '',
+    adminName: '',
+    adminEmail: '',
+    latitude: '',
+    longitude: '',
+    radiusMetres: '10',
+  });
   const [features, setFeatures] = useState<FeatureKey[]>([...BUSINESS_TYPES[0].features]);
-  const [adminName, setAdminName] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{
     tenantId: string;
     adminEmail: string;
-    temporaryPassword: string;
+    emailed: boolean;
+    link: string;
   } | null>(null);
-  const [copied, setCopied] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  const set = (key: keyof NewBusiness, value: string) => setValues({ ...values, [key]: value });
+  const field = (
+    key: keyof NewBusiness,
+    label: string,
+    options: { type?: string; inputMode?: 'numeric' | 'decimal' | 'tel'; hint?: string } = {},
+  ) => (
+    <Field name={`business-${key}`} label={label} hint={options.hint} error={errors[key]?.[0]}>
+      <Input
+        type={options.type ?? 'text'}
+        inputMode={options.inputMode}
+        autoComplete="off"
+        value={values[key]}
+        onChange={(event) => set(key, event.target.value)}
+        {...fieldA11y(`business-${key}`, errors[key]?.[0])}
+      />
+    </Field>
+  );
 
   const submit = () =>
     startTransition(async () => {
       setError(null);
-      const result = await createBusinessAction({
-        companyName,
-        businessType,
-        adminName,
-        adminEmail,
-        features,
-      });
+      const result = await createBusinessAction({ ...values, features });
       if (!result.ok) {
-        return setError(
-          Object.values(result.error.fieldErrors ?? {})[0]?.[0] ?? result.error.message,
-        );
+        setErrors(result.error.fieldErrors ?? {});
+        return setError(result.error.message);
       }
+      setErrors({});
       setCreated(result.data);
     });
 
   if (created) {
-    const handover = `Sign in at ${window.location.origin}/login\nEmail: ${created.adminEmail}\nTemporary password: ${created.temporaryPassword}`;
     return (
       <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
         <div>
-          <h2 className="text-lg font-semibold">{companyName} is ready</h2>
+          <h2 className="text-lg font-semibold">{values.companyName} is set up</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Hand these sign-in details to their admin. The password is shown only now and is not
-            stored anywhere you can read it again.
+            Their workspace opens once their admin accepts the service agreement. They then choose
+            their own password; nobody else ever knows it.
           </p>
         </div>
-        <pre className="overflow-x-auto rounded-lg bg-muted p-4 text-sm" data-sensitive>
-          {handover}
-        </pre>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={async () => {
-              await navigator.clipboard.writeText(handover);
-              setCopied(true);
-            }}
-          >
-            {copied ? <Check aria-hidden /> : <Copy aria-hidden />}{' '}
-            {copied ? 'Copied' : 'Copy details'}
-          </Button>
-          <Button onClick={() => router.push(`/platform/${created.tenantId}`)}>
-            Open the business
-          </Button>
-        </div>
+        <LinkHandover emailed={created.emailed} link={created.link} to={created.adminEmail} />
+        <Button className="self-start" onClick={() => router.push(`/platform/${created.tenantId}`)}>
+          Open the business
+        </Button>
       </div>
     );
   }
 
   return (
     <form
-      className="flex flex-col gap-5 rounded-xl border bg-card p-6"
+      className="flex flex-col gap-6 rounded-xl border bg-card p-6"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
       }}
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="company-name">Business name</Label>
-          <Input
-            id="company-name"
-            required
-            value={companyName}
-            onChange={(event) => setCompanyName(event.target.value)}
-          />
-        </div>
+      <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-2 font-semibold">The business</legend>
+        {field('companyName', 'Business name')}
+        {field('legalName', 'Legal name', { hint: 'Only if it differs from the business name' })}
+        {field('businessNumber', 'ABN', { inputMode: 'numeric' })}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="business-type">Type of business</Label>
           <NativeSelect
             id="business-type"
-            value={businessType}
+            value={values.businessType}
             onChange={(event) => {
-              setBusinessType(event.target.value);
+              set('businessType', event.target.value);
               // Choosing a type suggests its usual features; anything can still be changed below.
               setFeatures([
                 ...(BUSINESS_TYPES.find((type) => type.key === event.target.value)?.features ?? []),
@@ -163,30 +223,42 @@ export function NewBusinessForm() {
             ))}
           </NativeSelect>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="admin-name">Their admin’s name</Label>
-          <Input
-            id="admin-name"
-            required
-            autoComplete="off"
-            value={adminName}
-            onChange={(event) => setAdminName(event.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="admin-email">Their admin’s email</Label>
-          <Input
-            id="admin-email"
-            type="email"
-            required
-            autoComplete="off"
-            value={adminEmail}
-            onChange={(event) => setAdminEmail(event.target.value)}
-          />
-        </div>
-      </div>
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          Their admin sees these but cannot change them. Only you can, from this console.
+        </p>
+      </fieldset>
+
+      <fieldset className="grid gap-4 sm:grid-cols-3">
+        <legend className="mb-2 font-semibold">Primary contact</legend>
+        {field('primaryContactName', 'Name')}
+        {field('primaryContactEmail', 'Email', { type: 'email' })}
+        {field('primaryContactPhone', 'Phone', { type: 'tel', inputMode: 'tel' })}
+      </fieldset>
+
+      <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-2 font-semibold">Their admin’s login</legend>
+        {field('adminName', 'Admin’s full name', {
+          hint: 'They type this name to accept the agreement',
+        })}
+        {field('adminEmail', 'Admin’s email', {
+          type: 'email',
+          hint: 'The agreement link is sent here',
+        })}
+      </fieldset>
+
+      <fieldset className="grid gap-4 sm:grid-cols-3">
+        <legend className="mb-2 font-semibold">Location for clocking in</legend>
+        {field('latitude', 'Latitude', { inputMode: 'decimal' })}
+        {field('longitude', 'Longitude', { inputMode: 'decimal' })}
+        {field('radiusMetres', 'Radius (metres)', { inputMode: 'numeric' })}
+        <p className="text-xs text-muted-foreground sm:col-span-3">
+          Once set, staff can clock in and out only within the radius. Leave empty for no
+          restriction; you can add it later on the business’s page.
+        </p>
+      </fieldset>
+
       <fieldset>
-        <legend className="text-sm font-medium">Features for this business</legend>
+        <legend className="font-semibold">Features for this business</legend>
         <p className="mb-2 text-xs text-muted-foreground">
           Their workspace shows only what is ticked. You can change this at any time.
         </p>
@@ -198,7 +270,7 @@ export function NewBusinessForm() {
         </p>
       )}
       <Button type="submit" size="lg" disabled={isPending} className="self-start">
-        Create business and admin login
+        {isPending ? 'Setting up…' : 'Create business and send the agreement'}
       </Button>
     </form>
   );

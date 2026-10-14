@@ -8,7 +8,7 @@ UI via `tenants.labels`, but the **code name never changes**.
 | **Tenant** | A company using the CRM. All data belongs to exactly one tenant. | — | — |
 | **User** | A person who can sign in. Global; joins tenants via memberships. | Staff | Agent |
 | **Membership** | A user's seat in one tenant, with a role and optional team. | — | — |
-| **Role** | Named bundle of permissions with scopes (Owner, Consultant, …). | — | — |
+| **Role** | Named bundle of permissions with scopes. Every business starts with Admin, Manager and Staff (ADR-048). | — | — |
 | **Team** | Group of memberships led by a manager. Drives `team` scope. | Branch / Team | Office |
 | **Contact** | A person we sell to or work with. There is **no separate Lead object**. | Student | Buyer / Renter |
 | **Organization** | A company/institution. Can be a partner, an institution, or a B2B client. | Institution / Agency | Agency / Developer |

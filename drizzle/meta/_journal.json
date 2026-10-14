@@ -330,6 +330,62 @@
       "when": 1791891787357,
       "tag": "0046_drop_roster_shift_position",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791952641664,
+      "tag": "0047_service_agreements",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791952664191,
+      "tag": "0048_locked_business_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791962623760,
+      "tag": "0049_login_role_on_hire",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791962637282,
+      "tag": "0050_admin_manager_staff",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791966185993,
+      "tag": "0051_staff_concerns",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791967051346,
+      "tag": "0052_training",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791968933641,
+      "tag": "0053_revoke_touch_concern",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791973421793,
+      "tag": "0054_align_api_grants",
+      "breakpoints": true
     }
   ]
 }

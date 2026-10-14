@@ -43,6 +43,8 @@ const eslintConfig = defineConfig([
       'src/modules/settings/workspace.ts',
       // The new hire's one-time link: no session exists, the link's secret is the credential.
       'src/modules/hiring/public.ts',
+      // Their login, created right after that link's acceptance is committed (ADR-048).
+      'src/modules/access/hire-login.ts',
       // A job's public apply page: no session, the job's unguessable address is the credential.
       'src/modules/recruitment/public.ts',
       // Public review and support pages: no session, the page's unguessable address is the credential.
@@ -50,6 +52,8 @@ const eslintConfig = defineConfig([
       'src/modules/helpdesk/public.ts',
       // The platform owner's console works across every business by design (ADR-029).
       'src/modules/platform/service.ts',
+      // The admin's service-agreement link: they cannot sign in until they accept (ADR-047).
+      'src/modules/platform/agreement-public.ts',
       // Saves coming back from the document editing server: a verified webhook, no session.
       'src/modules/files/editor-save.ts',
       // Re-sealing payroll details onto a new key, across businesses, for platform owners (ADR-040).

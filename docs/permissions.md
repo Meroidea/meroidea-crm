@@ -17,6 +17,15 @@ auth user → users → tenant_memberships (tenant, role, team) → roles → ro
   scope when `tenant.settings.consultantCanSeeUnassigned` is true (a shared "claim a lead" queue).
 - Roles are editable per tenant. The `owner` role is a system role and always keeps `users.manage`
   and `settings.manage` so a tenant can't lock itself out.
+- **A business has three roles (ADR-048):** **Admin** (key `owner`), and two staff levels,
+  **Manager** (`manager`) and **Staff** (`member`). Keys are what code and the database use and
+  never change; the names are what people see. Businesses created before ADR-048 may also have a
+  `support` role; new ones do not. A Manager sees everyone's published roster, assigns tasks to
+  staff, approves time and leave, and works the business's day-to-day records; they do not see
+  pay, hire, or change settings, people or roles. Staff see their own roster, payslips, time,
+  leave and tasks, and the records they work on.
+- Everyone added to a business joins its team (the one made when the business was created), so
+  a Manager's `team` scope covers the staff they assign work to.
 
 ## Enforcement points
 
@@ -36,15 +45,15 @@ re-implement scope logic.
 Each permission family belongs to a feature the platform owner switches on per business
 (`src/lib/features.ts`): `contacts`, `opportunities`, `revenue`, `activities`, `documents`,
 `partners`, `organizations`, `products`, `reports` → **crm**; `tasks` → **tasks**; `rosters` →
-**roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
+**roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses`, `concerns`, `training` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
 of the same name. `settings`, `users`, `roles` and `audit` are always available. A grant whose
-feature is off is dropped when the context is built, for every role including Owner, and the
+feature is off is dropped when the context is built, for every role including Admin, and the
 database enforces the same rule: `app.has_permission` refuses it and the feature's own tables
 hide their rows (ADR-038). The SQL copy of this map is `app.permission_feature`; a DB test keeps
 the two identical.
 
 **Platform owners** are not a role inside a business. They are named in `PLATFORM_ADMIN_EMAILS`
-and work in `/platform`; inside a business they hold a temporary Owner seat marked as support.
+and work in `/platform`; inside a business they hold a temporary Admin seat marked as support.
 
 ## Catalog
 
@@ -99,6 +108,12 @@ and work in `/platform`; inside a business they hold a temporary Owner seat mark
 | `reviews.manage` | | Create and switch review links, mark reviews read or followed up, keep notes, remove a review |
 | `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee |
 | `tickets.manage` | | Switch the public contact form on or off, delete tickets |
+| `concerns.raise` | | Ask managers or the admin a question (about a payslip of your own, too), follow it, reply, mark it resolved or reopen it (ADR-049) |
+| `concerns.handle` | | Read, answer and change the status of questions sent to managers. Never those sent to the admin only. Enforced again by RLS on `concerns` / `concern_messages` |
+| `concerns.handle_all` | | Read, answer and change the status of every question, including those sent to the admin only and those about a payslip |
+| `training.learn` | | See and complete your own assigned training, and your own results (ADR-050) |
+| `training.view_all` | | See everyone's training progress, per person and per course. Enforced again by RLS and `app.training_progress` |
+| `training.manage` | | Write courses, modules and quizzes (including the right answers), publish and archive them, and assign them by role, department or person |
 | `payroll.manage` | | Authorise a roster for pay, enter tax withheld, release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
 | `purchasing.manage` | | See and manage suppliers and their price lists, and place, re-send and cancel orders. Enforced again by RLS on `suppliers`, `supplier_items`, `purchase_orders`, `purchase_order_lines` |
 | `inventory.view` | | See stock items, quantities, values and each item's history |
@@ -117,7 +132,7 @@ and work in `/platform`; inside a business they hold a temporary Owner seat mark
 
 ## Default role matrix (seed)
 
-| Permission | Owner/Admin | Sales Manager | Consultant | Ops/Support |
+| Permission | Admin (`owner`) | Manager (`manager`) | Staff (`member`) | Support (`support`, businesses before ADR-048 only) |
 |---|---|---|---|---|
 | contacts.view | all | team | own | all |
 | contacts.create | ✓ | ✓ | ✓ | |
@@ -166,6 +181,12 @@ and work in `/platform`; inside a business they hold a temporary Owner seat mark
 | reviews.manage | ✓ | ✓ | | |
 | tickets.work | ✓ | ✓ | ✓ | ✓ |
 | tickets.manage | ✓ | ✓ | | |
+| concerns.raise | ✓ | ✓ | ✓ | ✓ |
+| concerns.handle | ✓ | ✓ | | |
+| concerns.handle_all | ✓ | | | |
+| training.learn | ✓ | ✓ | ✓ | ✓ |
+| training.view_all | ✓ | ✓ | | |
+| training.manage | ✓ | | | |
 | payroll.manage | ✓ | | | |
 | purchasing.manage | ✓ | | | |
 | inventory.view | ✓ | ✓ | ✓ | ✓ |

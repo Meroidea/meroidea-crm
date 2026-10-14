@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { PageHeader } from '@/components/data/page-header';
 import { Card, CardContent } from '@/components/ui/card';
+import { listHireLoginRoles } from '@/modules/access/queries';
 import { HireForm } from '@/modules/hiring/components/hire-form';
 import { getApplicant, getOpening } from '@/modules/recruitment/queries';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
@@ -21,6 +22,8 @@ export default async function NewHirePage({ searchParams }: PageProps<'/hiring/n
       ? await getApplicant(ctx, from.data.applicant)
       : null;
   const opening = applicant ? await getOpening(ctx, applicant.jobOpeningId) : null;
+  // Only someone who may give logins chooses one here; otherwise none is made on acceptance.
+  const loginRoles = hasPermission(ctx, 'users.manage') ? await listHireLoginRoles(ctx) : undefined;
   const [firstName = '', ...rest] = applicant?.fullName.trim().split(/\s+/) ?? [];
   const initial = applicant
     ? {
@@ -49,6 +52,7 @@ export default async function NewHirePage({ searchParams }: PageProps<'/hiring/n
             fairWorkConnected={isFairWorkConfigured()}
             currency={ctx.tenant.currency}
             initial={initial}
+            loginRoles={loginRoles}
           />
         </CardContent>
       </Card>

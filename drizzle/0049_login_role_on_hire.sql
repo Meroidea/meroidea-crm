@@ -1,0 +1,2 @@
+ALTER TABLE "employees" ADD COLUMN "login_role_id" uuid;--> statement-breakpoint
+ALTER TABLE "employees" ADD CONSTRAINT "employees_tenant_login_role_fk" FOREIGN KEY ("tenant_id","login_role_id") REFERENCES "public"."roles"("tenant_id","id") ON DELETE no action ON UPDATE no action;

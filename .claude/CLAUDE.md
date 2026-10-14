@@ -13,8 +13,10 @@ ones each business needs (`tenants.features`, catalogue in `src/lib/features.ts`
 business, roles and scopes then decide what each person sees.
 
 **Onboarding is done by the platform owner, not by self-serve sign-up.** After a meeting, the
-owner creates the business and its first admin login in the platform console (`/platform`),
-chooses its features, and hands the login over. That admin adds staff and sets the business up
+owner records the business (name, ABN, primary contact, location) and its first admin in the
+platform console (`/platform`) and chooses its features. The admin accepts the service agreement
+through an emailed one-time link, then chooses their own password (ADR-047). Who the business is
+can only be changed from the console. That admin adds staff and sets the business up
 their own way. Businesses never see each other. The platform owner can list every business,
 change its features, suspend it, and enter it through audited support access.
 

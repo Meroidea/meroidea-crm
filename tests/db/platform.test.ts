@@ -6,17 +6,35 @@ import { BUSINESS_TYPES, featureForPermission } from '@/lib/features';
 import { createItemSchema } from '@/modules/inventory/schemas';
 import { createItem } from '@/modules/inventory/service';
 import { listItems } from '@/modules/inventory/queries';
-import { createBusinessSchema } from '@/modules/platform/schemas';
+import { acceptAgreement, getAgreementByToken } from '@/modules/platform/agreement-public';
+import {
+  acceptAgreementSchema,
+  businessIdentitySchema,
+  createBusinessSchema,
+} from '@/modules/platform/schemas';
 import {
   createBusiness,
   endSupportAccess,
   getBusiness,
+  getBusinessAgreement,
   listBusinesses,
+  publishAgreement,
+  resendAgreementLink,
   setBusinessFeatures,
   setBusinessStatus,
   startSupportAccess,
+  updateBusinessIdentity,
 } from '@/modules/platform/service';
-import { hasFeature, hasPermission, loadTenantContext, type TenantContext } from '@/server/context';
+import { getAcceptedAgreement } from '@/modules/settings/queries';
+import { workspaceSchema } from '@/modules/settings/schemas';
+import { provisionTenant } from '@/modules/tenants/provision';
+import {
+  hasFeature,
+  hasPermission,
+  loadTenantContext,
+  workspaceClosedReason,
+  type TenantContext,
+} from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 import type { PlatformAdmin } from '@/server/platform';
@@ -32,6 +50,8 @@ const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
 
 let admin: PlatformAdmin;
+let agreementId: string;
+let agreementVersion: number;
 let homeTenant: string;
 let cafeTenant: string;
 let cafeOwnerId: string;
@@ -46,6 +66,26 @@ async function expectCode(run: () => Promise<unknown>, code: AppError['code']) {
   expect(error).toBeInstanceOf(AppError);
   expect((error as AppError).code).toBe(code);
 }
+
+/** The minimum onboarding form, with whatever a test needs changed. */
+const business = (overrides: Record<string, unknown> = {}) =>
+  createBusinessSchema.parse({
+    companyName: 'Corner Cafe',
+    businessNumber: '51 824 753 556',
+    businessType: 'restaurant',
+    primaryContactName: 'Cara Cafe',
+    primaryContactEmail: mail('cafe-contact'),
+    primaryContactPhone: '02 5550 1234',
+    adminName: 'Cara Cafe',
+    adminEmail: mail('cafe-admin'),
+    features: ['roster', 'inventory'],
+    ...overrides,
+  });
+
+/** The secret from a link the console handed over, as its holder would open it. */
+const tokenOf = (link: string) => new URL(link).pathname.split('/').pop() ?? '';
+
+const meta = { ip: '203.0.113.7', userAgent: 'vitest' };
 
 const ownerOf = async (tenantId: string) => {
   const rows = (await adminDb().execute(sql`
@@ -63,18 +103,27 @@ beforeAll(async () => {
   admin = { userId: home.ownerId, email: mail('plat-owner') };
   cleanup.push({ tenantId: homeTenant, userIds: [home.ownerId] });
 
+  const published = await publishAgreement(admin, {
+    title: 'Test service agreement',
+    body: 'These are the test terms of service between Meroidea and the business. '.repeat(5),
+  });
+  agreementId = published.id;
+  agreementVersion = published.version;
+
   const created = await createBusiness(
     admin,
-    createBusinessSchema.parse({
-      companyName: 'Corner Cafe',
-      businessType: 'restaurant',
-      adminName: 'Cara Cafe',
-      adminEmail: mail('cafe-admin'),
-      features: ['roster', 'inventory'],
-    }),
+    business({ latitude: '-33.868820', longitude: '151.209290', radiusMetres: '25' }),
   );
   cafeTenant = created.tenantId;
   cafeOwnerId = await ownerOf(cafeTenant);
+  await acceptAgreement(
+    acceptAgreementSchema.parse({
+      token: tokenOf(created.link),
+      fullName: 'Cara Cafe',
+      agree: true,
+    }),
+    meta,
+  );
   cafeOwner = await contextFor(cafeOwnerId, cafeTenant);
   cleanup.push({ tenantId: cafeTenant, userIds: [cafeOwnerId] });
 }, 120_000);
@@ -82,34 +131,44 @@ beforeAll(async () => {
 afterAll(async () => {
   await adminDb().execute(sql`delete from tenant_memberships where is_support`);
   for (const { tenantId, userIds } of cleanup) await destroyWorkspace(tenantId, userIds);
+  await adminDb().execute(sql`delete from service_agreements where id = ${agreementId}`);
 }, 60_000);
 
 describe('onboarding a business', () => {
-  it('creates an active workspace with only the chosen features and an owner login', async () => {
-    const business = await getBusiness(admin, cafeTenant);
-    expect(business).toMatchObject({
+  it('creates a workspace with who and where the business is, its features and an owner login', async () => {
+    const row = await getBusiness(admin, cafeTenant);
+    expect(row).toMatchObject({
       name: 'Corner Cafe',
       industry: 'restaurant',
       status: 'active',
       features: ['roster', 'inventory'],
       members: 1,
+      businessNumber: '51 824 753 556',
+      primaryContactName: 'Cara Cafe',
+      primaryContactPhone: '02 5550 1234',
+      locationLatitude: '-33.868820',
+      locationLongitude: '151.209290',
+      clockRadiusMetres: 25,
     });
     expect(cafeOwner.roleKey).toBe('owner');
+    expect(cafeOwner.tenant.businessNumber).toBe('51 824 753 556');
+  });
+
+  it('accepts only a valid ABN, and stores it in the usual grouping', () => {
+    expect(() => business({ businessNumber: '51 824 753 557' })).toThrow();
+    expect(() => business({ businessNumber: '1234' })).toThrow();
+    expect(business({ businessNumber: '51824753556' }).businessNumber).toBe('51 824 753 556');
+  });
+
+  it('needs both coordinates or neither', () => {
+    expect(() => business({ latitude: '-33.868820' })).toThrow();
+    expect(business().latitude).toBe('');
   });
 
   it('refuses an admin email that already has a login', async () => {
     await expectCode(
       () =>
-        createBusiness(
-          admin,
-          createBusinessSchema.parse({
-            companyName: 'Second Cafe',
-            businessType: 'restaurant',
-            adminName: 'Cara Again',
-            adminEmail: mail('cafe-admin'),
-            features: [],
-          }),
-        ),
+        createBusiness(admin, business({ companyName: 'Second Cafe', adminName: 'Cara Again' })),
       'CONFLICT',
     );
   });
@@ -127,6 +186,196 @@ describe('onboarding a business', () => {
     expect(preset('restaurant')).not.toContain('crm');
     expect(preset('consultancy')).toEqual(expect.arrayContaining(['crm', 'tasks']));
     expect(preset('consultancy')).not.toContain('inventory');
+  });
+});
+
+describe('creating a business all at once', () => {
+  it('leaves nothing behind when a later step of creating it fails', async () => {
+    const ownerId = await createAuthUser(mail('half-made'), 'Half Made');
+    const before = (await adminDb().execute(
+      sql`select count(*)::int as n from tenants where name = 'Half Made Cafe'`,
+    )) as unknown as { n: number }[];
+    await expect(
+      provisionTenant({
+        userId: ownerId,
+        companyName: 'Half Made Cafe',
+        finish: async () => {
+          throw new Error('the agreement could not be recorded');
+        },
+      }),
+    ).rejects.toThrow('the agreement could not be recorded');
+    const after = (await adminDb().execute(
+      sql`select count(*)::int as n from tenants where name = 'Half Made Cafe'`,
+    )) as unknown as { n: number }[];
+    expect(after[0]?.n).toBe(before[0]?.n);
+    await adminDb().execute(sql`delete from auth.users where id = ${ownerId}`);
+  });
+});
+
+describe('the service agreement', () => {
+  let pendingTenant: string;
+  let pendingOwnerId: string;
+  let link: string;
+
+  beforeAll(async () => {
+    const created = await createBusiness(
+      admin,
+      business({ companyName: 'Pending Bakery', adminName: 'Pat Baker', adminEmail: mail('pat') }),
+    );
+    pendingTenant = created.tenantId;
+    pendingOwnerId = await ownerOf(pendingTenant);
+    link = created.link;
+    cleanup.push({ tenantId: pendingTenant, userIds: [pendingOwnerId] });
+  }, 60_000);
+
+  it('keeps a new business closed to its own people until its admin accepts', async () => {
+    const ctx = await contextFor(pendingOwnerId, pendingTenant);
+    expect(ctx.tenant.status).toBe('awaiting_agreement');
+    expect(workspaceClosedReason(ctx)).toBe('awaiting_agreement');
+    // A platform owner on a support seat can still get in to help.
+    expect(workspaceClosedReason({ ...ctx, isSupport: true })).toBeNull();
+  });
+
+  it('shows the link’s holder the exact version they are asked to accept', async () => {
+    expect(await getAgreementByToken(tokenOf(link))).toMatchObject({
+      businessName: 'Pending Bakery',
+      recipientName: 'Pat Baker',
+      version: agreementVersion,
+    });
+    expect(await getAgreementByToken('x'.repeat(43))).toBeNull();
+  });
+
+  it('refuses a name other than the admin’s', async () => {
+    await expectCode(
+      () =>
+        acceptAgreement(
+          acceptAgreementSchema.parse({
+            token: tokenOf(link),
+            fullName: 'Someone Else',
+            agree: true,
+          }),
+          meta,
+        ),
+      'VALIDATION',
+    );
+    expect(() =>
+      acceptAgreementSchema.parse({ token: tokenOf(link), fullName: 'Pat Baker', agree: false }),
+    ).toThrow();
+  });
+
+  it('stops an old link working once a new one is sent', async () => {
+    const fresh = await resendAgreementLink(admin, pendingTenant);
+    expect(await getAgreementByToken(tokenOf(link))).toBeNull();
+    link = fresh.link;
+    expect(await getAgreementByToken(tokenOf(link))).not.toBeNull();
+  });
+
+  it('keeps a business waiting for its agreement when it is reactivated after a suspension', async () => {
+    await setBusinessStatus(admin, { tenantId: pendingTenant, status: 'suspended' });
+    await setBusinessStatus(admin, { tenantId: pendingTenant, status: 'active' });
+    expect((await getBusiness(admin, pendingTenant))?.status).toBe('awaiting_agreement');
+  });
+
+  it('records the acceptance, spends the link and opens the business', async () => {
+    const { email } = await acceptAgreement(
+      acceptAgreementSchema.parse({
+        token: tokenOf(link),
+        fullName: '  pat   BAKER ',
+        agree: true,
+      }),
+      meta,
+    );
+    expect(email).toBe(mail('pat'));
+    expect((await getBusiness(admin, pendingTenant))?.status).toBe('active');
+    expect(await getAgreementByToken(tokenOf(link))).toBeNull();
+    await expectCode(
+      () =>
+        acceptAgreement(
+          acceptAgreementSchema.parse({ token: tokenOf(link), fullName: 'Pat Baker', agree: true }),
+          meta,
+        ),
+      'NOT_FOUND',
+    );
+    await expectCode(() => resendAgreementLink(admin, pendingTenant), 'NOT_FOUND');
+
+    const stored = (await adminDb().execute(sql`
+      select agreement_id, accepted_ip, accepted_user_agent, token_hash
+      from tenant_agreements where tenant_id = ${pendingTenant}`)) as unknown as {
+      agreement_id: string;
+      accepted_ip: string;
+      accepted_user_agent: string;
+      token_hash: string | null;
+    }[];
+    expect(stored).toEqual([
+      {
+        agreement_id: agreementId,
+        accepted_ip: meta.ip,
+        accepted_user_agent: meta.userAgent,
+        token_hash: null,
+      },
+    ]);
+    expect(await getBusinessAgreement(admin, pendingTenant)).toMatchObject({
+      version: agreementVersion,
+      acceptedName: 'pat   BAKER',
+    });
+  });
+
+  it('lets the business’s admin read what they accepted, but not the link or network details', async () => {
+    const owner = await contextFor(pendingOwnerId, pendingTenant);
+    expect(workspaceClosedReason(owner)).toBeNull();
+    expect(await getAcceptedAgreement(owner)).toMatchObject({ version: agreementVersion });
+    await expect(
+      withRls(owner, (tx) => tx.execute(sql`select token_hash from tenant_agreements`)),
+    ).rejects.toThrow();
+    await expect(
+      withRls(owner, (tx) => tx.execute(sql`select accepted_ip from tenant_agreements`)),
+    ).rejects.toThrow();
+  });
+
+  it('never shows one business another’s agreement record', async () => {
+    const rows = (await withRls(cafeOwner, (tx) =>
+      tx.execute(sql`select tenant_id from tenant_agreements`),
+    )) as unknown as { tenant_id: string }[];
+    expect(rows.map((row) => row.tenant_id)).toEqual([cafeTenant]);
+  });
+});
+
+describe('who a business is', () => {
+  it('is not something the business’s own admin can change', () => {
+    const parsed = workspaceSchema.parse({
+      name: 'Renamed Cafe',
+      timezone: 'Australia/Sydney',
+      currency: 'aud',
+      country: 'AU',
+    });
+    expect(parsed).not.toHaveProperty('name');
+  });
+
+  it('is changed by the platform owner, in the business’s audit log', async () => {
+    await updateBusinessIdentity(
+      admin,
+      businessIdentitySchema.parse({
+        tenantId: cafeTenant,
+        companyName: 'Corner Cafe & Bar',
+        legalName: 'Corner Hospitality Pty Ltd',
+        businessNumber: '51824753556',
+        primaryContactName: 'Cara Cafe',
+        primaryContactEmail: mail('cafe-contact'),
+        primaryContactPhone: '02 5550 1234',
+      }),
+    );
+    const ctx = await contextFor(cafeOwnerId, cafeTenant);
+    expect(ctx.tenant).toMatchObject({
+      name: 'Corner Cafe & Bar',
+      legalName: 'Corner Hospitality Pty Ltd',
+    });
+    const rows = (await withRls(ctx, (tx) =>
+      tx.execute(sql`select changes::text as changes from audit_logs
+                     where tenant_id = ${cafeTenant} and actor_type = 'platform'
+                       and changes is not null
+                     order by created_at desc limit 1`),
+    )) as unknown as { changes: string }[];
+    expect(rows[0]?.changes).toContain('Corner Hospitality Pty Ltd');
   });
 });
 

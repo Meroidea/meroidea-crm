@@ -158,6 +158,7 @@ export async function getPayslip(ctx: TenantContext, id: string): Promise<Paysli
   }
 
   return {
+    mine,
     number: row.number,
     employer: row.employer,
     employmentType: row.employmentType,

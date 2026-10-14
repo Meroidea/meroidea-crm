@@ -1,15 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
-import { PLATFORM_OWNER } from './support/accounts';
-
-async function signIn(page: Page, email: string, password: string) {
-  await page.goto('/login');
-  // The submit handler only exists once React has hydrated.
-  await page.waitForLoadState('networkidle');
-  await page.getByLabel('Work email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-}
+import { onboardBusiness, signIn } from './support/flows';
 
 test('the workspace and the platform console are closed to people who are not signed in', async ({
   page,
@@ -22,42 +13,22 @@ test('the workspace and the platform console are closed to people who are not si
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test('the platform owner onboards a business, and its admin gets a workspace with only its features', async ({
+test('the platform owner onboards a business, its admin accepts the agreement and gets a workspace with only its features', async ({
   page,
   context,
 }, testInfo) => {
   // Builds routes on first use, creates a login and a workspace, then signs in twice.
   test.slow();
-  const stamp = `${Date.now()}-${testInfo.project.name}`;
-  const company = `Harbour Cafe ${stamp}`;
-  const adminEmail = `admin-${stamp}@example.com`;
+  const { agreementLink: link } = await onboardBusiness(
+    page,
+    context,
+    `${Date.now()}-${testInfo.project.name}`,
+  );
 
-  await signIn(page, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
-  await expect(page).toHaveURL(/\/platform$/, { timeout: 30_000 });
-  await expect(page.getByRole('heading', { level: 1, name: 'Businesses' })).toBeVisible();
-  await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
-
-  await page.getByRole('link', { name: 'Onboard a business' }).click();
-  await expect(page).toHaveURL(/\/platform\/new$/);
-  await page.waitForLoadState('networkidle');
-  await page.getByLabel('Business name').fill(company);
-  await page.getByLabel('Type of business').selectOption('restaurant');
-  await page.getByLabel('Their admin’s name').fill('Robin Admin');
-  await page.getByLabel('Their admin’s email').fill(adminEmail);
-  await page.getByRole('button', { name: 'Create business and admin login' }).click();
-
-  await expect(page.getByRole('heading', { name: `${company} is ready` })).toBeVisible({
-    timeout: 30_000,
-  });
-  const handover = (await page.locator('pre').textContent()) ?? '';
-  const temporaryPassword = /Temporary password: (\S+)/.exec(handover)?.[1];
-  expect(temporaryPassword, 'the handover shows a temporary password').toBeTruthy();
-
-  // Hand over: the owner leaves, the business's admin signs in for the first time.
-  await context.clearCookies();
-  await signIn(page, adminEmail, temporaryPassword!);
-  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
-  await expect(page.getByText(company).first()).toBeVisible();
+  // The link is spent: opening it again cannot sign anyone in.
+  await page.goto(new URL(link).pathname);
+  await expect(page.getByText('This link is no longer valid')).toBeVisible();
+  await page.goto('/dashboard');
   // The workspace sits on the same dotted background as the public site.
   await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
 

@@ -2,9 +2,9 @@ import 'server-only';
 
 import { randomBytes } from 'node:crypto';
 
-import { and, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq } from 'drizzle-orm';
 
-import { roles, tenantMemberships, users } from '@/db/schema';
+import { roles, teams, tenantMemberships, users } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { linkEmployeeLogin } from '@/modules/hiring/staff-service';
 import { audit } from '@/server/audit';
@@ -21,7 +21,7 @@ import type { InviteMemberInput } from './schemas';
  * the auth server, single-use and short-lived; we deliver it ourselves (ADR-023) instead of
  * using the auth server's built-in mailer.
  */
-async function createPasswordLink(email: string): Promise<string | null> {
+export async function createPasswordLink(email: string): Promise<string | null> {
   const { data, error } = await createSupabaseAdminClient().auth.admin.generateLink({
     type: 'recovery',
     email,
@@ -34,7 +34,7 @@ async function createPasswordLink(email: string): Promise<string | null> {
   return url.toString();
 }
 
-const escapeHtml = (value: string) =>
+export const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
 async function emailPasswordLink(input: {
@@ -52,6 +52,26 @@ async function emailPasswordLink(input: {
     html: `<p>${escapeHtml(input.intro)}</p><p><a href="${input.link}">Choose your password</a></p><p>${closing}</p>`,
   });
   return result.sent;
+}
+
+type Db = Parameters<Parameters<typeof withRls>[1]>[0];
+
+/**
+ * The team everyone in a business belongs to unless placed elsewhere: the one made when the
+ * business was created (ADR-048). Being in it is what puts a person inside a Manager's `team`
+ * scope, so the work a Manager assigns them stays visible to that Manager.
+ */
+export async function businessTeamId(
+  tx: Pick<Db, 'select'>,
+  tenantId: string,
+): Promise<string | null> {
+  const [team] = await tx
+    .select({ id: teams.id })
+    .from(teams)
+    .where(eq(teams.tenantId, tenantId))
+    .orderBy(asc(teams.createdAt), asc(teams.id))
+    .limit(1);
+  return team?.id ?? null;
 }
 
 export type LinkDelivery = {
@@ -106,6 +126,7 @@ export async function inviteMember(
           tenantId: ctx.tenantId,
           userId,
           roleId: role.id,
+          teamId: await businessTeamId(tx, ctx.tenantId),
           status: 'active',
           invitedBy: ctx.userId,
         })

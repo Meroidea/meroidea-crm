@@ -10,6 +10,7 @@ import {
   tenants,
 } from '@/db/schema';
 import { AppError } from '@/lib/errors';
+import { createLoginForAcceptedHire } from '@/modules/access/hire-login';
 import { encryptField, hashLinkToken, isEncryptionConfigured } from '@/server/crypto';
 import { adminDb } from '@/server/db/admin';
 
@@ -125,6 +126,7 @@ export async function getOfferByToken(token: string): Promise<PublicOffer | null
     payrollWanted: contract.status === 'accepted' && employeeOfRecord && !received,
     payrollReceived: received,
     payrollAvailable: isEncryptionConfigured(),
+    loginEmail: contract.status === 'accepted' && employee.userId ? employee.email : null,
   };
 }
 
@@ -136,7 +138,7 @@ export async function acceptOffer(
   input: AcceptOfferInput,
   meta: { ip: string | null; userAgent: string | null },
 ): Promise<void> {
-  await adminDb().transaction(async (tx) => {
+  const accepted = await adminDb().transaction(async (tx) => {
     const row = await findByToken(tx, input.token, true);
     if (!row || row.contract.status !== 'sent') throw new AppError('NOT_FOUND', GONE);
     const { contract, employee } = row;
@@ -172,7 +174,23 @@ export async function acceptOffer(
       },
       meta,
     );
+    return { tenantId: contract.tenantId, employeeId: employee.id, sentBy: contract.sentBy };
   });
+
+  // After the acceptance is committed, so a failure here can never undo it: give them the
+  // login chosen when they were hired, if one was (ADR-048). If this fails, the acceptance still
+  // stands and an admin can give the login from their profile.
+  try {
+    await createLoginForAcceptedHire({
+      tenantId: accepted.tenantId,
+      employeeId: accepted.employeeId,
+      invitedBy: accepted.sentBy,
+    });
+  } catch (cause) {
+    console.error('[offer] login not created', {
+      name: cause instanceof Error ? cause.name : typeof cause,
+    });
+  }
 }
 
 export async function declineOffer(

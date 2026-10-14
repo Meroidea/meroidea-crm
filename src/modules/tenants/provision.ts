@@ -48,7 +48,15 @@ export type ProvisionTenantInput = {
   features?: string[];
   /** Who created the business, for its audit log. */
   source?: 'signup' | 'platform';
+  /**
+   * More writes that belong to creating this business, run inside the same transaction, so a
+   * failure in any of them leaves no half-made business behind (ADR-047).
+   */
+  finish?: (tx: ProvisionTx, tenantId: string) => Promise<void>;
 };
+
+type Db = ReturnType<typeof adminDb>;
+export type ProvisionTx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const TRIAL_DAYS = 14;
 
@@ -182,6 +190,7 @@ export async function provisionTenant(
       context: { source: input.source ?? 'signup', slug: tenant.slug },
     });
 
+    await input.finish?.(tx, tenant.id);
     return { tenantId: tenant.id, slug: tenant.slug };
   });
 }

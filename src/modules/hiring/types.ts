@@ -112,6 +112,8 @@ export type PublicOffer = {
   payrollReceived: boolean;
   /** False when this system has no encryption key, so the details cannot be taken yet. */
   payrollAvailable: boolean;
+  /** The address their login uses, once accepting has given them one (ADR-048). */
+  loginEmail: string | null;
 };
 
 export type ContractSummary = {

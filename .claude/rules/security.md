@@ -93,6 +93,41 @@ change as touching sensitive personal data.
   `app.permission_feature`, or the feature switch will not hide it. A table owned by one feature
   gets a restrictive `feature_switch` policy (ADR-038).
 
+## Service agreement and business identity (ADR-047)
+
+- A business's name, legal name, ABN and primary contact are written only by
+  `src/modules/platform/service.ts`. Never add them to a schema a business's own user submits.
+- Nobody sets or sees a business admin's password, the platform owner included. The admin
+  accepts the service agreement through a one-time link, then chooses a password via ADR-031.
+- `src/modules/platform/agreement-public.ts` may use `adminDb`. It starts from the link's hash,
+  never takes a tenant or record id from the caller, and clears the hash once accepted.
+- Never grant `authenticated` the `token_hash`, `accepted_ip` or `accepted_user_agent` columns
+  of `tenant_agreements`. Published `service_agreements` rows are never updated.
+- A business in `awaiting_agreement` is closed to its own people in `requireTenantContext` and
+  `authedAction`, exactly like `suspended`.
+
+## Questions and concerns (ADR-049)
+
+- A question sent to the admin only must never reach a manager (managers cannot see pay). That
+  rule lives in the RLS policies on `concerns` / `concern_messages`; never read them through
+  `adminDb` or widen `concerns.handle` to cover them.
+- A question may link only the asker's own released payslip; keep both the service check and the
+  insert policy. A manager answering never gets the payslip itself, only that one is linked.
+- What a question says never goes into `audit_logs`, emails or logs. Notification emails say only
+  that a question is waiting.
+- Nobody can change what was asked, to whom or about which payslip (column grants). The asker may
+  set only `open` or `resolved`.
+
+## Training (ADR-050)
+
+- The right answers to quiz questions live only in `training_question_keys`. Never select them in
+  a query a learner's page uses, never send them to the browser outside the module editor, and
+  never mark answers anywhere but `app.submit_training_module`.
+- Results (`training_completions`) are written only by that function; keep `authenticated`
+  without insert or update grants on the table.
+- Writing or assigning training needs `training.manage`; a learner sees a course only when it is
+  published and assigned to them, enforced by RLS.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a
@@ -113,6 +148,10 @@ change as touching sensitive personal data.
 - The new hire's one-time link path (`src/modules/hiring/public.ts`) is the only place outside
   provisioning that may use `adminDb` in a request. It must start from the link's hash and never
   accept a tenant or record id from the caller (ADR-026).
+- Accepting an offer creates the login chosen at hire through `src/modules/access/hire-login.ts`
+  (ADR-048), which may use `adminDb`. It is called only after the acceptance is committed, with
+  ids read from the link's own contract. Choosing a login at hire needs `users.manage` as well as
+  `employees.manage`, and the Admin (`owner`) role is never given this way.
 
 ## Audit
 

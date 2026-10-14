@@ -19,7 +19,13 @@ export default async function PlatformLayout({ children }: { children: ReactNode
           <span className="flex size-7 items-center justify-center rounded-md bg-primary text-sm text-primary-foreground">
             M
           </span>
-          Meroidea platform
+          <span className="sr-only sm:not-sr-only">Meroidea platform</span>
+        </Link>
+        <Link
+          href="/platform/agreement"
+          className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+        >
+          Service agreement
         </Link>
         <span className="ml-auto hidden text-sm text-muted-foreground sm:inline">
           {admin.email}

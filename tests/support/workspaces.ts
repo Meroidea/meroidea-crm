@@ -35,7 +35,7 @@ export async function addMember(
   tenantId: string,
   email: string,
   fullName: string,
-  roleKey: 'manager' | 'member' | 'support',
+  roleKey: 'manager' | 'member',
   teamId?: string,
 ): Promise<string> {
   const userId = await createAuthUser(email, fullName);
@@ -65,6 +65,9 @@ export async function contextFor(userId: string, tenantId: string): Promise<Tena
 export async function destroyWorkspace(tenantId: string, userIds: string[]): Promise<void> {
   const db = adminDb();
   for (const table of [
+    'tenant_agreements',
+    'concern_messages',
+    'concerns',
     'ticket_messages',
     'tickets',
     'customer_reviews',

@@ -9,7 +9,9 @@ import { ACTIVE_TENANT_COOKIE } from '@/server/context';
 import { assertPlatformAdmin, type PlatformAdmin } from '@/server/platform';
 
 import {
+  businessIdentitySchema,
   createBusinessSchema,
+  publishAgreementSchema,
   setFeaturesSchema,
   setLocationSchema,
   setStatusSchema,
@@ -56,6 +58,24 @@ export async function setBusinessStatusAction(raw: unknown) {
 export async function setBusinessLocationAction(raw: unknown) {
   return platformAction((admin) =>
     platformService.setBusinessLocation(admin, setLocationSchema.parse(raw)),
+  );
+}
+
+export async function updateBusinessIdentityAction(raw: unknown) {
+  return platformAction((admin) =>
+    platformService.updateBusinessIdentity(admin, businessIdentitySchema.parse(raw)),
+  );
+}
+
+export async function resendAgreementLinkAction(raw: unknown) {
+  return platformAction((admin) =>
+    platformService.resendAgreementLink(admin, tenantIdSchema.parse(raw).tenantId),
+  );
+}
+
+export async function publishAgreementAction(raw: unknown) {
+  return platformAction((admin) =>
+    platformService.publishAgreement(admin, publishAgreementSchema.parse(raw)),
   );
 }
 

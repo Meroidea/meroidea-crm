@@ -21,6 +21,8 @@ export const tenantStatus = pgEnum('tenant_status', [
   'past_due',
   'suspended',
   'cancelled',
+  /** Onboarded by the platform owner; its admin has not yet accepted the service agreement. */
+  'awaiting_agreement',
 ]);
 
 export const membershipStatus = pgEnum('membership_status', ['invited', 'active', 'deactivated']);
@@ -61,6 +63,17 @@ export const tenants = pgTable('tenants', {
   locationLatitude: numeric({ precision: 9, scale: 6 }),
   locationLongitude: numeric({ precision: 9, scale: 6 }),
   clockRadiusMetres: integer().notNull().default(10),
+  /*
+   * Who the business is, recorded by the platform owner when onboarding it. Only the platform
+   * console changes these (ADR-047); the business's own admin sees them but cannot edit them.
+   */
+  /** The registered name, when it differs from the name the business trades under. */
+  legalName: text(),
+  /** ABN in Australia; whatever business number applies elsewhere. */
+  businessNumber: text(),
+  primaryContactName: text(),
+  primaryContactEmail: text(),
+  primaryContactPhone: text(),
   ...timestamps,
 });
 
