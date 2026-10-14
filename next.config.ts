@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
     incomingRequests: {
       ignore: [
         /^\/offer\//,
+        /^\/agreement\//,
         /^\/jobs\//,
         /^\/api\/jobs\//,
         /^\/r\//,
