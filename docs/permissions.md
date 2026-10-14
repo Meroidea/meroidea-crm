@@ -108,9 +108,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `reviews.manage` | | Create and switch review links, mark reviews read or followed up, keep notes, remove a review |
 | `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee |
 | `tickets.manage` | | Switch the public contact form on or off, delete tickets |
-| `concerns.raise` | | Raise a concern with a manager or with the admin alone, follow it and reply (ADR-049) |
-| `concerns.handle` | | Read, answer and change the status of concerns raised with a manager. Never those raised with the admin only. Enforced again by RLS on `concerns` / `concern_messages` |
-| `concerns.handle_all` | | Read, answer and change the status of every concern, including those raised with the admin only |
+| `concerns.raise` | | Ask managers or the admin a question (about a payslip of your own, too), follow it, reply, mark it resolved or reopen it (ADR-049) |
+| `concerns.handle` | | Read, answer and change the status of questions sent to managers. Never those sent to the admin only. Enforced again by RLS on `concerns` / `concern_messages` |
+| `concerns.handle_all` | | Read, answer and change the status of every question, including those sent to the admin only and those about a payslip |
 | `payroll.manage` | | Authorise a roster for pay, enter tax withheld, release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
 | `purchasing.manage` | | See and manage suppliers and their price lists, and place, re-send and cancel orders. Enforced again by RLS on `suppliers`, `supplier_items`, `purchase_orders`, `purchase_order_lines` |
 | `inventory.view` | | See stock items, quantities, values and each item's history |

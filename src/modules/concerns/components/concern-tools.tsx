@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CheckCircle2, Plus, RotateCcw, Search } from 'lucide-react';
+import { CheckCircle2, MessageSquare, Plus, RotateCcw, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
@@ -33,7 +33,24 @@ import {
   type RaiseConcernValues,
 } from '@/modules/concerns/schemas';
 
-export function RaiseConcernButton() {
+/**
+ * Opens the form to ask the business something. `preset` fills it in when asking from a page
+ * the question is about, such as a payslip.
+ */
+export function RaiseConcernButton({
+  preset,
+  label = 'Ask a question',
+  variant = 'default',
+}: {
+  preset?: {
+    payslipId: string;
+    subject: string;
+    category: RaiseConcernInput['category'];
+    raisedWith: RaiseConcernInput['raisedWith'];
+  };
+  label?: string;
+  variant?: 'default' | 'outline';
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -46,9 +63,16 @@ export function RaiseConcernButton() {
     formState: { errors, isSubmitting },
   } = useForm<RaiseConcernValues, unknown, RaiseConcernInput>({
     resolver: zodResolver(raiseConcernSchema),
-    defaultValues: { raisedWith: 'manager', category: 'other', subject: '', details: '' },
+    defaultValues: {
+      raisedWith: preset?.raisedWith ?? 'manager',
+      category: preset?.category ?? 'other',
+      subject: preset?.subject ?? '',
+      details: '',
+      payslipId: preset?.payslipId ?? '',
+    },
   });
   const raisedWith = useWatch({ control, name: 'raisedWith' });
+  const category = useWatch({ control, name: 'category' });
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -71,25 +95,28 @@ export function RaiseConcernButton() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus aria-hidden /> Raise a concern
+      <Button variant={variant} onClick={() => setOpen(true)}>
+        {variant === 'default' ? <Plus aria-hidden /> : <MessageSquare aria-hidden />} {label}
       </Button>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>Raise a concern</SheetTitle>
+            <SheetTitle>{preset ? 'Ask about this payslip' : 'Ask a question'}</SheetTitle>
             <SheetDescription>
-              Your name is shown with it. It stays between you and the people you raise it with.
+              About your pay, hours, shifts, leave or anything else. Only you and the people you
+              send it to can read it, and you can follow their answer here.
             </SheetDescription>
           </SheetHeader>
           <form onSubmit={onSubmit} noValidate className="flex flex-1 flex-col gap-4 px-4 pb-4">
             <Field
               name="raisedWith"
-              label="Raise it with"
+              label="Send to"
               hint={
                 raisedWith === 'admin'
-                  ? 'Only the business’s admin can read it. Managers cannot.'
-                  : 'Managers and the business’s admin can read it.'
+                  ? 'Only the business’s admin can read it.'
+                  : category === 'pay'
+                    ? 'Managers cannot see pay details, so a pay question is usually best sent to the admin.'
+                    : 'Managers and the business’s admin can read it.'
               }
               error={errors.raisedWith?.message}
               required
@@ -102,6 +129,7 @@ export function RaiseConcernButton() {
                 ))}
               </NativeSelect>
             </Field>
+            <input type="hidden" {...register('payslipId')} />
             <Field name="category" label="About" error={errors.category?.message} required>
               <NativeSelect {...input('category')}>
                 {Object.entries(CONCERN_CATEGORIES).map(([key, label]) => (
@@ -116,8 +144,8 @@ export function RaiseConcernButton() {
             </Field>
             <Field
               name="details"
-              label="What happened"
-              hint="Say what, when and who, and what you would like to happen."
+              label="Your question"
+              hint="Include the dates or shifts it is about, and what you think is right."
               error={errors.details?.message}
               required
             >
@@ -130,7 +158,7 @@ export function RaiseConcernButton() {
             )}
             <SheetFooter className="mt-auto px-0">
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Sending…' : 'Raise concern'}
+                {isSubmitting ? 'Sending…' : 'Send'}
               </Button>
             </SheetFooter>
           </form>
@@ -178,13 +206,18 @@ export function ConcernReply({ concernId }: { concernId: string }) {
   );
 }
 
-/** For whoever answers it: move it along, resolve it, or reopen it. */
+/**
+ * Whoever answers it can move it along, resolve it or reopen it; the person who asked can mark it
+ * resolved once they have their answer, or reopen it.
+ */
 export function ConcernStatusControls({
   concernId,
   status,
+  asker,
 }: {
   concernId: string;
   status: ConcernStatus;
+  asker: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -199,14 +232,18 @@ export function ConcernStatusControls({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {status === 'open' && (
+      {!asker && status === 'open' && (
         <Button variant="outline" disabled={isPending} onClick={() => set('in_progress')}>
           <Search aria-hidden /> Mark as being looked at
         </Button>
       )}
       {status !== 'resolved' ? (
-        <Button disabled={isPending} onClick={() => set('resolved')}>
-          <CheckCircle2 aria-hidden /> Mark resolved
+        <Button
+          variant={asker ? 'outline' : 'default'}
+          disabled={isPending}
+          onClick={() => set('resolved')}
+        >
+          <CheckCircle2 aria-hidden /> {asker ? 'I have my answer' : 'Mark resolved'}
         </Button>
       ) : (
         <Button variant="outline" disabled={isPending} onClick={() => set('open')}>

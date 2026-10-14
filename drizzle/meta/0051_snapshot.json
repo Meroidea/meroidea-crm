@@ -1,5 +1,5 @@
 {
-  "id": "00a3391d-4327-41b6-936e-8f32e8c28c6b",
+  "id": "c2b6310e-d791-4897-abb7-e0b4c61ebbfb",
   "prevId": "cd76534f-d9c8-46d3-860d-e5b1504f9068",
   "version": "7",
   "dialect": "postgresql",
@@ -6791,6 +6791,14 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
+        "payslips_tenant_id_id_key": {
+          "name": "payslips_tenant_id_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        },
         "payslips_roster_employee_key": {
           "name": "payslips_roster_employee_key",
           "nullsNotDistinct": false,
@@ -9986,6 +9994,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "payslip_id": {
+          "name": "payslip_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -10080,6 +10094,21 @@
             "tenant_id"
           ],
           "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "concerns_payslip_fk": {
+          "name": "concerns_payslip_fk",
+          "tableFrom": "concerns",
+          "tableTo": "payslips",
+          "columnsFrom": [
+            "tenant_id",
+            "payslip_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
             "id"
           ],
           "onDelete": "restrict",

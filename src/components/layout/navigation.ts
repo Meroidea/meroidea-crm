@@ -196,7 +196,7 @@ export const NAVIGATION: NavGroup[] = [
       {
         href: '/concerns',
         icon: MessageSquareWarning,
-        label: { title: 'Concerns' },
+        label: { title: 'Questions & concerns' },
         permission: 'concerns.raise',
         available: true,
       },

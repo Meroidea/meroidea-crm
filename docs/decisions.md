@@ -763,30 +763,36 @@ admin can give a login from the profile. Without an email provider the hire is n
 password link; the admin sends one from Settings → Team (shown once to pass on), or the hire uses
 "Forgot password" once email is set up. Moving people between teams has no screen yet.
 
-## ADR-049 — Staff concerns, with "the admin only" enforced by the database
+## ADR-049 — Questions and concerns: staff ask managers or the admin, inside the workspace
 
-**Decision.** A new feature, **Staff concerns** (`concerns`), lets anyone in a business raise a
-concern (roster, pay, workplace, safety, how someone is treated, other) with **a manager** or with
-**the admin only**, then follow a conversation on it. Three permissions: `concerns.raise`
-(everyone), `concerns.handle` (Manager and Admin: concerns raised with a manager) and
-`concerns.handle_all` (Admin: every concern). RLS decides visibility, so a concern raised with
-the admin only is invisible to managers at the database, not just hidden on screen. Those who
-answer move it from open to being looked at (automatically on their first reply) to resolved,
-and can reopen it; the person who raised it cannot change its status, and nobody can change what
-was raised or with whom. When one is raised, those who can answer it are emailed that a concern
-is waiting, without its content. Concerns are never deleted. The feature is in the starting set
-for every kind of business with staff; existing businesses get the role grants, but the feature
-stays off until the platform owner switches it on (ADR-029).
+**Decision.** A feature, **Questions & concerns** (`concerns`), gives staff one place to ask the
+business something and get an answer: hours on a payslip that look wrong, a shift swap, leave, or
+anything they need to talk about. A question has a topic (pay, hours, shifts, leave, workplace,
+anything else), a title and a conversation, and is sent to **managers** or to **the admin only**.
+From one of their own released payslips, staff can press "Ask about this payslip": the question
+is sent to the admin, filed under pay, and linked to that payslip, which the admin can open from
+the question. Statuses are open, being looked at (set automatically when the business first
+replies) and resolved. The person who asked can mark it resolved when they have their answer, or
+reopen it; replying to a resolved question reopens it. Those who answer can set any status.
 
-**Why.** Staff need a way to raise a problem that does not depend on catching the right person on
-shift, and a concern is often about a manager, so "the admin only" has to be a guarantee the
-manager cannot get around. Putting it in RLS means a mistake in a page or service cannot leak
-it. Leaving the content out of emails and the audit log keeps sensitive workplace matters out of
-shared inboxes and logs.
+Permissions: `concerns.raise` (everyone), `concerns.handle` (Manager and Admin: questions sent to
+managers) and `concerns.handle_all` (Admin: every question). RLS decides who can read a question,
+so one sent to the admin only is invisible to managers at the database. A question can link only
+to the asker's own released payslip (checked in the service and by the insert policy). What was
+asked, to whom and about which payslip never changes afterwards (column grants). Those who can
+answer are emailed that a question is waiting, without its content, which also stays out of the
+audit log. Questions are never deleted. The feature is in the starting set for every kind of
+business with staff; existing businesses get the role grants, but the feature stays off until the
+platform owner switches it on (ADR-029).
 
-**Consequences.** Raising is not anonymous: the raiser's name is shown, and the form says so. In a
-small business the system cannot keep someone anonymous from context, so it does not promise
-to. This is not a whistleblower channel under the Corporations Act, and nothing here gives legal
-protections. A Manager's concern raised "with a manager" is visible to the other managers; to
-reach the admin alone they choose that option. There are no attachments, reminders or reports
-yet.
+**Why.** Staff otherwise ask in passing on shift or by text, the answer is lost, and a pay mistake
+is easy to forget. Keeping the conversation next to the payslip it is about means the admin sees
+exactly which pay run is questioned. Managers have no access to pay (they lack `payroll.manage`),
+so pay questions belong with the admin; "the admin only" is also there for anything a person would
+rather not share with their manager, and RLS makes that a guarantee rather than a screen setting.
+
+**Consequences.** It is not anonymous and not a formal complaints or whistleblowing process; the
+asker's name is always shown. A Manager's question sent to managers is visible to the other
+managers. Questions can link a payslip but not yet a timesheet day or a roster shift. There are no
+attachments, reminders or reports yet. Without an email provider, nobody is notified and questions
+wait on the list.

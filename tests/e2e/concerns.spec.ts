@@ -27,17 +27,17 @@ async function signInAs(browser: Browser, link: string, password: string) {
 async function raise(page: Page, raisedWith: string, about: string, title: string) {
   await page.goto('/concerns');
   await page.waitForLoadState('networkidle');
-  await page.getByRole('button', { name: 'Raise a concern' }).click();
-  await page.getByLabel('Raise it with').selectOption({ label: raisedWith });
+  await page.getByRole('button', { name: 'Ask a question' }).click();
+  await page.getByLabel('Send to').selectOption({ label: raisedWith });
   await page.getByLabel('About').selectOption({ label: about });
   await page.getByLabel('Title').fill(title);
-  await page.getByLabel('What happened').fill(`${title}: what happened, when, and who.`);
-  await page.getByRole('button', { name: 'Raise concern', exact: true }).click();
+  await page.getByLabel('Your question').fill(`${title}: the dates, and what I think is right.`);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page).toHaveURL(/\/concerns\/[0-9a-f-]{36}$/, { timeout: 30_000 });
   return page.url();
 }
 
-test('staff raise a concern with the admin alone, and their manager never sees it', async ({
+test('staff ask the admin alone about pay, and their manager never sees it', async ({
   page,
   context,
   browser,
@@ -56,32 +56,29 @@ test('staff raise a concern with the admin alone, and their manager never sees i
   const staffLink = await addPerson(page, 'Casey Crew', `casey-${stamp}@example.com`, 'Staff');
 
   const staff = await signInAs(browser, staffLink, 'casey-crew-password-1');
-  const rosterTitle = 'Back-to-back closing shifts';
-  const conductTitle = 'How my manager speaks to me';
-  await raise(staff.page, 'A manager', 'Shifts and roster', rosterTitle);
-  const conductUrl = await raise(
-    staff.page,
-    'The admin only',
-    'How someone is treated',
-    conductTitle,
-  );
-  await expect(staff.page.getByText('Raised with the admin only')).toBeVisible();
+  const rosterTitle = 'Swap my Saturday shift';
+  const payTitle = 'Hours on my last payslip';
+  await raise(staff.page, 'Managers', 'Shifts and roster', rosterTitle);
+  const payUrl = await raise(staff.page, 'The admin only', 'Pay and payslips', payTitle);
+  await expect(staff.page.getByText('Sent to the admin only')).toBeVisible();
 
   // The manager sees what was raised with a manager, and nothing raised with the admin only,
   // not even by going to its address.
   const manager = await signInAs(browser, managerLink, 'morgan-manager-password-1');
   await manager.page.goto('/concerns');
   await expect(manager.page.getByText(rosterTitle)).toBeVisible();
-  await expect(manager.page.getByText(conductTitle)).toHaveCount(0);
-  const response = await manager.page.goto(new URL(conductUrl).pathname);
+  await expect(manager.page.getByText(payTitle)).toHaveCount(0);
+  const response = await manager.page.goto(new URL(payUrl).pathname);
   expect(response?.status()).toBe(404);
 
   // The admin sees both and answers the one raised with them.
   await page.goto('/concerns');
   await expect(page.getByText(rosterTitle)).toBeVisible();
-  await page.getByText(conductTitle).click();
+  await page.getByText(payTitle).click();
   await page.waitForLoadState('networkidle');
-  await page.getByLabel('Reply').fill('Thank you for telling me. Can we talk on Friday?');
+  await page
+    .getByLabel('Reply')
+    .fill('You are right, two hours were missed. Can we talk on Friday?');
   await page.getByRole('button', { name: 'Send reply' }).click();
   // Wait for the saved reply to show in the thread before the other person looks.
   await expect(
@@ -92,7 +89,7 @@ test('staff raise a concern with the admin alone, and their manager never sees i
   await expect(page.getByText('Being looked at', { exact: true })).toBeVisible();
 
   // The person who raised it sees the answer.
-  await staff.page.goto(new URL(conductUrl).pathname);
+  await staff.page.goto(new URL(payUrl).pathname);
   await expect(staff.page.getByText('Can we talk on Friday?')).toBeVisible();
   await expect(staff.page.getByText('Being looked at', { exact: true })).toBeVisible();
 

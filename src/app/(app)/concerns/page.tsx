@@ -17,7 +17,7 @@ import {
 } from '@/modules/concerns/schemas';
 import { requirePermission, requireTenantContext } from '@/server/context';
 
-export const metadata: Metadata = { title: 'Concerns' };
+export const metadata: Metadata = { title: 'Questions & concerns' };
 
 const STATUS_VARIANT = {
   open: 'outline',
@@ -36,16 +36,16 @@ export default async function ConcernsPage({ searchParams }: PageProps<'/concern
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
-        title="Concerns"
-        description="Raise something about your work with a manager, or with the admin alone, and follow it to an answer."
+        title="Questions & concerns"
+        description="Ask a manager or the admin about your pay, hours, shifts, leave or anything else, and keep the conversation in one place."
         actions={<RaiseConcernButton />}
       />
 
       {handles && (
         <nav aria-label="Concern views" className="flex gap-1 border-b">
           {[
-            ['raised', 'Raised with you', '/concerns'],
-            ['mine', 'Raised by you', '/concerns?view=mine'],
+            ['raised', 'Sent to you', '/concerns'],
+            ['mine', 'Asked by you', '/concerns?view=mine'],
           ].map(([key, label, href]) => (
             <Link
               key={key}
@@ -66,11 +66,11 @@ export default async function ConcernsPage({ searchParams }: PageProps<'/concern
         <div className="rounded-xl border bg-card">
           <EmptyState
             icon={MessageSquareWarning}
-            title={view === 'raised' ? 'Nothing raised with you' : 'You have not raised anything'}
+            title={view === 'raised' ? 'No questions for you' : 'You have not asked anything yet'}
             description={
               view === 'raised'
-                ? 'When someone raises a concern you can answer, it appears here.'
-                : 'Raise a concern and you can follow the conversation and its status here.'
+                ? 'When someone asks a question you can answer, it appears here.'
+                : 'Ask a question and you can follow the answer and its status here.'
             }
           />
         </div>
@@ -86,7 +86,7 @@ export default async function ConcernsPage({ searchParams }: PageProps<'/concern
                   <span className="block truncate text-sm font-medium">{row.subject}</span>
                   <span className="block truncate text-sm text-muted-foreground">
                     {view === 'raised' && <span data-sensitive>{row.raisedByName} · </span>}
-                    {CONCERN_CATEGORIES[row.category]} · with{' '}
+                    {CONCERN_CATEGORIES[row.category]} · to{' '}
                     {RAISED_WITH_LABELS[row.raisedWith].toLowerCase()} ·{' '}
                     {formatDateTime(ctx, row.lastActivityAt)}
                   </span>

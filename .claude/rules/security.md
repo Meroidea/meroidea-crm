@@ -106,15 +106,17 @@ change as touching sensitive personal data.
 - A business in `awaiting_agreement` is closed to its own people in `requireTenantContext` and
   `authedAction`, exactly like `suspended`.
 
-## Staff concerns (ADR-049)
+## Questions and concerns (ADR-049)
 
-- A concern raised with the admin only must never reach a manager. That rule lives in the RLS
-  policies on `concerns` / `concern_messages`; never read them through `adminDb` or widen
-  `concerns.handle` to cover them.
-- What a concern says never goes into `audit_logs`, emails or logs. Notification emails say only
-  that a concern is waiting.
-- Nobody changes the status of a concern they raised, and nobody can change what was raised or
-  with whom (column grants).
+- A question sent to the admin only must never reach a manager (managers cannot see pay). That
+  rule lives in the RLS policies on `concerns` / `concern_messages`; never read them through
+  `adminDb` or widen `concerns.handle` to cover them.
+- A question may link only the asker's own released payslip; keep both the service check and the
+  insert policy. A manager answering never gets the payslip itself, only that one is linked.
+- What a question says never goes into `audit_logs`, emails or logs. Notification emails say only
+  that a question is waiting.
+- Nobody can change what was asked, to whom or about which payslip (column grants). The asker may
+  set only `open` or `resolved`.
 
 ## Location (ADR-033)
 

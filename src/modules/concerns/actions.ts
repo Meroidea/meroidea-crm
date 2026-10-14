@@ -15,8 +15,8 @@ export const replyToConcernAction = authedAction(
   { permission: 'concerns.raise', input: replyConcernSchema, revalidate: PATHS },
   (ctx, input) => concernService.replyToConcern(ctx, input),
 );
-// Managers and the admin; the service checks which concerns each may answer.
+// The person who asked, or whoever may answer it; the service decides which changes each may make.
 export const setConcernStatusAction = authedAction(
-  { permission: null, input: setConcernStatusSchema, revalidate: PATHS },
+  { permission: 'concerns.raise', input: setConcernStatusSchema, revalidate: PATHS },
   (ctx, input) => concernService.setConcernStatus(ctx, input),
 );

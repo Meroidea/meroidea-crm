@@ -137,6 +137,7 @@ export const payslips = pgTable(
     updatedBy: uuid(),
   },
   (table) => [
+    unique('payslips_tenant_id_id_key').on(table.tenantId, table.id),
     unique('payslips_roster_employee_key').on(table.tenantId, table.rosterId, table.employeeId),
     index('payslips_person_idx').on(table.tenantId, table.userId, table.periodStart),
     foreignKey({

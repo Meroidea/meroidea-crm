@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, asc, desc, eq, ne } from 'drizzle-orm';
 
-import { concernMessages, concerns, users } from '@/db/schema';
+import { concernMessages, concerns, payslips, users } from '@/db/schema';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
@@ -74,6 +74,8 @@ export async function listConcerns(
 
 export type ConcernDetail = ConcernRow & {
   resolvedAt: Date | null;
+  /** The payslip it is about. Its period is shown to whoever can read the question. */
+  payslip: { id: string; number: number | null; periodStart: string; periodEnd: string } | null;
   messages: {
     id: string;
     authorUserId: string;
@@ -81,6 +83,8 @@ export type ConcernDetail = ConcernRow & {
     body: string;
     createdAt: Date;
   }[];
+  /** It is about a payslip the reader may not open (a manager answering). */
+  payslipHidden: boolean;
   /** The reader may change its status and answer it as the business. */
   canHandle: boolean;
 };
@@ -90,7 +94,7 @@ export async function getConcern(ctx: TenantContext, id: string): Promise<Concer
   requirePermission(ctx, 'concerns.raise');
   return withRls(ctx, async (tx) => {
     const [concern] = await tx
-      .select({ ...columns, resolvedAt: concerns.resolvedAt })
+      .select({ ...columns, resolvedAt: concerns.resolvedAt, payslipId: concerns.payslipId })
       .from(concerns)
       .innerJoin(users, eq(users.id, concerns.raisedBy))
       .where(and(eq(concerns.tenantId, ctx.tenantId), eq(concerns.id, id)))
@@ -108,7 +112,28 @@ export async function getConcern(ctx: TenantContext, id: string): Promise<Concer
       .innerJoin(users, eq(users.id, concernMessages.authorUserId))
       .where(and(eq(concernMessages.tenantId, ctx.tenantId), eq(concernMessages.concernId, id)))
       .orderBy(asc(concernMessages.createdAt), asc(concernMessages.id));
-    const row = concern as ConcernRow & { resolvedAt: Date | null };
-    return { ...row, messages, canHandle: canHandleConcern(ctx, row) };
+    const row = concern as ConcernRow & { resolvedAt: Date | null; payslipId: string | null };
+    // Read with the reader's own rights: the person who asked, and whoever runs payroll, see it;
+    // a manager answering does not, because managers cannot see pay.
+    const [payslip] = row.payslipId
+      ? await tx
+          .select({
+            id: payslips.id,
+            number: payslips.number,
+            periodStart: payslips.periodStart,
+            periodEnd: payslips.periodEnd,
+          })
+          .from(payslips)
+          .where(and(eq(payslips.tenantId, ctx.tenantId), eq(payslips.id, row.payslipId)))
+          .limit(1)
+      : [];
+    const { payslipId, ...rest } = row;
+    return {
+      ...rest,
+      payslip: payslip ?? null,
+      payslipHidden: Boolean(payslipId && !payslip),
+      messages,
+      canHandle: canHandleConcern(ctx, row),
+    };
   });
 }

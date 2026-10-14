@@ -38,9 +38,9 @@ export const FEATURES = [
   },
   {
     key: 'concerns',
-    label: 'Staff concerns',
+    label: 'Questions & concerns',
     description:
-      'Staff raise a concern with a manager or with the admin alone, and follow it to an answer.',
+      'Staff ask a manager or the admin about pay, hours, shifts, leave or anything else, and get an answer.',
   },
   {
     key: 'staff',

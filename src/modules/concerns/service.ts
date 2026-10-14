@@ -2,7 +2,14 @@ import 'server-only';
 
 import { and, eq, inArray, ne } from 'drizzle-orm';
 
-import { concernMessages, concerns, rolePermissions, tenantMemberships, users } from '@/db/schema';
+import {
+  concernMessages,
+  concerns,
+  payslips,
+  rolePermissions,
+  tenantMemberships,
+  users,
+} from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { escapeHtml } from '@/modules/access/service';
 import { audit } from '@/server/audit';
@@ -11,15 +18,16 @@ import { withRls, type Tx } from '@/server/db/with-rls';
 import { sendEmail } from '@/server/email';
 import { serverEnv } from '@/server/env';
 
-import { canHandleConcern, canHandleConcerns } from './queries';
+import { canHandleConcern } from './queries';
 import type { ConcernStatus, RaiseConcernInput } from './schemas';
 
 /*
- * Staff concerns (ADR-049). Every read and write runs through RLS, which is what keeps a concern
- * raised with the admin away from managers; the checks here give clear errors on top of it.
+ * Questions and concerns (ADR-049): how staff ask the business something, such as the hours on a
+ * payslip, a shift or leave, and get an answer. Every read and write runs through RLS, which keeps
+ * a question raised with the admin only away from managers; the checks here give clear errors.
  */
 
-const GONE = 'That concern was not found.';
+const GONE = 'That question was not found.';
 
 async function findConcern(tx: Tx, ctx: TenantContext, id: string) {
   const [concern] = await tx
@@ -38,8 +46,8 @@ async function findConcern(tx: Tx, ctx: TenantContext, id: string) {
 }
 
 /**
- * Emails the people who can answer a new concern that one is waiting, with nothing of what it
- * says: an inbox is read on shared screens and phones, and the concern is the raiser's to share.
+ * Emails the people who can answer a new question that one is waiting, without what it says: it
+ * may be about someone's pay, and inboxes are read on shared screens and phones.
  */
 async function notifyHandlers(ctx: TenantContext, input: { id: string; raisedWith: string }) {
   const permissions =
@@ -69,13 +77,13 @@ async function notifyHandlers(ctx: TenantContext, input: { id: string; raisedWit
       ),
   );
   const link = new URL(`/concerns/${input.id}`, serverEnv().APP_URL).toString();
-  const text = `A new concern has been raised in ${ctx.tenant.name}. Sign in to read and answer it: ${link}`;
+  const text = `Someone in ${ctx.tenant.name} has asked a question or raised a concern. Sign in to read and answer it: ${link}`;
   for (const { email } of recipients) {
     await sendEmail({
       to: email,
-      subject: `A concern was raised in ${ctx.tenant.name}`,
+      subject: `A question is waiting in ${ctx.tenant.name}`,
       text,
-      html: `<p>A new concern has been raised in ${escapeHtml(ctx.tenant.name)}.</p><p><a href="${link}">Sign in to read and answer it</a></p>`,
+      html: `<p>Someone in ${escapeHtml(ctx.tenant.name)} has asked a question or raised a concern.</p><p><a href="${link}">Sign in to read and answer it</a></p>`,
     });
   }
 }
@@ -86,6 +94,26 @@ export async function raiseConcern(
 ): Promise<{ id: string }> {
   requirePermission(ctx, 'concerns.raise');
   const created = await withRls(ctx, async (tx) => {
+    if (input.payslipId) {
+      // Only your own released payslip: the payslips policy shows nothing else to staff, and the
+      // owner check stops someone who runs payroll filing a question about another person's.
+      const [own] = await tx
+        .select({ id: payslips.id })
+        .from(payslips)
+        .where(
+          and(
+            eq(payslips.tenantId, ctx.tenantId),
+            eq(payslips.id, input.payslipId),
+            eq(payslips.userId, ctx.userId),
+          ),
+        )
+        .limit(1);
+      if (!own) {
+        throw new AppError('VALIDATION', 'That payslip was not found.', {
+          payslipId: ['Ask about one of your own payslips'],
+        });
+      }
+    }
     const [concern] = await tx
       .insert(concerns)
       .values({
@@ -94,10 +122,11 @@ export async function raiseConcern(
         raisedWith: input.raisedWith,
         category: input.category,
         subject: input.subject,
+        payslipId: input.payslipId,
         status: 'open',
       })
       .returning({ id: concerns.id });
-    if (!concern) throw new AppError('INTERNAL', 'The concern could not be saved.');
+    if (!concern) throw new AppError('INTERNAL', 'The question could not be saved.');
     await tx.insert(concernMessages).values({
       tenantId: ctx.tenantId,
       concernId: concern.id,
@@ -109,7 +138,11 @@ export async function raiseConcern(
       action: 'create',
       entityType: 'concern',
       entityId: concern.id,
-      context: { raisedWith: input.raisedWith, category: input.category },
+      context: {
+        raisedWith: input.raisedWith,
+        category: input.category,
+        payslipId: input.payslipId,
+      },
     });
     return concern;
   });
@@ -117,7 +150,7 @@ export async function raiseConcern(
   try {
     await notifyHandlers(ctx, { id: created.id, raisedWith: input.raisedWith });
   } catch (cause) {
-    // The concern is saved either way; it is on the list for whoever answers concerns.
+    // The question is saved either way; it is on the list of whoever answers questions.
     console.error('[concerns] notify failed', {
       name: cause instanceof Error ? cause.name : typeof cause,
     });
@@ -126,8 +159,9 @@ export async function raiseConcern(
 }
 
 /**
- * Adds to a concern's conversation: the person who raised it, or someone who may answer it.
- * An answer from the business moves an open concern to "being looked at".
+ * Adds to a question's conversation: the person who asked, or someone who may answer it. Replying
+ * to one marked resolved reopens it. An answer from the business moves an open question to
+ * "being looked at".
  */
 export async function replyToConcern(
   ctx: TenantContext,
@@ -138,11 +172,18 @@ export async function replyToConcern(
     const concern = await findConcern(tx, ctx, input.id);
     const handling = canHandleConcern(ctx, concern);
     if (concern.raisedBy !== ctx.userId && !handling) throw new AppError('NOT_FOUND', GONE);
-    if (concern.status === 'resolved') {
-      throw new AppError(
-        'CONFLICT',
-        'This concern is resolved. Ask for it to be reopened, or raise a new one.',
-      );
+    const next =
+      handling && concern.status !== 'in_progress'
+        ? 'in_progress'
+        : concern.status === 'resolved'
+          ? 'open'
+          : concern.status;
+    // Before the message: a message may only be added to a question that is not resolved.
+    if (next !== concern.status) {
+      await tx
+        .update(concerns)
+        .set({ status: next, resolvedAt: null, resolvedBy: null })
+        .where(and(eq(concerns.tenantId, ctx.tenantId), eq(concerns.id, concern.id)));
     }
     const [message] = await tx
       .insert(concernMessages)
@@ -154,34 +195,33 @@ export async function replyToConcern(
       })
       .returning({ id: concernMessages.id });
     if (!message) throw new AppError('INTERNAL', 'The reply could not be saved.');
-    if (handling && concern.status === 'open') {
-      await tx
-        .update(concerns)
-        .set({ status: 'in_progress' })
-        .where(and(eq(concerns.tenantId, ctx.tenantId), eq(concerns.id, concern.id)));
-    }
     await audit(tx, ctx, {
       action: 'update',
       entityType: 'concern',
       entityId: concern.id,
       context: { replied: true },
+      ...(next !== concern.status ? { changes: { status: [concern.status, next] } } : {}),
     });
     return { id: concern.id };
   });
 }
 
-/** Moves a concern along, or reopens it. Never by the person who raised it. */
+/**
+ * Moves a question along. Whoever answers it may set any status; the person who asked may mark it
+ * resolved when they have their answer, or reopen it.
+ */
 export async function setConcernStatus(
   ctx: TenantContext,
   input: { id: string; status: ConcernStatus },
 ): Promise<{ id: string }> {
-  if (!canHandleConcerns(ctx)) throw new AppError('FORBIDDEN', 'You do not have access to that.');
+  requirePermission(ctx, 'concerns.raise');
   return withRls(ctx, async (tx) => {
     const concern = await findConcern(tx, ctx, input.id);
-    if (concern.raisedBy === ctx.userId) {
-      throw new AppError('CONFLICT', 'Someone else has to deal with a concern you raised.');
+    const asker = concern.raisedBy === ctx.userId;
+    if (!asker && !canHandleConcern(ctx, concern)) throw new AppError('NOT_FOUND', GONE);
+    if (asker && input.status === 'in_progress') {
+      throw new AppError('CONFLICT', 'You can mark your question resolved, or reopen it.');
     }
-    if (!canHandleConcern(ctx, concern)) throw new AppError('NOT_FOUND', GONE);
     if (concern.status === input.status) return { id: concern.id };
     const resolved = input.status === 'resolved';
     await tx

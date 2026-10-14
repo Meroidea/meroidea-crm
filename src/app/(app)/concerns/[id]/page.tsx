@@ -5,14 +5,14 @@ import { notFound } from 'next/navigation';
 import { z } from 'zod';
 
 import { Badge } from '@/components/ui/badge';
-import { formatDateTime } from '@/lib/format';
+import { formatCalendarDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { ConcernReply, ConcernStatusControls } from '@/modules/concerns/components/concern-tools';
 import { getConcern } from '@/modules/concerns/queries';
 import { CONCERN_CATEGORIES, CONCERN_STATUS_LABELS } from '@/modules/concerns/schemas';
 import { requirePermission, requireTenantContext } from '@/server/context';
 
-export const metadata: Metadata = { title: 'Concern' };
+export const metadata: Metadata = { title: 'Question' };
 
 const STATUS_VARIANT = { open: 'outline', in_progress: 'secondary', resolved: 'default' } as const;
 
@@ -30,7 +30,7 @@ export default async function ConcernPage({ params }: PageProps<'/concerns/[id]'
         href={mine ? '/concerns?view=mine' : '/concerns'}
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft aria-hidden className="size-4" /> All concerns
+        <ArrowLeft aria-hidden className="size-4" /> All questions
       </Link>
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -40,19 +40,37 @@ export default async function ConcernPage({ params }: PageProps<'/concerns/[id]'
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          {CONCERN_CATEGORIES[concern.category]} · raised by{' '}
+          {CONCERN_CATEGORIES[concern.category]} · asked by{' '}
           <span data-sensitive>{mine ? 'you' : concern.raisedByName}</span> on{' '}
           {formatDateTime(ctx, concern.createdAt)}
         </p>
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <Lock aria-hidden className="size-3.5" />
           {concern.raisedWith === 'admin'
-            ? 'Raised with the admin only: managers cannot see it.'
-            : 'Raised with a manager: managers and the admin can see it.'}
+            ? 'Sent to the admin only: managers cannot see it.'
+            : 'Sent to managers: managers and the admin can see it.'}
         </p>
-        {concern.canHandle && (
+        {concern.payslip && (
+          <p className="text-sm">
+            About{' '}
+            <Link
+              href={`/payslips/${concern.payslip.id}`}
+              className="text-primary underline underline-offset-4"
+            >
+              payslip{concern.payslip.number ? ` #${concern.payslip.number}` : ''},{' '}
+              {formatCalendarDate(concern.payslip.periodStart)} to{' '}
+              {formatCalendarDate(concern.payslip.periodEnd)}
+            </Link>
+          </p>
+        )}
+        {concern.payslipHidden && (
+          <p className="text-sm text-muted-foreground">
+            About one of their payslips, which only the admin can open.
+          </p>
+        )}
+        {(concern.canHandle || mine) && (
           <div className="mt-1">
-            <ConcernStatusControls concernId={concern.id} status={concern.status} />
+            <ConcernStatusControls concernId={concern.id} status={concern.status} asker={mine} />
           </div>
         )}
       </header>
@@ -82,16 +100,12 @@ export default async function ConcernPage({ params }: PageProps<'/concerns/[id]'
         })}
       </ol>
 
-      {concern.status === 'resolved' ? (
+      {concern.status === 'resolved' && (
         <p className="rounded-xl border bg-muted/50 p-4 text-sm text-muted-foreground">
-          Resolved on {formatDateTime(ctx, concern.resolvedAt)}.{' '}
-          {concern.canHandle
-            ? 'Reopen it to reply.'
-            : 'If it is not sorted, raise a new concern or ask for this one to be reopened.'}
+          Resolved on {formatDateTime(ctx, concern.resolvedAt)}. Replying reopens it.
         </p>
-      ) : (
-        <ConcernReply concernId={concern.id} />
       )}
+      <ConcernReply concernId={concern.id} />
     </div>
   );
 }

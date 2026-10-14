@@ -1139,17 +1139,18 @@ colleague. Form settings and deleting need `tickets.manage`. Numbers are allocat
 per-tenant advisory lock. Customer messages and form submissions are written by
 `src/modules/helpdesk/public.ts` (ADR-037).
 
-## 7n. Staff concerns 🟢
+## 7n. Questions and concerns 🟢
 
-Something a member of staff raises with a manager or with the business's admin alone (ADR-049).
-Concerns are a record of what was raised and answered and are never deleted.
+A question a member of staff sends to managers or to the admin only (ADR-049). Kept as the record
+of what was asked and answered; never deleted.
 ```sql
 concerns
 id, tenant_id
-raised_by        uuid not null        -- the signed-in user when raised (RLS)
+raised_by        uuid not null        -- the signed-in user who asked (RLS)
 raised_with      text not null        -- 'manager' | 'admin' (check)
-category         text not null        -- roster | pay | workplace | safety | conduct | other (check)
+category         text not null        -- pay | hours | roster | leave | workplace | other (check)
 subject          text not null        -- 3–150 characters (check)
+payslip_id       uuid                 -- fk (tenant_id, payslip_id) -> payslips; the asker's own (RLS)
 status           text not null default 'open'   -- open | in_progress | resolved (check)
 resolved_at      timestamptz          -- set exactly when status = 'resolved' (check)
 resolved_by      uuid
@@ -1165,14 +1166,16 @@ body           text not null          -- 1–5000 characters (check)
 created_at
 unique (tenant_id, id); index (tenant_id, concern_id, created_at)
 ```
-RLS: a concern is readable by the person who raised it, by holders of `concerns.handle_all`, and
-by holders of `concerns.handle` only when `raised_with = 'manager'`; messages follow their
-concern. Anyone may insert only as themselves, a concern only with `concerns.raise` and status
-`open`, a message only on a concern they can see that is not resolved. Updates are limited to
-those who may answer it, never its raiser, and `authenticated` may update only `status`,
-`resolved_at` and `resolved_by`, so what was raised and with whom never changes. Both tables
-carry the restrictive `feature_switch` policy for `concerns`. `app.touch_concern()` (security
-definer) moves `last_activity_at` when a message is added.
+RLS: a question is readable by the person who asked it, by holders of `concerns.handle_all`, and by
+holders of `concerns.handle` only when `raised_with = 'manager'`; messages follow their question.
+Anyone may insert only as themselves: a question only with `concerns.raise`, status `open`, and a
+`payslip_id` that is null or one of their own released payslips; a message only on a question they
+can see that is not resolved (the service reopens a resolved one first). Updates are open to those
+who may answer it and to the asker, who may set only `open` or `resolved`; `authenticated` may
+update only `status`, `resolved_at` and `resolved_by`. Both tables carry the restrictive
+`feature_switch` policy for `concerns`. `app.touch_concern()` (security definer) moves
+`last_activity_at` when a message is added. Migration 0051 also adds `unique (tenant_id, id)` to
+`payslips` for the composite key.
 
 ## 8. Platform tables
 

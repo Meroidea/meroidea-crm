@@ -1,12 +1,13 @@
 import { foreignKey, index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
+import { payslips } from './finance';
 import { tenants } from './tenancy';
 
 /**
- * Something a member of staff raises with their managers or with the business's admin
- * (ADR-049). Who can read it depends on whom it was raised with: one raised with the admin is
- * hidden from managers, so a concern about a manager stays between the person and the admin.
- * Concerns are a record of what was raised and answered, so they are never deleted.
+ * A question or concern a member of staff raises with the business's managers or its admin
+ * (ADR-049): hours on a payslip, a shift, leave, or anything they need to talk about. Whom it is
+ * raised with decides who can read it: managers cannot see pay, so a question raised with the
+ * admin only is hidden from them. Kept as the record of what was asked and answered; never deleted.
  */
 export const concerns = pgTable(
   'concerns',
@@ -21,6 +22,8 @@ export const concerns = pgTable(
     raisedWith: text().notNull(),
     category: text().notNull(),
     subject: text().notNull(),
+    /** The payslip it is about, when asked from one. Only the person's own payslip (RLS). */
+    payslipId: uuid(),
     /** open → in_progress → resolved; a resolved concern can be reopened. */
     status: text().notNull().default('open'),
     resolvedAt: timestamp({ withTimezone: true }),
@@ -34,6 +37,11 @@ export const concerns = pgTable(
     unique('concerns_tenant_id_id_key').on(table.tenantId, table.id),
     index('concerns_tenant_activity_idx').on(table.tenantId, table.lastActivityAt),
     index('concerns_tenant_raised_by_idx').on(table.tenantId, table.raisedBy),
+    foreignKey({
+      columns: [table.tenantId, table.payslipId],
+      foreignColumns: [payslips.tenantId, payslips.id],
+      name: 'concerns_payslip_fk',
+    }).onDelete('restrict'),
   ],
 );
 
