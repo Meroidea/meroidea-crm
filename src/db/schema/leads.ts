@@ -103,7 +103,19 @@ export const webForms = pgTable(
     askMessage: boolean().notNull().default(true),
     /** Ask for consent to marketing. */
     askConsent: boolean().notNull().default(true),
+    /**
+     * The form as the admin built it: [{id, target, label, required, help}], in order. A target
+     * is a contact field (firstName, email…) or one of the business's own (custom.<key>), so
+     * every answer lands in the record. Supersedes the three ask* switches above.
+     */
+    fields: jsonb().notNull().default([]),
+    /** Shown above the form; the name is for the team. */
+    heading: text(),
+    intro: text(),
+    submitLabel: text(),
+    /** Published = isActive. A new form starts as a draft and is built before it goes live. */
     isActive: boolean().notNull().default(true),
+    publishedAt: timestamp({ withTimezone: true }),
     createdBy: uuid(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

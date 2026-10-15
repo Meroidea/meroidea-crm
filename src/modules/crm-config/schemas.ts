@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { formFieldsSchema } from '@/modules/leads/form-fields';
+
 import { CUSTOM_ENTITIES, CUSTOM_FIELD_TYPES } from '@/modules/custom-fields/validation';
 
 const name = (max: number) => z.string().trim().min(1, 'Enter a name').max(max);
@@ -175,16 +177,35 @@ export const webFormSchema = z.object({
   sourceId: z.uuid('Choose a source'),
   subSourceId: optionalUuid,
   leadType: z.enum(['b2b', 'b2c']),
+  /** Shown above the form; falls back to the form's name. */
+  heading: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .transform((value) => value || null),
+  intro: z
+    .string()
+    .trim()
+    .max(1000)
+    .optional()
+    .transform((value) => value || null),
+  submitLabel: z
+    .string()
+    .trim()
+    .max(40)
+    .optional()
+    .transform((value) => value || null),
   thankYouMessage: z
     .string()
     .trim()
     .max(300)
     .optional()
     .transform((value) => value || null),
-  askCompany: z.boolean().default(false),
-  askMessage: z.boolean().default(true),
-  askConsent: z.boolean().default(true),
+  fields: formFieldsSchema,
 });
+
+export const publishWebFormSchema = z.object({ id: z.uuid(), publish: z.boolean() });
 
 export const roleSchema = z.object({
   id: z.uuid().optional(),

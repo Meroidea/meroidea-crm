@@ -48,15 +48,19 @@ export default async function WebFormPage({ params, searchParams }: PageProps<'/
               <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
                 {form.businessName}
               </p>
-              <CardTitle className="text-2xl text-balance">{form.name}</CardTitle>
+              <CardTitle role="heading" aria-level={1} className="text-2xl text-balance">
+                {form.heading}
+              </CardTitle>
+              {form.intro && (
+                <p className="text-sm whitespace-pre-line text-muted-foreground">{form.intro}</p>
+              )}
             </CardHeader>
             <CardContent>
               <WebForm
                 formKey={key}
                 businessName={form.businessName}
-                askCompany={form.askCompany}
-                askMessage={form.askMessage}
-                askConsent={form.askConsent}
+                fields={form.fields}
+                submitLabel={form.submitLabel}
                 thankYouMessage={form.thankYouMessage}
                 utm={utm}
                 initiallySent={one(query.sent) === '1'}

@@ -566,8 +566,18 @@ sequence_enrollments: id, tenant_id, sequence_id, contact_id, assigned_to uuid n
 ```sql
 id, tenant_id, name (1–80), public_key text not null unique   -- the form's address; unguessable
 source_id uuid not null, sub_source_id uuid, lead_type lead_type not null,
-thank_you_message text, ask_company, ask_message, ask_consent boolean, is_active, created_by, created_at, updated_at
+thank_you_message text, heading (≤120), intro (≤1000), submit_label (≤40),
+fields jsonb not null default '[]'          -- the questions the admin built, in order (≤30):
+                                            -- [{id, target, label, required, help}]
+ask_company, ask_message, ask_consent boolean -- kept in step with `fields` for older readers
+is_active boolean                           -- false = draft; a new form starts as a draft
+published_at timestamptz, created_by, created_at, updated_at
 ```
+`target` is a standard contact field (`firstName`, `email`, `companyName`, `message`, `consent`,
+…) or `custom.<key>`, one of the business's own active contact fields. The service checks that a
+form asks for a required first name and a required email or phone, and that every `custom.` key
+is an active contact field of the same business, on save and again on publish
+(`src/modules/leads/form-fields.ts`).
 
 ### lead_intake_events
 ```sql

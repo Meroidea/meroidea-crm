@@ -1,10 +1,19 @@
 import { NextResponse } from 'next/server';
 
 import { submitWebForm } from '@/modules/leads/public';
-import { webFormSubmissionSchema } from '@/modules/leads/schemas';
 import { clientAddress, publicErrorResponse, readFormBody, readJsonBody } from '@/server/request';
 
 const MAX_BODY_BYTES = 32 * 1024;
+
+/** A plain HTML form's fields; a name sent more than once (a multi-choice) becomes a list. */
+function formFields(data: FormData): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  for (const name of new Set(data.keys())) {
+    const values = data.getAll(name).filter((value): value is string => typeof value === 'string');
+    body[name] = values.length > 1 ? values : (values[0] ?? '');
+  }
+  return body;
+}
 
 /**
  * Public intake for a business's website form. No session: the form's unguessable key authorises
@@ -17,20 +26,12 @@ export async function POST(request: Request, { params }: RouteContext<'/api/form
   const back = (outcome: 'sent' | 'failed') =>
     NextResponse.redirect(new URL(`/f/${encodeURIComponent(key)}?${outcome}=1`, request.url), 303);
   try {
-    const body = isJson
+    const body: Record<string, unknown> = isJson
       ? await readJsonBody(request, MAX_BODY_BYTES)
-      : Object.fromEntries(
-          [...(await readFormBody(request, MAX_BODY_BYTES)).entries()].flatMap(([name, value]) =>
-            typeof value === 'string' ? [[name, value]] : [],
-          ),
-        );
+      : formFields(await readFormBody(request, MAX_BODY_BYTES));
     // A field people never see; anything that fills it in is a script. Answer as if it worked.
     if (body.website) return isJson ? NextResponse.json({ ok: true, data: null }) : back('sent');
-    const data = await submitWebForm(
-      key,
-      webFormSubmissionSchema.parse(body),
-      clientAddress(request.headers),
-    );
+    const data = await submitWebForm(key, body, clientAddress(request.headers));
     return isJson ? NextResponse.json({ ok: true, data }) : back('sent');
   } catch (error) {
     return isJson ? publicErrorResponse(error) : back('failed');
