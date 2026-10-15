@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { projectTasks, taskTimeLogs } from '@/db/schema';
-import { zonedToday } from '@/lib/dates';
+import { addDaysToDate, zonedToday } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { getProductivity } from '@/modules/productivity/queries';
 import {
@@ -228,6 +228,25 @@ describe('the productivity report', () => {
     const elsewhere = await getProductivity(betaOwner, range);
     expect(elsewhere.every((row) => row.projectMinutes === 0)).toBe(true);
     expect(elsewhere.map((row) => row.userId)).toEqual([betaOwner.userId]);
+  });
+
+  it('counts only shifts that have started, so a week in progress is not shown as short', async () => {
+    const [roster] = (await adminDb().execute(sql`
+      insert into rosters (tenant_id, starts_on, ends_on, status)
+      values (${alphaTenant}, ${addDaysToDate(today, -3)}, ${addDaysToDate(today, 3)}, 'published')
+      returning id`)) as unknown as { id: string }[];
+    await adminDb().execute(sql`
+      insert into roster_shifts (tenant_id, roster_id, user_id, starts_at, ends_at, break_minutes)
+      values
+        (${alphaTenant}, ${roster!.id}, ${harper.userId}, now() - interval '3 hours',
+          now() - interval '2 hours', 0),
+        (${alphaTenant}, ${roster!.id}, ${harper.userId}, now() + interval '1 day',
+          now() + interval '1 day 8 hours', 0)`);
+    const rows = await getProductivity(owner, {
+      from: addDaysToDate(today, -1),
+      to: addDaysToDate(today, 2),
+    });
+    expect(rows.find((row) => row.userId === harper.userId)?.rosteredMinutes).toBe(60);
   });
 
   it('counts a task past its due date as overdue until it is done', async () => {

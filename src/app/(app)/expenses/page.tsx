@@ -3,7 +3,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
+import { ListPagination } from '@/components/data/list-pagination';
 import { PageHeader } from '@/components/data/page-header';
+import { withParams } from '@/components/data/url';
 import { Badge } from '@/components/ui/badge';
 import { zonedToday } from '@/lib/dates';
 import { formatCalendarDate, formatMoney } from '@/lib/format';
@@ -26,12 +28,16 @@ export default async function ExpensesPage({ searchParams }: PageProps<'/expense
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'expenses.submit');
   const canManage = hasPermission(ctx, 'expenses.manage');
-  const view = canManage ? (expenseParamsSchema.parse(await searchParams).view ?? 'mine') : 'mine';
+  const params = expenseParamsSchema.parse(await searchParams);
+  const view = canManage ? (params.view ?? 'mine') : 'mine';
   const scope = view === 'team' ? 'everyone' : 'mine';
-  const [expenses, totals] = await Promise.all([
-    listExpenses(ctx, scope),
+  // Managers start on what still needs them; people on all of their own claims.
+  const status = params.status ?? (view === 'team' ? 'open' : 'all');
+  const [{ items: expenses, nextCursor }, totals] = await Promise.all([
+    listExpenses(ctx, scope, { filter: status, cursor: params.cursor }),
     getExpenseTotals(ctx, scope),
   ]);
+  const filters = { view: view === 'team' ? 'team' : undefined, status, cursor: params.cursor };
   const currency = ctx.tenant.currency;
 
   const tiles = [
@@ -80,56 +86,96 @@ export default async function ExpensesPage({ searchParams }: PageProps<'/expense
         ))}
       </dl>
 
+      <nav aria-label="Show claims" className="flex flex-wrap gap-1.5">
+        {(
+          [
+            ['open', 'Waiting or to be paid'],
+            ['done', 'Paid back or declined'],
+            ['all', 'All'],
+          ] as const
+        ).map(([key, label]) => (
+          <Link
+            key={key}
+            href={withParams('/expenses', filters, { status: key })}
+            aria-current={status === key ? 'page' : undefined}
+            className={cn(
+              'rounded-full border px-3 py-1 text-xs text-muted-foreground hover:text-foreground',
+              status === key && 'border-primary bg-primary/5 font-medium text-foreground',
+            )}
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
+
       {expenses.length === 0 ? (
         <div className="rounded-xl border bg-card">
           <EmptyState
             icon={Receipt}
-            title="No expenses yet"
-            description="Add one with its receipt and it appears here with the manager's answer."
+            title={status === 'open' ? 'Nothing waiting' : 'No expenses here'}
+            description={
+              status === 'open'
+                ? 'Every claim has been answered and paid back.'
+                : "Add one with its receipt and it appears here with the manager's answer."
+            }
           />
         </div>
       ) : (
-        <ul className="flex flex-col divide-y rounded-xl border bg-card">
-          {expenses.map((expense) => (
-            <li key={expense.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  {view === 'team' && <span data-sensitive>{expense.personName} · </span>}
-                  {expense.category}
-                  {expense.merchant && (
-                    <span className="font-normal text-muted-foreground"> · {expense.merchant}</span>
-                  )}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {formatCalendarDate(expense.spentOn)}
-                  {expense.description && ` · ${expense.description}`}
-                </p>
-                {expense.decisionNote && (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Manager: {expense.decisionNote}
+        <div className="rounded-xl border bg-card">
+          <ul className="flex flex-col divide-y">
+            {expenses.map((expense) => (
+              <li
+                key={expense.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">
+                    {view === 'team' && <span data-sensitive>{expense.personName} · </span>}
+                    {expense.category}
+                    {expense.merchant && (
+                      <span className="font-normal text-muted-foreground">
+                        {' '}
+                        · {expense.merchant}
+                      </span>
+                    )}
                   </p>
-                )}
-              </div>
-              <p className="text-sm font-semibold tabular-nums">
-                {formatMoney(expense.amount, expense.currency)}
-              </p>
-              <Badge variant={STATUS_VARIANT[expense.status]}>
-                {EXPENSE_STATUS_LABELS[expense.status]}
-              </Badge>
-              <ExpenseActions
-                id={expense.id}
-                hasReceipt={expense.hasReceipt}
-                canDecide={
-                  canManage &&
-                  expense.status === 'submitted' &&
-                  (expense.userId !== ctx.userId || ctx.roleKey === 'owner')
-                }
-                canPay={canManage && expense.status === 'approved'}
-                canWithdraw={expense.userId === ctx.userId && expense.status === 'submitted'}
-              />
-            </li>
-          ))}
-        </ul>
+                  <p className="text-sm text-muted-foreground">
+                    {formatCalendarDate(expense.spentOn)}
+                    {expense.description && ` · ${expense.description}`}
+                  </p>
+                  {expense.decisionNote && (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Manager: {expense.decisionNote}
+                    </p>
+                  )}
+                </div>
+                <p className="text-sm font-semibold tabular-nums">
+                  {formatMoney(expense.amount, expense.currency)}
+                </p>
+                <Badge variant={STATUS_VARIANT[expense.status]}>
+                  {EXPENSE_STATUS_LABELS[expense.status]}
+                </Badge>
+                <ExpenseActions
+                  id={expense.id}
+                  hasReceipt={expense.hasReceipt}
+                  canDecide={
+                    canManage &&
+                    expense.status === 'submitted' &&
+                    (expense.userId !== ctx.userId || ctx.roleKey === 'owner')
+                  }
+                  canPay={canManage && expense.status === 'approved'}
+                  canWithdraw={expense.userId === ctx.userId && expense.status === 'submitted'}
+                />
+              </li>
+            ))}
+          </ul>
+          <ListPagination
+            pathname="/expenses"
+            filters={filters}
+            nextCursor={nextCursor}
+            shown={expenses.length}
+          />
+        </div>
       )}
     </div>
   );

@@ -124,7 +124,7 @@ describe('invoices', () => {
 
   it('never shows or changes another workspace’s invoice', async () => {
     expect(await getInvoice(outsider, id)).toBeNull();
-    expect(await listInvoices(outsider)).toEqual([]);
+    expect((await listInvoices(outsider)).items).toEqual([]);
     await expectCode(() => markInvoiceSent(outsider, id), 'NOT_FOUND');
     await expectCode(() => saveInvoice(outsider, invoice({ id })), 'NOT_FOUND');
   });
@@ -172,11 +172,21 @@ describe('invoices', () => {
     );
     expect(second.number).toBe(2);
     await markInvoiceSent(owner, second.id);
-    expect((await listInvoices(owner))[0]).toMatchObject({ number: 2, overdue: true });
+    expect((await listInvoices(owner)).items[0]).toMatchObject({ number: 2, overdue: true });
+  });
+
+  it('finds invoices by what is owed on them, and pages by number', async () => {
+    const numbers = async (options: Parameters<typeof listInvoices>[1]) =>
+      (await listInvoices(owner, options)).items.map((row) => row.number);
+    expect(await numbers({ filter: 'overdue' })).toEqual([2]);
+    expect(await numbers({ filter: 'outstanding' })).toEqual([2]);
+    expect(await numbers({ filter: 'closed' })).toEqual([1]);
+    expect(await numbers({ before: 2 })).toEqual([1]);
+    expect((await listInvoices(owner)).nextBefore).toBeNull();
   });
 
   it('writes an email that calls a taxed invoice a tax invoice and shows the seller details', async () => {
-    const detail = await getInvoice(owner, (await listInvoices(owner))[0]?.id ?? '');
+    const detail = await getInvoice(owner, (await listInvoices(owner)).items[0]?.id ?? '');
     if (!detail) throw new Error('no invoice');
     const email = renderInvoiceEmail(detail, 'Finance Alpha');
     expect(email.subject).toBe('Tax invoice INV-0002 from Finance Alpha');

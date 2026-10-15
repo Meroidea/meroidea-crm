@@ -21,7 +21,7 @@ export type ProductivityRow = {
 
 /**
  * What each active person did between two calendar days (in the business's timezone): hours
- * rostered, hours clocked, hours logged on project tasks, and tasks finished. Each figure is
+ * rostered on shifts that have started, hours clocked, hours logged on project tasks, and tasks finished. Each figure is
  * only filled in when the viewer is allowed to see everyone's data of that kind, so the report
  * never shows a partial number as if it were the whole.
  */
@@ -50,7 +50,8 @@ export async function getProductivity(
           join rosters r on r.tenant_id = s.tenant_id and r.id = s.roster_id
           where s.tenant_id = m.tenant_id and s.user_id = m.user_id and s.deleted_at is null
             and r.deleted_at is null and r.status = 'published'
-            and s.starts_at >= ${start} and s.starts_at < ${end}) as "rosteredMinutes",
+            -- Only shifts that have started, so a week in progress compares like with like.
+            and s.starts_at >= ${start} and s.starts_at < least(${end}, now())) as "rosteredMinutes",
         (select coalesce(sum(
             greatest(0, extract(epoch from (e.clock_out - e.clock_in)) / 60 - e.break_minutes)), 0)::int
           from time_entries e

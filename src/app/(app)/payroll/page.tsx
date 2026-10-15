@@ -24,8 +24,10 @@ export default async function PayrollPage() {
         description="Authorise each roster’s worked hours, add tax, and release payslips to staff."
       />
       <p className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text">
-        Payslips here are hours × the contract’s hourly rate, plus super. Tax is not calculated: you
-        enter the amount withheld. Penalty rates, overtime, allowances and leave are not applied.
+        Gross pay is the sum of each person’s pay lines: under an award with written-down rules, its
+        penalty rates, overtime and allowances; otherwise the agreed rate with your weekend and
+        public-holiday loadings. Super is on ordinary time. Tax is not calculated: you enter the
+        amount withheld. Leave is not applied.
       </p>
       <Card>
         <CardContent>
