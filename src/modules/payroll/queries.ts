@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from 'drizzle-orm';
 
 import { payslips, rosterShifts, rosters, users } from '@/db/schema';
 import { centsToAmount } from '@/modules/roster/rules';
@@ -27,40 +27,67 @@ const columns = {
   currency: payslips.currency,
 };
 
-/** Published rosters, newest first, with where each is up to in pay. */
-export async function listPayRuns(ctx: TenantContext): Promise<PayRunRoster[]> {
+export const PAY_RUN_PAGE_SIZE = 30;
+
+const payRunColumns = {
+  id: rosters.id,
+  startsOn: rosters.startsOn,
+  endsOn: rosters.endsOn,
+  status: rosters.status,
+  authorisedAt: rosters.authorisedAt,
+  payslips: sql<number>`(select count(*)::int from payslips p
+    where p.tenant_id = rosters.tenant_id and p.roster_id = rosters.id)`,
+  released: sql<number>`(select count(*)::int from payslips p
+    where p.tenant_id = rosters.tenant_id and p.roster_id = rosters.id and p.status = 'released')`,
+};
+
+const livePublished = (ctx: TenantContext) =>
+  and(
+    eq(rosters.tenantId, ctx.tenantId),
+    isNull(rosters.deletedAt),
+    eq(rosters.status, 'published'),
+  );
+
+/**
+ * Published rosters, newest first, with where each is up to in pay; a page at a time, so an old
+ * pay run with payslips still to release is never out of reach. Rosters never overlap, so the
+ * start date alone marks the place.
+ */
+export async function listPayRuns(
+  ctx: TenantContext,
+  options: { before?: string } = {},
+): Promise<{ items: PayRunRoster[]; nextBefore: string | null }> {
   requirePermission(ctx, 'payroll.manage');
-  return withRls(ctx, (tx) =>
+  const rows = await withRls(ctx, (tx) =>
     tx
-      .select({
-        id: rosters.id,
-        startsOn: rosters.startsOn,
-        endsOn: rosters.endsOn,
-        status: rosters.status,
-        authorisedAt: rosters.authorisedAt,
-        payslips: sql<number>`(select count(*)::int from payslips p
-          where p.tenant_id = rosters.tenant_id and p.roster_id = rosters.id)`,
-        released: sql<number>`(select count(*)::int from payslips p
-          where p.tenant_id = rosters.tenant_id and p.roster_id = rosters.id and p.status = 'released')`,
-      })
+      .select(payRunColumns)
       .from(rosters)
       .where(
-        and(
-          eq(rosters.tenantId, ctx.tenantId),
-          isNull(rosters.deletedAt),
-          eq(rosters.status, 'published'),
-        ),
+        and(livePublished(ctx), options.before ? lt(rosters.startsOn, options.before) : undefined),
       )
       .orderBy(desc(rosters.startsOn))
-      .limit(60),
+      .limit(PAY_RUN_PAGE_SIZE + 1),
   );
+  const items = rows.slice(0, PAY_RUN_PAGE_SIZE);
+  return {
+    items,
+    nextBefore: rows.length > PAY_RUN_PAGE_SIZE ? (items.at(-1)?.startsOn ?? null) : null,
+  };
 }
 
 export async function getPayRun(
   ctx: TenantContext,
   rosterId: string,
 ): Promise<PayRunRoster | null> {
-  return (await listPayRuns(ctx)).find((run) => run.id === rosterId) ?? null;
+  requirePermission(ctx, 'payroll.manage');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select(payRunColumns)
+      .from(rosters)
+      .where(and(livePublished(ctx), eq(rosters.id, rosterId)))
+      .limit(1),
+  );
+  return row ?? null;
 }
 
 export async function listPayslipsForRoster(

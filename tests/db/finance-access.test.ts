@@ -20,7 +20,13 @@ import {
   sendInvoice,
   voidInvoice,
 } from '@/modules/invoices/service';
-import { getPayslip, listMyPayslips, listPayslipsForRoster } from '@/modules/payroll/queries';
+import {
+  getPayRun,
+  getPayslip,
+  listMyPayslips,
+  listPayRuns,
+  listPayslipsForRoster,
+} from '@/modules/payroll/queries';
 import { authoriseRosterSchema } from '@/modules/payroll/schemas';
 import { authoriseRoster, releasePayslips, setTaxWithheld } from '@/modules/payroll/service';
 import { createRosterSchema, publishRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
@@ -330,6 +336,17 @@ describe('payslips from an authorised roster', () => {
       { date: '2031-06-02', start: '09:00', end: '17:00', minutes: 450 },
       { date: '2031-06-03', start: '09:00', end: '12:20', minutes: 200 },
     ]);
+  });
+
+  it('opens any pay run by its roster, however many newer ones there are', async () => {
+    const run = await getPayRun(owner, rosterId);
+    expect(run).toMatchObject({ id: rosterId, payslips: 1 });
+    await expectCode(() => getPayRun(manager, rosterId), 'FORBIDDEN');
+    expect(await getPayRun(outsider, rosterId)).toBeNull();
+    // Paging past it leaves it out; the first page has it.
+    expect((await listPayRuns(owner)).items.map((row) => row.id)).toContain(rosterId);
+    const older = await listPayRuns(owner, { before: run!.startsOn });
+    expect(older.items.map((row) => row.id)).not.toContain(rosterId);
   });
 
   it('locks the roster once authorised', async () => {
