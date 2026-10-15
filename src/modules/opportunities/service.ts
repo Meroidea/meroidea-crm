@@ -695,6 +695,31 @@ async function performMove(
     context: lostReasonId ? { lostReasonId } : null,
   });
 
+  // A request to move it somewhere else no longer stands once it has been moved: approving it
+  // later would undo this move (and could reopen a lost deal).
+  if (!options.approved) {
+    const stale = await tx
+      .update(stageApprovals)
+      .set({ status: 'withdrawn', decidedBy: ctx.userId, decidedAt: now })
+      .where(
+        and(
+          eq(stageApprovals.tenantId, ctx.tenantId),
+          eq(stageApprovals.opportunityId, existing.id),
+          eq(stageApprovals.status, 'pending'),
+        ),
+      )
+      .returning({ id: stageApprovals.id });
+    for (const request of stale) {
+      await audit(tx, ctx, {
+        action: 'update',
+        entityType: 'stage_approval',
+        entityId: request.id,
+        changes: { status: ['pending', 'withdrawn'] },
+        context: { reason: 'moved' },
+      });
+    }
+  }
+
   const entry = await enterStageOwner(tx, ctx, existing, target);
   if (entry.ownerUserId !== existing.ownerUserId) {
     await tx
@@ -745,6 +770,12 @@ export async function decideApproval(
 
     let emails: PendingEmail[] = [];
     if (input.approve) {
+      if (existing.status !== 'open') {
+        throw new AppError(
+          'CONFLICT',
+          'This opportunity has been closed since the request. Decline the request instead.',
+        );
+      }
       const pipeline = await loadPipelineConfig(tx, ctx, existing.pipelineId);
       const moved = await performMove(
         tx,

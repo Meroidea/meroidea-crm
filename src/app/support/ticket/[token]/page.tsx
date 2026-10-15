@@ -22,8 +22,10 @@ const STATUS_TEXT: Record<string, string> = {
   closed: 'Closed',
 };
 
-const when = (date: Date) =>
-  new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+const when = (date: Date, timeZone: string) =>
+  new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(
+    date,
+  );
 
 export default async function PublicTicketPage({ params }: PageProps<'/support/ticket/[token]'>) {
   const { token } = await params;
@@ -69,7 +71,7 @@ export default async function PublicTicketPage({ params }: PageProps<'/support/t
                     <span className="font-medium text-foreground">
                       {message.fromStaff ? `${message.authorName} · ${ticket.businessName}` : 'You'}
                     </span>{' '}
-                    · {when(message.createdAt)}
+                    · {when(message.createdAt, ticket.timezone)}
                   </p>
                   <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap">{message.body}</p>
                 </li>

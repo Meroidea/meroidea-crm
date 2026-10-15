@@ -268,7 +268,7 @@ describe('helpdesk', () => {
       member,
       replySchema.parse({ ticketId, body: 'Sorry! Replacing it now.' }),
     );
-    expect(result.emailed).toBe(false);
+    expect(result.email).toBe('not_configured');
     const saved = await getTicket(owner, ticketId);
     expect(saved).toMatchObject({ status: 'pending', assigneeUserId: member.userId });
     expect(saved?.firstResponseAt).not.toBeNull();
@@ -354,6 +354,22 @@ describe('helpdesk', () => {
     );
     // Someone who works tickets can still be given one.
     await updateTicket(owner, { id: ticketId, assigneeUserId: member.userId });
+    await updateTicket(owner, { id: ticketId, assigneeUserId: null });
+  });
+
+  it('records who a ticket moved from and to', async () => {
+    await updateTicket(owner, { id: ticketId, assigneeUserId: member.userId });
+    const [moved] = (await adminDb().execute(sql`
+      select action, changes from audit_logs
+      where tenant_id = ${alphaTenant} and entity_type = 'ticket' and entity_id = ${ticketId}
+      order by created_at desc limit 1`)) as unknown as {
+      action: string;
+      changes: Record<string, unknown>;
+    }[];
+    expect(moved).toEqual({
+      action: 'owner_change',
+      changes: { assigneeUserId: [null, member.userId] },
+    });
     await updateTicket(owner, { id: ticketId, assigneeUserId: null });
   });
 

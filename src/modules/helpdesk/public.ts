@@ -152,6 +152,7 @@ async function ticketByToken(token: string) {
       status: tickets.status,
       requesterName: tickets.requesterName,
       businessName: tenants.name,
+      timezone: tenants.timezone,
     })
     .from(tickets)
     .innerJoin(tenants, eq(tenants.id, tickets.tenantId))
@@ -173,6 +174,8 @@ export type PublicTicket = {
   subject: string;
   status: string;
   businessName: string;
+  /** The business's own timezone, so times read as they do in the workspace. */
+  timezone: string;
   messages: { id: string; fromStaff: boolean; authorName: string; body: string; createdAt: Date }[];
 };
 
@@ -202,6 +205,7 @@ export async function getPublicTicket(token: string): Promise<PublicTicket | nul
     subject: ticket.subject,
     status: ticket.status,
     businessName: ticket.businessName,
+    timezone: ticket.timezone,
     messages: messages.map((message, index) => ({
       id: message.id,
       // The opening message is the customer's own words even when staff logged it for them.

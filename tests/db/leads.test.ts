@@ -403,6 +403,26 @@ describe('outreach', () => {
     );
   });
 
+  it('holds the daily email limit even when sends arrive together', async () => {
+    const { sendContactEmail } = await import('@/modules/outreach/service');
+    const { consumeRateLimit } = await import('@/server/rate-limit');
+    // As if 200 sends had just passed the count together, before any of them was logged.
+    for (let sent = 0; sent < 200; sent += 1) {
+      await consumeRateLimit({
+        bucket: `crm-email:${sdr.tenantId}`,
+        subject: sdr.userId,
+        limit: 200,
+        windowSeconds: 86_400,
+      });
+    }
+    const { id } = await createContact(sdr, lead());
+    await expectCode(
+      () =>
+        sendContactEmail(sdr, { contactId: id, subject: 'Hello', body: 'Hi', templateId: null }),
+      'RATE_LIMITED',
+    );
+  });
+
   it('turns a sequence into dated tasks, and stopping it cancels the open ones', async () => {
     const { enrollInSequence, stopEnrollment } = await import('@/modules/outreach/service');
     const { saveSequence } = await import('@/modules/crm-config/service');

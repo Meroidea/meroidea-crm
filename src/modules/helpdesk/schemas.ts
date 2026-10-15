@@ -98,3 +98,6 @@ export type CreateTicketInput = z.output<typeof createTicketSchema>;
 export type ReplyInput = z.output<typeof replySchema>;
 export type UpdateTicketInput = z.output<typeof updateTicketSchema>;
 export type PublicTicketInput = z.output<typeof publicTicketSchema>;
+
+/** What became of the email for a reply: `none` when there was no one to send it to. */
+export type ReplyEmail = 'sent' | 'not_configured' | 'failed' | 'none';

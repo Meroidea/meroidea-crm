@@ -80,11 +80,7 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
               );
             })}
           </ol>
-          <ReplyBox
-            ticketId={ticket.id}
-            hasEmail={Boolean(ticket.requesterEmail)}
-            customerLink={customerLink}
-          />
+          <ReplyBox ticketId={ticket.id} customerLink={customerLink} />
         </div>
 
         <aside className="flex flex-col gap-4">
