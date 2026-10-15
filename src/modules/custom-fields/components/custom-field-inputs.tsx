@@ -78,7 +78,7 @@ export function CustomFieldInputs({
                     <option value="">Not set</option>
                     {field.choices.map((choice) => (
                       <option key={choice.value} value={choice.value}>
-                        {choice.label}
+                        {choice.retired ? `${choice.label} (no longer offered)` : choice.label}
                       </option>
                     ))}
                   </NativeSelect>
@@ -93,7 +93,7 @@ export function CustomFieldInputs({
                   >
                     {field.choices.map((choice) => (
                       <option key={choice.value} value={choice.value}>
-                        {choice.label}
+                        {choice.retired ? `${choice.label} (no longer offered)` : choice.label}
                       </option>
                     ))}
                   </select>

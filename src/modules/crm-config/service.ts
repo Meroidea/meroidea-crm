@@ -27,7 +27,7 @@ import { diffChanges } from '@/lib/audit-diff';
 import { AppError } from '@/lib/errors';
 import { isScoped, PERMISSION_KEYS, type PermissionKey } from '@/lib/permissions/catalog';
 import { DEFAULT_PIPELINE } from '@/lib/tenant/defaults';
-import { keyFromLabel } from '@/modules/custom-fields/validation';
+import { choicesOf, keyFromLabel, reconcileChoices } from '@/modules/custom-fields/validation';
 import { formFieldsSchema, type FormField } from '@/modules/leads/form-fields';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
@@ -596,19 +596,15 @@ export function saveCustomField(
   input: CustomFieldInput,
 ): Promise<{ id: string; key: string }> {
   return configure(ctx, async (tx) => {
-    const choices =
-      input.fieldType === 'select' || input.fieldType === 'multi_select'
-        ? input.choices.map((label) => ({ value: keyFromLabel(label), label }))
-        : [];
-    if (
-      (input.fieldType === 'select' || input.fieldType === 'multi_select') &&
-      choices.length === 0
-    ) {
+    const picklist = input.fieldType === 'select' || input.fieldType === 'multi_select';
+    if (picklist && input.choices.length === 0) {
       throw new AppError('VALIDATION', 'Add the options to pick from.', { choices: ['Required'] });
     }
-    if (new Set(choices.map((choice) => choice.value)).size !== choices.length) {
-      throw new AppError('VALIDATION', 'Two options are too alike; make each one distinct.');
+    const labels = input.choices.map((label) => label.trim().toLowerCase());
+    if (new Set(labels).size !== labels.length) {
+      throw new AppError('VALIDATION', 'Two options are the same; make each one distinct.');
     }
+    let choices = picklist ? reconcileChoices(input.choices, []) : [];
     if (input.id) {
       const [existing] = await tx
         .select()
@@ -621,6 +617,7 @@ export function saveCustomField(
         )
         .limit(1);
       if (!existing) throw new AppError('NOT_FOUND', 'That field was not found.');
+      if (picklist) choices = reconcileChoices(input.choices, choicesOf(existing.options));
       // The key and type are fixed once created: stored values depend on them.
       const next = {
         label: input.label,

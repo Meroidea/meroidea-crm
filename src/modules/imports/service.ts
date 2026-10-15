@@ -59,8 +59,9 @@ function customFromRow(definitions: CustomFieldDefinition[], raw: Record<string,
     const choice = (text: string) =>
       field.choices.find(
         (option) =>
-          option.value.toLowerCase() === text.toLowerCase() ||
-          option.label.toLowerCase() === text.toLowerCase(),
+          !option.retired &&
+          (option.value.toLowerCase() === text.toLowerCase() ||
+            option.label.toLowerCase() === text.toLowerCase()),
       )?.value ?? text;
     if (field.fieldType === 'select') submitted[field.key] = choice(cell);
     else if (field.fieldType === 'multi_select') {
