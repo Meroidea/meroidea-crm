@@ -359,6 +359,21 @@ describe('B2C conversion', () => {
     expect(await statusKind(admin, id)).toBe('converted');
     await setCrm({});
   });
+
+  it('needs a second person who can approve: not yourself, and not someone without approval', async () => {
+    await setCrm({ b2cApproval: true });
+    const { id } = await createContact(sdr, lead({ leadType: 'b2c' }));
+    const submit = (ctx: TenantContext, toUserId: string) =>
+      handoverLead(
+        ctx,
+        handoverSchema.parse({ contactId: id, toUserId, summary: 'Please approve.' }),
+      );
+    // Naming yourself, then approving, would make the approval meaningless.
+    await expectCode(() => submit(sdr, sdr.userId), 'VALIDATION');
+    // A colleague who cannot approve opportunities cannot be the approver.
+    await expectCode(() => submit(sdr, rep.userId), 'VALIDATION');
+    await setCrm({});
+  });
 });
 
 describe('outreach', () => {

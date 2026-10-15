@@ -1,13 +1,15 @@
 import 'server-only';
 
-import { and, eq, ilike, inArray, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, or } from 'drizzle-orm';
 
 import {
+  activities,
   contactLinks,
   contactOrganizations,
   contacts,
   leadReasons,
   organizations,
+  rolePermissions,
   tenantMemberships,
 } from '@/db/schema';
 import { AppError } from '@/lib/errors';
@@ -252,6 +254,48 @@ async function assertActiveMember(tx: Tx, ctx: TenantContext, userId: string): P
   }
 }
 
+/** Whether this member's role lets them approve opportunities. */
+async function memberCanApprove(tx: Tx, ctx: TenantContext, userId: string): Promise<boolean> {
+  const [grant] = await tx
+    .select({ permission: rolePermissions.permission })
+    .from(tenantMemberships)
+    .innerJoin(
+      rolePermissions,
+      and(
+        eq(rolePermissions.tenantId, tenantMemberships.tenantId),
+        eq(rolePermissions.roleId, tenantMemberships.roleId),
+        eq(rolePermissions.permission, 'opportunities.approve'),
+      ),
+    )
+    .where(
+      and(
+        eq(tenantMemberships.tenantId, ctx.tenantId),
+        eq(tenantMemberships.userId, userId),
+        eq(tenantMemberships.status, 'active'),
+        eq(tenantMemberships.isSupport, false),
+      ),
+    )
+    .limit(1);
+  return Boolean(grant);
+}
+
+/** Who submitted the lead's current handover or approval request. */
+async function handoverSubmitter(tx: Tx, ctx: TenantContext, contactId: string) {
+  const [row] = await tx
+    .select({ actorUserId: activities.actorUserId })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.tenantId, ctx.tenantId),
+        eq(activities.contactId, contactId),
+        eq(activities.type, 'handover'),
+      ),
+    )
+    .orderBy(desc(activities.occurredAt))
+    .limit(1);
+  return row?.actorUserId ?? null;
+}
+
 /**
  * Passes a qualified lead from the SDR/BDR to a sales rep (docs/leads.md §4.5), or — for a B2C
  * business that asks for it — submits a lead for approval before it becomes an opportunity.
@@ -315,6 +359,18 @@ export async function handoverLead(ctx: TenantContext, input: HandoverInput) {
       }
     }
     await assertActiveMember(tx, ctx, toUserId);
+    // Handing a lead to yourself, then accepting it, would skip the step the business set up:
+    // the handover to a rep, or the second person's approval.
+    if (toUserId === ctx.userId) {
+      throw new AppError('VALIDATION', 'Choose someone other than yourself.', {
+        toUserId: ['Choose someone else'],
+      });
+    }
+    if (approvalOnly && !(await memberCanApprove(tx, ctx, toUserId))) {
+      throw new AppError('VALIDATION', 'Choose someone who can approve opportunities.', {
+        toUserId: ['Cannot approve'],
+      });
+    }
 
     const now = new Date();
     const pending = systemStatus(config, 'pending_acceptance', lead.leadType);
@@ -577,6 +633,19 @@ export async function acceptHandover(ctx: TenantContext, input: AcceptHandoverIn
       throw new AppError('CONFLICT', 'This lead isn’t waiting to be accepted.');
     }
     assertCanDecide(ctx, lead);
+    // An approval is a second person's decision: someone who can approve, and not whoever
+    // submitted it (a manager deciding on an approver's behalf included).
+    if (!usesHandover(config.settings, lead.leadType ?? 'b2b')) {
+      if (!hasPermission(ctx, 'opportunities.approve')) {
+        throw new AppError(
+          'FORBIDDEN',
+          'Only someone who can approve opportunities can approve this.',
+        );
+      }
+      if ((await handoverSubmitter(tx, ctx, lead.id)) === ctx.userId) {
+        throw new AppError('FORBIDDEN', 'Someone else has to approve a lead you submitted.');
+      }
+    }
     const owner = lead.handoverToUserId;
     const result = await convert(tx, ctx, config, lead, input, owner);
     await recordSystemActivity(tx, ctx, {

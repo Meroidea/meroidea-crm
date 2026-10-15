@@ -81,6 +81,7 @@ export type LeadPanelProps = {
   disqualifyReasons: Option[];
   rejectReasons: Option[];
   people: Option[];
+  handoverPeople: Option[];
   pipelines: Option[];
   contactRoles: string[];
   /** handover: B2B or a B2C qualification step; approval: B2C needing approval; direct: B2C convert. */
@@ -636,7 +637,7 @@ export function LeadPanel(props: LeadPanelProps) {
                   <option value="">Use the handover routing rules</option>
                 )}
                 {props.path === 'approval' && <option value="">Choose…</option>}
-                {props.people.map((person) => (
+                {props.handoverPeople.map((person) => (
                   <option key={person.value} value={person.value}>
                     {person.label}
                   </option>
