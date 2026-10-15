@@ -57,11 +57,14 @@ export async function signUpAction(raw: unknown): Promise<ActionResult<{ slug: s
 /**
  * Sign-in limits. Supabase's own per-address limit sees this server, not the person, so it would
  * either let one guesser try without end or lock everyone out at once. Wrong passwords are
- * counted per account, so nobody can lock a real user out just by knowing their email; every
- * attempt is counted per sender address, which stops one sender trying many accounts.
+ * counted per account and sender together, so a guesser locks out only themselves, never the
+ * account's real owner; a much higher count per account alone stops guessing spread across
+ * many senders. Every attempt is also counted per sender, which stops one sender trying many
+ * accounts.
  */
 const SIGN_IN_WINDOW_SECONDS = 15 * 60;
-const SIGN_IN_FAILURES_PER_ACCOUNT = 10;
+const SIGN_IN_FAILURES_PER_ACCOUNT_AND_SENDER = 10;
+const SIGN_IN_FAILURES_PER_ACCOUNT = 100;
 const SIGN_IN_ATTEMPTS_PER_ADDRESS = 40;
 const SIGN_IN_LIMITED = 'Too many sign-in attempts. Wait 15 minutes and try again.';
 
@@ -82,13 +85,24 @@ export async function signInAction(raw: unknown): Promise<ActionResult<null>> {
         SIGN_IN_LIMITED,
       );
     }
-    const accountLimit = {
-      bucket: 'sign-in:account',
-      subject: input.email.toLowerCase(),
-      limit: SIGN_IN_FAILURES_PER_ACCOUNT,
-      windowSeconds: SIGN_IN_WINDOW_SECONDS,
-    };
-    if (await rateLimitReached(accountLimit)) throw new AppError('RATE_LIMITED', SIGN_IN_LIMITED);
+    const account = input.email.toLowerCase();
+    const failureLimits = [
+      {
+        bucket: 'sign-in:account-sender',
+        subject: `${account}|${address ?? 'unknown'}`,
+        limit: SIGN_IN_FAILURES_PER_ACCOUNT_AND_SENDER,
+        windowSeconds: SIGN_IN_WINDOW_SECONDS,
+      },
+      {
+        bucket: 'sign-in:account',
+        subject: account,
+        limit: SIGN_IN_FAILURES_PER_ACCOUNT,
+        windowSeconds: SIGN_IN_WINDOW_SECONDS,
+      },
+    ];
+    for (const limit of failureLimits) {
+      if (await rateLimitReached(limit)) throw new AppError('RATE_LIMITED', SIGN_IN_LIMITED);
+    }
 
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.signInWithPassword({
@@ -96,7 +110,7 @@ export async function signInAction(raw: unknown): Promise<ActionResult<null>> {
       password: input.password,
     });
     if (error) {
-      await consumeRateLimit(accountLimit);
+      for (const limit of failureLimits) await consumeRateLimit(limit);
       // Deliberately vague: never disclose whether the address exists.
       throw new AppError('UNAUTHENTICATED', 'That email and password do not match.');
     }

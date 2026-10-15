@@ -17,6 +17,15 @@ function ownerEmails(): string[] {
 }
 
 /**
+ * Whether an email belongs to a platform owner. A business must never create a login for one of
+ * these addresses: platform owners are recognised by email, so whoever chose that login's
+ * password would hold the platform console over every business.
+ */
+export function isPlatformOwnerEmail(email: string): boolean {
+  return ownerEmails().includes(email.trim().toLowerCase());
+}
+
+/**
  * The signed-in person, if they are a platform owner: someone who runs Meroidea itself and may
  * see and manage every business on it (ADR-029). Identity comes from the auth server, never
  * from a cookie's contents, and the list of owners never reaches the browser.

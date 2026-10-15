@@ -273,7 +273,11 @@ export async function toggleLostReason(
   });
 }
 
-/** Changing someone's role. The workspace must always keep at least one active owner. */
+/**
+ * Changing someone's role. Only an Admin makes someone Admin or changes an Admin's role:
+ * users.manage alone, given to a role for onboarding staff, must not reach payroll and every
+ * setting by promoting its holder. The workspace always keeps at least one active Admin.
+ */
 export async function changeMemberRole(
   ctx: TenantContext,
   input: { userId: string; roleId: string },
@@ -281,7 +285,12 @@ export async function changeMemberRole(
   requirePermission(ctx, 'users.manage');
   return withRls(ctx, async (tx) => {
     const [membership] = await tx
-      .select({ id: tenantMemberships.id, roleId: tenantMemberships.roleId })
+      .select({
+        id: tenantMemberships.id,
+        roleId: tenantMemberships.roleId,
+        status: tenantMemberships.status,
+        isSupport: tenantMemberships.isSupport,
+      })
       .from(tenantMemberships)
       .where(
         and(
@@ -291,7 +300,10 @@ export async function changeMemberRole(
       )
       .limit(1)
       .for('update');
-    if (!membership) throw new AppError('NOT_FOUND', 'That person was not found.');
+    // A platform owner's support seat is not one of the business's people to manage.
+    if (!membership || membership.isSupport) {
+      throw new AppError('NOT_FOUND', 'That person was not found.');
+    }
     const roleRows = await tx
       .select({ id: roles.id, key: roles.key })
       .from(roles)
@@ -300,8 +312,25 @@ export async function changeMemberRole(
     const ownerRole = roleRows.find((role) => role.key === 'owner');
     if (!target) throw new AppError('VALIDATION', 'Choose a role.');
     if (membership.roleId === target.id) return { id: membership.id };
+    const touchesAdmin =
+      !!ownerRole && (target.id === ownerRole.id || membership.roleId === ownerRole.id);
+    if (touchesAdmin && ctx.roleKey !== 'owner') {
+      throw new AppError('FORBIDDEN', 'Only an Admin can make someone Admin or change an Admin.');
+    }
 
-    if (ownerRole && membership.roleId === ownerRole.id) {
+    if (ownerRole && membership.roleId === ownerRole.id && membership.status === 'active') {
+      // Locks every Admin seat first, so two Admins demoting each other at once cannot both
+      // see the other still there and leave the business with none.
+      await tx
+        .select({ id: tenantMemberships.id })
+        .from(tenantMemberships)
+        .where(
+          and(
+            eq(tenantMemberships.tenantId, ctx.tenantId),
+            eq(tenantMemberships.roleId, ownerRole.id),
+          ),
+        )
+        .for('update');
       const [owners] = await tx
         .select({ total: count() })
         .from(tenantMemberships)
@@ -310,6 +339,8 @@ export async function changeMemberRole(
             eq(tenantMemberships.tenantId, ctx.tenantId),
             eq(tenantMemberships.roleId, ownerRole.id),
             eq(tenantMemberships.status, 'active'),
+            // A support seat is a visitor that leaves; it never counts as the business's Admin.
+            eq(tenantMemberships.isSupport, false),
           ),
         );
       if ((owners?.total ?? 0) <= 1) {

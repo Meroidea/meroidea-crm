@@ -984,6 +984,23 @@ export async function saveRole(ctx: TenantContext, input: RoleInput): Promise<Re
     if (isScoped(key)) return scope === 'true' ? [] : [{ permission: key, scope }];
     return [{ permission: key, scope: null }];
   });
+  // Someone who manages roles but isn't Admin hands out only what they hold themselves, at no
+  // wider scope; otherwise roles.manage would let them grant their own role anything.
+  if (ctx.roleKey !== 'owner') {
+    const rank = { own: 1, team: 2, all: 3 } as const;
+    const beyond = grants.find((grant) => {
+      const held = ctx.grants.get(grant.permission);
+      if (held === undefined) return true;
+      if (grant.scope === null || held === true) return false;
+      return rank[grant.scope] > rank[held];
+    });
+    if (beyond) {
+      throw new AppError(
+        'FORBIDDEN',
+        'You can only give a role permissions you have yourself, at the same reach or less.',
+      );
+    }
+  }
   return withRls(ctx, async (tx) => {
     let roleId = input.id;
     if (roleId) {

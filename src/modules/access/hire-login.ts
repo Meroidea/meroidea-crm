@@ -8,6 +8,7 @@ import { auditLogs, employees, roles, tenantMemberships, tenants, users } from '
 import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
+import { isPlatformOwnerEmail } from '@/server/platform';
 
 import { businessTeamId, createPasswordLink, escapeHtml } from './service';
 
@@ -141,6 +142,11 @@ export async function createLoginForAcceptedHire(input: {
   }
 
   const email = employee.email.toLowerCase();
+  // A platform owner's address never gets a login made by a business (see isPlatformOwnerEmail).
+  if (isPlatformOwnerEmail(email)) {
+    await record(input.tenantId, input.employeeId, { loginCreated: false, reason: 'email_in_use' });
+    return { created: false, reason: 'email_in_use' };
+  }
   const fullName = `${employee.firstName} ${employee.lastName}`;
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.auth.admin.createUser({

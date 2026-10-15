@@ -13,6 +13,7 @@ import { withRls } from '@/server/db/with-rls';
 import { isEmailConfigured, sendEmail } from '@/server/email';
 import { serverEnv } from '@/server/env';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
+import { isPlatformOwnerEmail } from '@/server/platform';
 
 import type { InviteMemberInput } from './schemas';
 
@@ -97,14 +98,24 @@ export async function inviteMember(
     throw new AppError('FORBIDDEN', 'You do not have access to that.');
   }
   const email = input.email.toLowerCase();
+  if (isPlatformOwnerEmail(email)) {
+    throw new AppError('CONFLICT', 'That email address can’t be given a login here.', {
+      email: ['Use a different address'],
+    });
+  }
   const [role] = await withRls(ctx, (tx) =>
     tx
-      .select({ id: roles.id })
+      .select({ id: roles.id, key: roles.key })
       .from(roles)
       .where(and(eq(roles.tenantId, ctx.tenantId), eq(roles.id, input.roleId)))
       .limit(1),
   );
   if (!role) throw new AppError('VALIDATION', 'Choose a role.', { roleId: ['Choose a role'] });
+  if (role.key === 'owner' && ctx.roleKey !== 'owner') {
+    throw new AppError('FORBIDDEN', 'Only an Admin can add another Admin.', {
+      roleId: ['Choose another role'],
+    });
+  }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.auth.admin.createUser({
@@ -231,6 +242,9 @@ export async function setMemberStatus(
         .from(roles)
         .where(and(eq(roles.tenantId, ctx.tenantId), eq(roles.key, 'owner')))
         .limit(1);
+      if (ownerRole && member.roleId === ownerRole.id && ctx.roleKey !== 'owner') {
+        throw new AppError('FORBIDDEN', 'Only an Admin can switch off an Admin’s login.');
+      }
       if (ownerRole && member.roleId === ownerRole.id) {
         const [owners] = await tx
           .select({ total: count() })

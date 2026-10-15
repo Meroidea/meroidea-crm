@@ -38,7 +38,7 @@ describe('rate limits', () => {
 });
 
 describe('signing in', () => {
-  it('stops guessing one account’s password after ten wrong tries, even with the right one', async () => {
+  it('stops one sender guessing an account’s password, without locking out its owner', async () => {
     request.address = `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
     const email = `guessed-${unique()}@example.com`;
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -47,6 +47,10 @@ describe('signing in', () => {
     }
     const blocked = await signIn(email, 'right-password');
     expect(blocked.ok ? 'OK' : blocked.error.code).toBe('RATE_LIMITED');
+
+    // The guesser only locked themselves out: the account's owner, elsewhere, still gets in.
+    request.address = `198.51.100.${(Number(request.address.split('.').pop()) % 200) + 30}`;
+    expect((await signIn(email, 'right-password')).ok).toBe(true);
   });
 
   it('does not let failures on one account lock out another, or count successful sign-ins', async () => {
