@@ -1,10 +1,10 @@
 'use client';
 
 import { Download } from 'lucide-react';
-import Papa from 'papaparse';
 
 import { Button } from '@/components/ui/button';
 import { IMPORT_OUTCOME_LABELS, type ImportReportRow } from '@/modules/imports/schemas';
+import { toCsv } from '@/lib/csv';
 
 /** The upload report as CSV: row numbers, outcomes and reasons only — no personal details. */
 export function ImportReportDownload({
@@ -16,7 +16,7 @@ export function ImportReportDownload({
 }) {
   const download = () => {
     const origin = window.location.origin;
-    const csv = Papa.unparse(
+    const csv = toCsv(
       rows.map((row) => ({
         Row: row.row,
         Outcome: IMPORT_OUTCOME_LABELS[row.outcome],

@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, lte } from 'drizzle-orm';
-import Papa from 'papaparse';
 
 import { employees, rosterShifts, rosters, timeEntries, users } from '@/db/schema';
 import {
@@ -21,6 +20,7 @@ import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 import { writeWorkbook } from '@/server/xlsx';
+import { toCsv } from '@/lib/csv';
 
 import { buildTimesheetWorkbook } from './workbook';
 import { matchDay, type DayEntry, type DayRow, type DayShift } from './day';
@@ -389,7 +389,7 @@ export async function exportTimesheetPeriod(
   );
   return {
     filename: `timesheets-${period.from}-to-${period.to}.csv`,
-    csv: Papa.unparse(rows),
+    csv: toCsv(rows),
     rows: approved.length,
   };
 }

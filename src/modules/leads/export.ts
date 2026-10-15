@@ -1,12 +1,12 @@
 import 'server-only';
 
 import { and, desc, eq } from 'drizzle-orm';
-import Papa from 'papaparse';
 
 import { contacts, leadSources, leadStatuses, leadSubSources } from '@/db/schema';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
+import { toCsv } from '@/lib/csv';
 
 import { baseConditions, handoverTo, owners, type LeadView } from './queries';
 import type { LeadQueueFilters } from './schemas';
@@ -65,7 +65,7 @@ export async function exportLeads(
       .limit(LEAD_EXPORT_LIMIT + 1);
 
     const shown = rows.slice(0, LEAD_EXPORT_LIMIT);
-    const csv = Papa.unparse(
+    const csv = toCsv(
       shown.map(({ contact: c, ...row }) => ({
         'First name': c.firstName,
         'Last name': c.lastName ?? '',

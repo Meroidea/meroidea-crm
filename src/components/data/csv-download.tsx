@@ -1,11 +1,11 @@
 'use client';
 
 import { Download } from 'lucide-react';
-import Papa from 'papaparse';
 import { useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
 import type { ActionResult } from '@/lib/errors';
+import { toCsv } from '@/lib/csv';
 
 /** Saves text as a file in the browser. */
 export function saveCsv(fileName: string, csv: string) {
@@ -42,7 +42,7 @@ export function CsvDownload({
       onClick={() =>
         startTransition(async () => {
           const result = await record();
-          if (result.ok) saveCsv(fileName, Papa.unparse(rows));
+          if (result.ok) saveCsv(fileName, toCsv(rows));
         })
       }
     >

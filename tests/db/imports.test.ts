@@ -188,6 +188,58 @@ describe('uploading leads', () => {
     expect((await contactRow(theirs.id)).phone).toBeNull();
   });
 
+  it('creates, and flags, someone who only shares a name and company with an existing record', async () => {
+    await createContact(
+      admin,
+      createContactSchema.parse({
+        firstName: 'Lee',
+        lastName: `Same ${stamp}`,
+        companyName: `Acme ${stamp}`,
+        email: mail('lee-one'),
+      }),
+    );
+    for (const duplicates of ['skip', 'merge'] as const) {
+      const { id: batchId } = await start(admin, { duplicates, asLeads: false });
+      const result = await chunk(admin, batchId, [
+        {
+          fullName: `Lee Same ${stamp}`,
+          companyName: `Acme ${stamp}`,
+          email: mail(`lee-${duplicates}`),
+        },
+      ]);
+      // A different email: a different person, so neither skipped nor merged into the first.
+      expect(result).toMatchObject({ skippedDuplicates: 0, merged: 0 });
+      const batch = await getImportBatch(admin, batchId);
+      expect(batch!.rows[0]?.outcome).toBe('duplicate_created');
+    }
+  });
+
+  it('spreads an upload across a least-loaded rule instead of giving it all to one person', async () => {
+    const first = await addMember(tenantId, mail('imp-load-a'), 'Load A', 'member');
+    const second = await addMember(tenantId, mail('imp-load-b'), 'Load B', 'member');
+    users.push(first, second);
+    await adminDb().execute(sql`
+      insert into routing_rules (tenant_id, name, stage, method, user_ids, conditions)
+      values (${tenantId}, 'Expo spread', 'intake', 'least_loaded',
+        array[${first}, ${second}]::uuid[],
+        ${JSON.stringify({ subSourceIds: [expoId] })}::jsonb)`);
+    const { id: batchId } = await start(admin, { assignment: 'auto', duplicates: 'create' });
+    await chunk(
+      admin,
+      batchId,
+      [1, 2, 3, 4].map((n) => ({ fullName: `Spread ${n}`, email: mail(`spread-${n}`) })),
+    );
+    const owners = (await adminDb().execute(
+      sql`select owner_user_id from contacts where import_batch_id = ${batchId}`,
+    )) as unknown as { owner_user_id: string }[];
+    const counts = owners.reduce<Record<string, number>>((all, row) => {
+      all[row.owner_user_id] = (all[row.owner_user_id] ?? 0) + 1;
+      return all;
+    }, {});
+    expect(counts).toEqual({ [first]: 2, [second]: 2 });
+    await adminDb().execute(sql`delete from routing_rules where name = 'Expo spread'`);
+  });
+
   it('creates duplicates anyway when asked, and says so in the report', async () => {
     const { id: batchId } = await start(admin, { duplicates: 'create' });
     const result = await chunk(admin, batchId, [
