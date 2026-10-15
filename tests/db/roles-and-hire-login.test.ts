@@ -23,6 +23,7 @@ import {
   createAuthUser,
   createWorkspace,
   destroyWorkspace,
+  handedOver,
 } from '../support/workspaces';
 
 /*
@@ -109,7 +110,7 @@ const hire = (name: string, overrides: Record<string, unknown> = {}) =>
 async function hireAndAccept(name: string, overrides: Record<string, unknown> = {}) {
   const created = await createHire(admin, hire(name, overrides));
   const sent = await sendContract(admin, created.contractId);
-  const token = sent.link.split('/offer/')[1] ?? '';
+  const token = handedOver(sent).split('/offer/')[1] ?? '';
   await acceptOffer(
     acceptOfferSchema.parse({
       token,

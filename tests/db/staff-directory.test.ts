@@ -27,7 +27,13 @@ import {
 import type { TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
-import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
+import {
+  addMember,
+  contextFor,
+  createWorkspace,
+  destroyWorkspace,
+  handedOver,
+} from '../support/workspaces';
 
 const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
@@ -67,7 +73,7 @@ async function hireAndAccept(ctx: TenantContext, firstName: string, lastName: st
       payRate: '40.00',
     }),
   );
-  const { link } = await sendContract(ctx, created.contractId);
+  const link = handedOver(await sendContract(ctx, created.contractId));
   await acceptOffer(
     acceptOfferSchema.parse({
       token: link.split('/offer/')[1],

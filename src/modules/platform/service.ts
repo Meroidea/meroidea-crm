@@ -120,12 +120,16 @@ const AGREEMENT_LINK_DAYS = 14;
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
-export type AgreementLinkDelivery = {
-  /** True when the link was emailed to the business's admin. */
-  emailed: boolean;
-  /** Returned only to the platform owner, to pass on when email is not set up. Never stored. */
-  link: string;
-};
+/**
+ * What happened to the agreement link. The link comes back to the platform owner only when it
+ * could not be emailed, to pass on by hand. Once it is in the admin's inbox, the platform owner
+ * holding it too could accept the agreement as the admin and get their password link (ADR-047).
+ * Never stored.
+ */
+export type AgreementLinkDelivery = { emailed: true } | { emailed: false; link: string };
+
+const agreementDelivery = (emailed: boolean, link: string): AgreementLinkDelivery =>
+  emailed ? { emailed: true } : { emailed: false, link };
 
 async function latestAgreement() {
   const [agreement] = await adminDb()
@@ -257,7 +261,7 @@ export async function createBusiness(
     businessName: input.companyName,
     link: url,
   });
-  return { tenantId, adminEmail, emailed, link: url };
+  return { tenantId, adminEmail, ...agreementDelivery(emailed, url) };
 }
 
 function agreementUrl(token: string): string {
@@ -315,7 +319,7 @@ export async function resendAgreementLink(
     businessName: sent.businessName,
     link: url,
   });
-  return { emailed, link: url };
+  return agreementDelivery(emailed, url);
 }
 
 export type BusinessAgreement = {

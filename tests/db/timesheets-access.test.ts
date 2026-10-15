@@ -30,7 +30,13 @@ import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 
-import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
+import {
+  addMember,
+  contextFor,
+  createWorkspace,
+  destroyWorkspace,
+  handedOver,
+} from '../support/workspaces';
 
 const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
@@ -205,7 +211,7 @@ describe('paying from timesheets', () => {
         payRate: '30.00',
       }),
     );
-    const { link } = await sendContract(owner, hired.contractId);
+    const link = handedOver(await sendContract(owner, hired.contractId));
     await acceptOffer(
       acceptOfferSchema.parse({
         token: link.split('/offer/')[1],

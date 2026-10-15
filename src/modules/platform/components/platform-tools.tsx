@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { BUSINESS_TYPES, FEATURES, type FeatureKey } from '@/lib/features';
 import { cn } from '@/lib/utils';
+import type { AgreementLinkDelivery } from '@/modules/platform/service';
 import {
   createBusinessAction,
   endSupportAccessAction,
@@ -75,17 +76,9 @@ type NewBusiness = {
 };
 
 /** Hands over a one-time link: says it was emailed, or shows it once to pass on. */
-export function LinkHandover({
-  emailed,
-  link,
-  to,
-}: {
-  emailed: boolean;
-  link: string;
-  to: string;
-}) {
+export function LinkHandover({ delivery, to }: { delivery: AgreementLinkDelivery; to: string }) {
   const [copied, setCopied] = useState(false);
-  if (emailed) {
+  if (delivery.emailed) {
     return (
       <p className="text-sm text-muted-foreground">
         The link to accept the service agreement was emailed to {to}.
@@ -99,13 +92,13 @@ export function LinkHandover({
         and expires in 14 days.
       </p>
       <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-sm" data-sensitive>
-        {link}
+        {delivery.link}
       </pre>
       <Button
         variant="outline"
         className="self-start"
         onClick={async () => {
-          await navigator.clipboard.writeText(link);
+          await navigator.clipboard.writeText(delivery.link);
           setCopied(true);
         }}
       >
@@ -134,12 +127,9 @@ export function NewBusinessForm() {
   const [features, setFeatures] = useState<FeatureKey[]>([...BUSINESS_TYPES[0].features]);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{
-    tenantId: string;
-    adminEmail: string;
-    emailed: boolean;
-    link: string;
-  } | null>(null);
+  const [created, setCreated] = useState<
+    ({ tenantId: string; adminEmail: string } & AgreementLinkDelivery) | null
+  >(null);
   const [isPending, startTransition] = useTransition();
 
   const set = (key: keyof NewBusiness, value: string) => setValues({ ...values, [key]: value });
@@ -182,7 +172,7 @@ export function NewBusinessForm() {
             their own password; nobody else ever knows it.
           </p>
         </div>
-        <LinkHandover emailed={created.emailed} link={created.link} to={created.adminEmail} />
+        <LinkHandover delivery={created} to={created.adminEmail} />
         <Button className="self-start" onClick={() => router.push(`/platform/${created.tenantId}`)}>
           Open the business
         </Button>

@@ -191,7 +191,7 @@ const escapeHtml = (value: string) =>
 export async function sendContract(
   ctx: TenantContext,
   contractId: string,
-): Promise<{ link: string; emailed: boolean }> {
+): Promise<{ emailed: true } | { emailed: false; link: string }> {
   requirePermission(ctx, 'employees.manage');
   const { token, hash } = createLinkToken();
 
@@ -249,7 +249,9 @@ export async function sendContract(
     to: sent.email,
     ...offerEmail({ firstName: sent.firstName, employerName: ctx.tenant.name, link }),
   });
-  return { link, emailed: result.sent };
+  // Once the offer is in the hire's inbox, the admin holding the link too could accept it, and
+  // enter bank details, in the hire's name.
+  return result.sent ? { emailed: true } : { emailed: false, link };
 }
 
 export async function withdrawContract(

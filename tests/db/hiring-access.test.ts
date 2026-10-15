@@ -31,7 +31,13 @@ import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 
-import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
+import {
+  addMember,
+  contextFor,
+  createWorkspace,
+  destroyWorkspace,
+  handedOver,
+} from '../support/workspaces';
 
 const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
@@ -186,7 +192,7 @@ describe('sending and accepting a contract', () => {
 
   it('freezes the wording and issues a link when sent; no email provider means it is not emailed', async () => {
     const sent = await sendContract(owner, contractId);
-    token = tokenOf(sent.link);
+    token = tokenOf(handedOver(sent));
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(sent.emailed).toBe(false);
 
@@ -335,7 +341,7 @@ describe('sending and accepting a contract', () => {
 describe('declining and withdrawing', () => {
   it('records a decline and leaves the person pending', async () => {
     const created = await createHire(owner, hire({ email: mail('decline') }));
-    const token = tokenOf((await sendContract(owner, created.contractId)).link);
+    const token = tokenOf(handedOver(await sendContract(owner, created.contractId)));
     await declineOffer(token, META);
     const detail = await getEmployee(owner, created.employeeId);
     expect(detail?.status).toBe('pending');
@@ -344,8 +350,8 @@ describe('declining and withdrawing', () => {
 
   it('kills the link when the owner withdraws, and a re-send replaces the old link', async () => {
     const created = await createHire(owner, hire({ email: mail('withdraw') }));
-    const first = tokenOf((await sendContract(owner, created.contractId)).link);
-    const second = tokenOf((await sendContract(owner, created.contractId)).link);
+    const first = tokenOf(handedOver(await sendContract(owner, created.contractId)));
+    const second = tokenOf(handedOver(await sendContract(owner, created.contractId)));
     expect(await getOfferByToken(first)).toBeNull();
     expect(await getOfferByToken(second)).not.toBeNull();
 

@@ -20,7 +20,9 @@ export function ContractActions({
   email: string;
 }) {
   const router = useRouter();
-  const [sent, setSent] = useState<{ link: string; emailed: boolean } | null>(null);
+  const [sent, setSent] = useState<{ emailed: true } | { emailed: false; link: string } | null>(
+    null,
+  );
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -66,30 +68,33 @@ export function ContractActions({
               ? `Emailed to ${email}.`
               : 'Not emailed: email sending is not set up, or the message could not be sent.'}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {sent.emailed
-              ? 'You can also pass this link on yourself. It is shown only now.'
-              : 'Copy this link and send it to them yourself. It is shown only now.'}{' '}
-            Any earlier link has stopped working.
-          </p>
-          <div className="mt-2 flex gap-2">
-            <Input
-              readOnly
-              value={sent.link}
-              aria-label="One-time link"
-              onFocus={(e) => e.target.select()}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={async () => {
-                await navigator.clipboard.writeText(sent.link);
-                setCopied(true);
-              }}
-            >
-              {copied ? <Check aria-hidden /> : <Copy aria-hidden />} {copied ? 'Copied' : 'Copy'}
-            </Button>
-          </div>
+          {!sent.emailed && (
+            <>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Copy this link and send it to them yourself. It is shown only now. Any earlier link
+                has stopped working.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  readOnly
+                  value={sent.link}
+                  aria-label="One-time link"
+                  onFocus={(e) => e.target.select()}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(sent.link);
+                    setCopied(true);
+                  }}
+                >
+                  {copied ? <Check aria-hidden /> : <Copy aria-hidden />}{' '}
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
       {error && (

@@ -74,12 +74,15 @@ export async function businessTeamId(
   return team?.id ?? null;
 }
 
-export type LinkDelivery = {
-  /** True when the link was emailed. */
-  emailed: boolean;
-  /** Returned only to the admin who asked, so it can be passed on when email is not set up. */
-  link: string;
-};
+/**
+ * What happened to a password link. The link itself comes back only when it could not be
+ * emailed, so the admin can pass it on (ADR-031). Once it has gone to the person's inbox, handing
+ * it to the admin too would let them sign in as that person.
+ */
+export type LinkDelivery = { emailed: true } | { emailed: false; link: string };
+
+const delivery = (emailed: boolean, link: string): LinkDelivery =>
+  emailed ? { emailed: true } : { emailed: false, link };
 
 /**
  * Adds someone to the business with a login and a role, and gives them a link to set their own
@@ -160,7 +163,7 @@ export async function inviteMember(
     heading: `You have been added to ${ctx.tenant.name}`,
     intro: `Hi ${input.fullName}, ${ctx.tenant.name} has given you a login.`,
   });
-  return { userId, emailed, link };
+  return { userId, ...delivery(emailed, link) };
 }
 
 async function memberEmail(ctx: TenantContext, userId: string) {
@@ -206,7 +209,7 @@ export async function sendPasswordLink(ctx: TenantContext, userId: string): Prom
       context: { passwordLinkSent: true },
     }),
   );
-  return { emailed, link };
+  return delivery(emailed, link);
 }
 
 /** Deactivating keeps the person's records and history but stops them signing in to this business. */

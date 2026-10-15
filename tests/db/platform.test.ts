@@ -47,6 +47,7 @@ import {
   createAuthUser,
   createWorkspace,
   destroyWorkspace,
+  handedOver,
 } from '../support/workspaces';
 
 const stamp = Date.now();
@@ -121,7 +122,7 @@ beforeAll(async () => {
   cafeOwnerId = await ownerOf(cafeTenant);
   await acceptAgreement(
     acceptAgreementSchema.parse({
-      token: tokenOf(created.link),
+      token: tokenOf(handedOver(created)),
       fullName: 'Cara Cafe',
       agree: true,
     }),
@@ -227,7 +228,7 @@ describe('the service agreement', () => {
     );
     pendingTenant = created.tenantId;
     pendingOwnerId = await ownerOf(pendingTenant);
-    link = created.link;
+    link = handedOver(created);
     cleanup.push({ tenantId: pendingTenant, userIds: [pendingOwnerId] });
   }, 60_000);
 
@@ -279,7 +280,7 @@ describe('the service agreement', () => {
   it('stops an old link working once a new one is sent', async () => {
     const fresh = await resendAgreementLink(admin, pendingTenant);
     expect(await getAgreementByToken(tokenOf(link))).toBeNull();
-    link = fresh.link;
+    link = handedOver(fresh);
     expect(await getAgreementByToken(tokenOf(link))).not.toBeNull();
   });
 
