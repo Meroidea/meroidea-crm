@@ -95,7 +95,7 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
             defaultValue={params.q ?? ''}
             placeholder="Search subject, customer or #number"
             aria-label="Search tickets"
-            className="h-8 w-64 rounded-md border bg-background px-3 text-sm"
+            className="h-8 w-64 rounded-md border bg-background px-3 text-sm text-ellipsis"
           />
         </form>
       </div>

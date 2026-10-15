@@ -81,8 +81,6 @@ export default async function BusinessPage({ params }: PageProps<'/platform/[id]
         }}
       />
       <BusinessControls
-        // Remounted when saved, so the tick-boxes start from what is stored.
-        key={business.features.join()}
         tenantId={business.id}
         initialFeatures={business.features}
         status={business.status}

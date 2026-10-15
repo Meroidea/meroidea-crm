@@ -463,14 +463,14 @@ async function emailFeaturesSwitchedOn(input: {
   businessName: string;
   labels: string[];
   recipients: { email: string; fullName: string }[];
-}): Promise<void> {
+}): Promise<boolean> {
   const { names, them } = featureWords(input.labels);
   const link = new URL(ROLE_ACCESS_URL, serverEnv().APP_URL).toString();
   const access = `People in the built-in roles can use ${them} straight away, with their usual access. Roles you created yourself need access given in Settings → Roles.`;
-  await Promise.all(
+  const results = await Promise.all(
     input.recipients.map(async ({ email, fullName }) => {
       const intro = `Hi ${fullName}, Meroidea has switched on more for ${input.businessName}: ${names}.`;
-      await sendEmail({
+      return sendEmail({
         to: email,
         subject: `New in Meroidea for ${input.businessName}: ${names}`,
         text: [intro, access, `Review who can use ${them}: ${link}`].join('\n\n'),
@@ -478,6 +478,7 @@ async function emailFeaturesSwitchedOn(input: {
       });
     }),
   );
+  return results.every((result) => result.sent);
 }
 
 /**
@@ -488,7 +489,7 @@ async function emailFeaturesSwitchedOn(input: {
 export async function setBusinessFeatures(
   admin: PlatformAdmin,
   input: { tenantId: string; features: FeatureKey[] },
-): Promise<{ id: string; notified: number }> {
+): Promise<{ id: string; notified: number; emailed: boolean }> {
   const outcome = await adminDb().transaction(async (tx) => {
     const [before] = await tx
       .select({ name: tenants.name, status: tenants.status, features: tenants.features })
@@ -551,11 +552,13 @@ export async function setBusinessFeatures(
     return { businessName: before.name, labels, recipients: admins };
   });
 
-  // Sent once the change is committed. Best effort: a failed email never undoes it.
-  if (outcome && outcome.recipients.length > 0) {
-    await emailFeaturesSwitchedOn(outcome).catch(() => undefined);
-  }
-  return { id: input.tenantId, notified: outcome?.recipients.length ?? 0 };
+  // Sent once the change is committed. Best effort: a failed email never undoes it, but the
+  // console is told, so the platform owner can let the Admins know another way.
+  const emailed =
+    outcome && outcome.recipients.length > 0
+      ? await emailFeaturesSwitchedOn(outcome).catch(() => false)
+      : false;
+  return { id: input.tenantId, notified: outcome?.recipients.length ?? 0, emailed };
 }
 
 /**

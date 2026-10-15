@@ -526,6 +526,8 @@ describe('switching features on for a business already running', () => {
       features: ['roster', 'inventory', 'timesheets', 'payroll'],
     });
     expect(result.notified).toBe(1);
+    // No email provider in tests: the console must hear that the email did not go.
+    expect(result.emailed).toBe(false);
 
     const owner = await contextFor(cafeOwnerId, cafeTenant);
     expect(await listUnreadFeatureNotices(owner)).toEqual([

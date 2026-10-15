@@ -276,6 +276,15 @@ export function NewBusinessForm() {
   );
 }
 
+/** What happened when features were saved, so a failed email is never mistaken for a sent one. */
+function featuresSavedNote({ notified, emailed }: { notified: number; emailed: boolean }) {
+  if (notified === 0) return 'Features saved.';
+  const who = notified === 1 ? 'Their Admin has' : `Their ${notified} Admins have`;
+  return emailed
+    ? `Features saved. ${who} been told in their workspace and by email.`
+    : `Features saved. ${who} been told in their workspace, but the email could not be sent (is email set up?), so let them know yourself.`;
+}
+
 export function BusinessControls({
   tenantId,
   initialFeatures,
@@ -292,14 +301,20 @@ export function BusinessControls({
   const changed = [...features].sort().join() !== [...initialFeatures].sort().join();
   const suspended = status === 'suspended';
 
-  const run = (
-    action: () => Promise<{ ok: boolean; error?: { message: string } }>,
-    done: string,
+  const run = <T,>(
+    action: () => Promise<{ ok: true; data: T } | { ok: false; error: { message: string } }>,
+    done: string | ((data: T) => string),
     then?: () => void,
   ) =>
     startTransition(async () => {
       const result = await action();
-      setNote(result.ok ? done : (result.error?.message ?? 'Something went wrong.'));
+      setNote(
+        result.ok
+          ? typeof done === 'string'
+            ? done
+            : done(result.data)
+          : (result.error.message ?? 'Something went wrong.'),
+      );
       if (result.ok) {
         then?.();
         router.refresh();
@@ -320,7 +335,7 @@ export function BusinessControls({
           className="mt-4"
           disabled={isPending || !changed}
           onClick={() =>
-            run(() => setBusinessFeaturesAction({ tenantId, features }), 'Features saved.')
+            run(() => setBusinessFeaturesAction({ tenantId, features }), featuresSavedNote)
           }
         >
           Save features

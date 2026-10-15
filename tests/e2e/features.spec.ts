@@ -31,6 +31,12 @@ test('switching a feature on for a running business tells its admin on the dashb
   );
   await consolePage.getByRole('button', { name: 'Save features' }).click();
   await saved;
+  // The console says who was told; there is no email provider in tests, so it says that too.
+  await expect(
+    consolePage.getByText(
+      'Features saved. Their Admin has been told in their workspace, but the email could not be sent',
+    ),
+  ).toBeVisible({ timeout: 30_000 });
   await consolePage.reload();
   await expect(consolePage.getByRole('checkbox', { name: /^Invoices/ })).toBeChecked();
   await consoleContext.close();

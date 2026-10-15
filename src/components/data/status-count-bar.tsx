@@ -29,7 +29,11 @@ const TONE_BAR: Record<CountTone, string> = {
  */
 export function StatusCountBar({ items, label }: { items: CountItem[]; label: string }) {
   return (
-    <nav aria-label={label} className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+    // On a phone the row scrolls sideways; the fade at its right edge shows there is more.
+    <nav
+      aria-label={label}
+      className="-mx-4 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-2.5rem),transparent)] px-4 md:mx-0 md:[mask-image:none] md:px-0"
+    >
       <ul className="flex w-max gap-2 md:w-auto md:flex-wrap">
         {items.map((item) => (
           <li key={item.key}>
