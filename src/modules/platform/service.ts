@@ -638,44 +638,67 @@ export async function startSupportAccess(admin: PlatformAdmin, tenantId: string)
     .limit(1);
   if (!owner) throw new AppError('NOT_FOUND', 'That business was not found.');
 
-  const [existing] = await db
-    .select({ id: tenantMemberships.id })
-    .from(tenantMemberships)
-    .where(
-      and(eq(tenantMemberships.tenantId, tenantId), eq(tenantMemberships.userId, admin.userId)),
-    )
-    .limit(1);
-  // Already a member in their own right (their own business): nothing to add.
-  if (existing) return;
+  await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: tenantMemberships.id, isSupport: tenantMemberships.isSupport })
+      .from(tenantMemberships)
+      .where(
+        and(eq(tenantMemberships.tenantId, tenantId), eq(tenantMemberships.userId, admin.userId)),
+      )
+      .for('update')
+      .limit(1);
+    // Already a member in their own right (their own business): nothing to add.
+    if (existing && !existing.isSupport) return;
 
-  await db.insert(tenantMemberships).values({
-    tenantId,
-    userId: admin.userId,
-    roleId: owner.id,
-    status: 'active',
-    isSupport: true,
-  });
-  await record(tenantId, admin, {
-    action: 'permission_change',
-    context: { supportAccess: 'started' },
+    if (existing) {
+      // A seat from an earlier visit, switched off when they left: switched back on.
+      await tx
+        .update(tenantMemberships)
+        .set({ status: 'active', roleId: owner.id })
+        .where(eq(tenantMemberships.id, existing.id));
+    } else {
+      await tx.insert(tenantMemberships).values({
+        tenantId,
+        userId: admin.userId,
+        roleId: owner.id,
+        status: 'active',
+        isSupport: true,
+      });
+    }
+    await tx.insert(auditLogs).values(supportAudit(tenantId, admin, 'started'));
   });
 }
 
+const supportAudit = (tenantId: string, admin: PlatformAdmin, step: 'started' | 'ended') => ({
+  tenantId,
+  actorUserId: admin.userId,
+  actorType: 'platform' as const,
+  action: 'permission_change' as const,
+  entityType: 'tenant',
+  entityId: tenantId,
+  context: { supportAccess: step },
+});
+
+/**
+ * Leaving switches the support seat off rather than deleting it. Anything the platform owner
+ * created or was given while inside still points at the seat, so a delete would fail and leave
+ * them with full access nobody in the business could remove; a switched-off seat grants nothing,
+ * since access needs an active membership (loadTenantContext and app.tenant_ids()).
+ */
 export async function endSupportAccess(admin: PlatformAdmin, tenantId: string): Promise<void> {
-  const removed = await adminDb()
-    .delete(tenantMemberships)
-    .where(
-      and(
-        eq(tenantMemberships.tenantId, tenantId),
-        eq(tenantMemberships.userId, admin.userId),
-        eq(tenantMemberships.isSupport, true),
-      ),
-    )
-    .returning({ id: tenantMemberships.id });
-  if (removed.length > 0) {
-    await record(tenantId, admin, {
-      action: 'permission_change',
-      context: { supportAccess: 'ended' },
-    });
-  }
+  await adminDb().transaction(async (tx) => {
+    const ended = await tx
+      .update(tenantMemberships)
+      .set({ status: 'deactivated' })
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, tenantId),
+          eq(tenantMemberships.userId, admin.userId),
+          eq(tenantMemberships.isSupport, true),
+          eq(tenantMemberships.status, 'active'),
+        ),
+      )
+      .returning({ id: tenantMemberships.id });
+    if (ended.length > 0) await tx.insert(auditLogs).values(supportAudit(tenantId, admin, 'ended'));
+  });
 }

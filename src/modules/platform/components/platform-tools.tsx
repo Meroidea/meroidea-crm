@@ -527,19 +527,30 @@ export function SupportBanner({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   return (
     <div className="no-print flex flex-wrap items-center justify-center gap-3 bg-primary px-4 py-2 text-sm text-primary-foreground">
       <span>
         Support access: you are inside <span className="font-semibold">{businessName}</span> with
         full access.
       </span>
+      {error && (
+        <span role="alert" className="font-medium">
+          Could not leave: {error}
+        </span>
+      )}
       <Button
         size="sm"
         variant="secondary"
         disabled={isPending}
         onClick={() =>
           startTransition(async () => {
-            await endSupportAccessAction({ tenantId });
+            // Only once access has really ended: a failure must never look like leaving.
+            const result = await endSupportAccessAction({ tenantId });
+            if (!result.ok) {
+              setError(result.error.message);
+              return;
+            }
             router.push('/platform');
             router.refresh();
           })

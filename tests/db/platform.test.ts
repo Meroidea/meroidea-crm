@@ -133,7 +133,6 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await adminDb().execute(sql`delete from tenant_memberships where is_support`);
   for (const { tenantId, userIds } of cleanup) await destroyWorkspace(tenantId, userIds);
   await adminDb().execute(sql`delete from service_agreements where id = ${agreementId}`);
 }, 60_000);
@@ -468,6 +467,28 @@ describe('support access', () => {
                      where tenant_id = ${cafeTenant} and context ? 'supportAccess' order by created_at`),
     )) as unknown as { step: string }[];
     expect(rows.map((row) => row.step)).toEqual(['started', 'ended']);
+  });
+
+  it('ends support access even when the platform owner left records behind, and can start it again', async () => {
+    await startSupportAccess(admin, cafeTenant);
+    const inside = await contextFor(admin.userId, cafeTenant);
+    // Something now points at the support seat, which a delete of the seat would trip over.
+    await createItem(inside, createItemSchema.parse({ name: 'Support test item', unit: 'each' }));
+
+    await endSupportAccess(admin, cafeTenant);
+    expect(
+      await loadTenantContext({ sub: admin.userId, role: 'authenticated' }, cafeTenant),
+    ).toBeNull();
+
+    await startSupportAccess(admin, cafeTenant);
+    expect((await contextFor(admin.userId, cafeTenant)).isSupport).toBe(true);
+    await endSupportAccess(admin, cafeTenant);
+    expect(
+      await loadTenantContext({ sub: admin.userId, role: 'authenticated' }, cafeTenant),
+    ).toBeNull();
+    await adminDb().execute(
+      sql`update inventory_items set deleted_at = now() where name = 'Support test item'`,
+    );
   });
 
   it('never removes someone’s genuine seat when support access ends', async () => {

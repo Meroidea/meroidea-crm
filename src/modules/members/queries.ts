@@ -16,7 +16,12 @@ export async function listActiveMembers(ctx: TenantContext): Promise<MemberOptio
       .from(tenantMemberships)
       .innerJoin(users, eq(users.id, tenantMemberships.userId))
       .where(
-        and(eq(tenantMemberships.tenantId, ctx.tenantId), eq(tenantMemberships.status, 'active')),
+        and(
+          eq(tenantMemberships.tenantId, ctx.tenantId),
+          eq(tenantMemberships.status, 'active'),
+          // A platform owner on support is visiting, not someone to give work to.
+          eq(tenantMemberships.isSupport, false),
+        ),
       )
       .orderBy(asc(users.fullName)),
   );

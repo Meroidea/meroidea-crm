@@ -103,7 +103,8 @@ created_at, updated_at
 
 **Added by ADR-029:** `tenants.features text[] not null default '{}'` holds the feature keys
 switched on for the business. `tenant_memberships.is_support boolean not null default false`
-marks a platform owner's temporary seat (check: a support seat is always `active`).
+marks a platform owner's temporary seat. Leaving switches it to `deactivated` rather than
+deleting it, so what they touched keeps a valid owner; it is switched back on if they return (0061).
 
 **Added by ADR-047:** who the business is, recorded by the platform owner at onboarding and
 written only by `src/modules/platform/service.ts` (the business's admin reads them but has no
