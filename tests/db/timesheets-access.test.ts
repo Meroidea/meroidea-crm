@@ -126,6 +126,15 @@ describe('adding time by hand', () => {
     expect(rows.every((row) => row.status === 'pending' && row.source === 'manual')).toBe(true);
   });
 
+  it('refuses time that overlaps time already recorded, which would be paid twice', async () => {
+    expect(await code(saveManualEntry(casey, manual('2024-06-03', '12:00', '14:00')))).toBe(
+      'CONFLICT',
+    );
+    expect(await code(saveManualEntry(casey, manual('2024-06-03', '09:00', '17:00', 30)))).toBe(
+      'CONFLICT',
+    );
+  });
+
   it('refuses the future, and a break longer than the shift', async () => {
     expect(await code(saveManualEntry(casey, manual('2099-01-01', '09:00', '10:00')))).toBe(
       'VALIDATION',
