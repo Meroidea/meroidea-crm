@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 
 import { concernMessages, concerns, payslips, users } from '@/db/schema';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
@@ -36,7 +36,8 @@ export const canHandleConcern = (
 const columns = {
   id: concerns.id,
   raisedBy: concerns.raisedBy,
-  raisedByName: users.fullName,
+  // Someone who has since left is no longer readable as a colleague; what they asked stays.
+  raisedByName: sql<string>`coalesce(${users.fullName}, 'Former member')`,
   raisedWith: concerns.raisedWith,
   category: concerns.category,
   subject: concerns.subject,
@@ -59,7 +60,7 @@ export async function listConcerns(
     tx
       .select(columns)
       .from(concerns)
-      .innerJoin(users, eq(users.id, concerns.raisedBy))
+      .leftJoin(users, eq(users.id, concerns.raisedBy))
       .where(
         and(
           eq(concerns.tenantId, ctx.tenantId),
@@ -96,7 +97,7 @@ export async function getConcern(ctx: TenantContext, id: string): Promise<Concer
     const [concern] = await tx
       .select({ ...columns, resolvedAt: concerns.resolvedAt, payslipId: concerns.payslipId })
       .from(concerns)
-      .innerJoin(users, eq(users.id, concerns.raisedBy))
+      .leftJoin(users, eq(users.id, concerns.raisedBy))
       .where(and(eq(concerns.tenantId, ctx.tenantId), eq(concerns.id, id)))
       .limit(1);
     if (!concern) return null;
@@ -104,12 +105,12 @@ export async function getConcern(ctx: TenantContext, id: string): Promise<Concer
       .select({
         id: concernMessages.id,
         authorUserId: concernMessages.authorUserId,
-        authorName: users.fullName,
+        authorName: sql<string>`coalesce(${users.fullName}, 'Former member')`,
         body: concernMessages.body,
         createdAt: concernMessages.createdAt,
       })
       .from(concernMessages)
-      .innerJoin(users, eq(users.id, concernMessages.authorUserId))
+      .leftJoin(users, eq(users.id, concernMessages.authorUserId))
       .where(and(eq(concernMessages.tenantId, ctx.tenantId), eq(concernMessages.concernId, id)))
       .orderBy(asc(concernMessages.createdAt), asc(concernMessages.id));
     const row = concern as ConcernRow & { resolvedAt: Date | null; payslipId: string | null };

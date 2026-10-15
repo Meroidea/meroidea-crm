@@ -5,7 +5,7 @@ import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { departments, employees, tenantMemberships } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { audit } from '@/server/audit';
-import { requirePermission, type TenantContext } from '@/server/context';
+import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 
 import type { EndEmploymentInput, UpdateProfileInput } from './staff-schemas';
@@ -145,6 +145,20 @@ export async function updateEmployeeProfile(
       (key) => (employee[key] ?? null) !== (next[key] ?? null),
     );
     if (changed.length === 0) return { id };
+    // A login chosen at hire is created for this address when the offer is accepted (ADR-048).
+    // Moving it to another address decides who gets that login, which is for people who manage
+    // logins, not only employee records.
+    if (
+      changed.includes('email') &&
+      employee.loginRoleId &&
+      !employee.userId &&
+      !hasPermission(ctx, 'users.manage')
+    ) {
+      throw new AppError(
+        'FORBIDDEN',
+        'This person gets a login when they accept their offer. Ask someone who manages logins to change their email.',
+      );
+    }
 
     await tx
       .update(employees)

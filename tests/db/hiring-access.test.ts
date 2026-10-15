@@ -359,6 +359,43 @@ describe('declining and withdrawing', () => {
     expect(await getOfferByToken(second)).toBeNull();
     await expectCode(() => withdrawContract(member, created.contractId), 'FORBIDDEN');
   });
+
+  it('takes no acceptance while the business is suspended or its staff feature is off', async () => {
+    const created = await createHire(owner, hire({ email: mail('closed') }));
+    const token = tokenOf(handedOver(await sendContract(owner, created.contractId)));
+    const accept = () =>
+      acceptOffer(
+        acceptOfferSchema.parse({
+          token,
+          fullName: 'Sam Starter',
+          readContract: true,
+          readStatements: true,
+        }),
+        META,
+      );
+    try {
+      await adminDb().execute(
+        sql`update tenants set status = 'suspended' where id = ${alphaTenant}`,
+      );
+      expect(await getOfferByToken(token)).toBeNull();
+      await expectCode(accept, 'NOT_FOUND');
+
+      await adminDb().execute(sql`update tenants set status = 'active' where id = ${alphaTenant}`);
+      await adminDb().execute(
+        sql`update tenants set features = array_remove(features, 'staff') where id = ${alphaTenant}`,
+      );
+      expect(await getOfferByToken(token)).toBeNull();
+      await expectCode(accept, 'NOT_FOUND');
+    } finally {
+      await adminDb().execute(sql`update tenants set status = 'active' where id = ${alphaTenant}`);
+      await adminDb().execute(
+        sql`update tenants set features = array_append(array_remove(features, 'staff'), 'staff')
+            where id = ${alphaTenant}`,
+      );
+    }
+    // Open again, the same link still works.
+    expect(await getOfferByToken(token)).not.toBeNull();
+  });
 });
 
 describe('reading award rates again for a contract', () => {

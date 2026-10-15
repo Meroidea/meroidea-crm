@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import {
   auditLogs,
@@ -13,6 +13,7 @@ import { AppError } from '@/lib/errors';
 import { createLoginForAcceptedHire } from '@/modules/access/hire-login';
 import { encryptField, hashLinkToken, isEncryptionConfigured } from '@/server/crypto';
 import { adminDb } from '@/server/db/admin';
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 
 import type { Statement } from './compliance';
 import type { AcceptOfferInput, PayrollDetailsInput } from './schemas';
@@ -55,6 +56,9 @@ async function findByToken(db: Db | Tx, token: string, lock = false) {
         eq(employmentContracts.tokenHash, hashLinkToken(token)),
         isNull(employmentContracts.deletedAt),
         isNull(employees.deletedAt),
+        // A closed business, or one whose staff feature is off, takes no acceptances.
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
+        sql`'staff' = any(${tenants.features})`,
       ),
     )
     .limit(1);
