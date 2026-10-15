@@ -83,19 +83,45 @@ as CSV. Reasons name the column, never the value. When the upload finishes, each
 received leads gets one notice with the count. Every lead keeps its batch (shown on the contact
 page with who added it and when).
 
-**Website forms.** Settings → Forms creates a form with its source, sub-source, lead type, which
-optional fields it asks for (company and job title, message, marketing consent) and a thank-you
-message. Each form gets an unguessable key and three ways to use it: the hosted page
+**Website forms.** The business's admin builds each form (Settings → Website forms → New form,
+`/settings/forms/<id>`; needs `settings.manage`):
+
+- **About the form:** its name for the team, the lead type, source and sub-source its leads get,
+  the heading and introduction visitors see, the button text and the thank-you message.
+- **Fields:** the questions, in order. Each has its own wording, optional help text, and can be
+  required or not. The admin picks from the standard contact fields (name, email, phone, city,
+  state, preferred language, company, job title, company website and size, industry, interest,
+  message, marketing consent) and from the business's own contact fields. **New question** makes
+  a new contact field (short or long answer, choose one, choose several, tick box, date, number,
+  email, phone, web address) and puts it on the form, so every answer is saved on the lead and can
+  be searched, filtered, routed and reported on. Nothing is kept only on the form.
+- **Rules:** a required first name, and a required email or phone so the team can reply; each
+  field once; at most 30. They are checked when the form is saved and again when it is published.
+- **Preview:** the form exactly as visitors will see it, beside the builder, updating as it is
+  edited. It cannot be sent.
+- **Draft and published:** a new form is a draft, and nobody outside the team can open or post to
+  it. **Save and publish** puts it live; saving a published form changes it live; **Take offline**
+  turns it back into a draft. A question whose contact field is switched off later drops out of
+  the live form, and the form cannot be published again until it is removed.
+
+Once published, a form has an unguessable key and three ways to use it: the hosted page
 (`/f/<key>`), an iframe embed (`?embed=1`), or a plain HTML form posting to `/api/forms/<key>`
-(it redirects back to the hosted thank-you page). UTM tags on the page address
-(`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`) travel with the enquiry;
-`utm_campaign` becomes the campaign name. A new email becomes a New lead, routed by the intake
-rules (or left in the queue, in which case the form's creator is told). A known email does not
-make a duplicate: the enquiry is added to that person's timeline and their owner is told. Fields
-the form does not ask for are dropped even if a script sends them. Every submission is kept as
-received in `lead_intake_events`. Protection: a honeypot field, 5 submissions per sender per hour,
-300 per form per hour, a 32 KB body limit, and nothing in the answer reveals whether the address
-was already known.
+(it redirects back to the hosted thank-you page; the builder's **Copy HTML form** writes it with
+the form's own fields and choices). UTM tags on the page address (`utm_source`, `utm_medium`,
+`utm_campaign`, `utm_term`, `utm_content`) travel with the enquiry; `utm_campaign` becomes the
+campaign name.
+
+Answers are checked against the form as built, and problems come back against each field in the
+form's own words. A new person becomes a New lead, routed by the intake rules using what the form
+asked (state, industry, company size, language, interest), or left in the queue, in which case the
+form's creator is told. The same person writing again, found by email (or by phone on a form that
+asks no email), does not make a duplicate: the enquiry is added to their timeline, their owner is
+told, and the answers fill only fields that were blank; nothing on file is overwritten, and an
+earlier yes to marketing is never taken away. The enquiry on the timeline shows the message and
+every other answer. Fields the form does not ask for are dropped even if a script sends them.
+Every submission is kept as received in `lead_intake_events`. Protection: a honeypot field, 5
+submissions per sender per hour, 300 per form per hour, a 32 KB body limit, and nothing in the
+answer reveals whether the person was already known.
 
 ### 3.2 Source and sub-source
 

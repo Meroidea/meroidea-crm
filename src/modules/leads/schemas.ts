@@ -131,14 +131,6 @@ export const leadQueueFiltersSchema = z.object({
 
 export type LeadQueueFilters = z.output<typeof leadQueueFiltersSchema>;
 
-const formText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max, `Use at most ${max} characters`)
-    .optional()
-    .transform((value) => value || null);
-
 /** UTM tags a website passes along, so a lead keeps the campaign that brought it in. */
 export const UTM_KEYS = [
   'utm_source',
@@ -147,28 +139,3 @@ export const UTM_KEYS = [
   'utm_term',
   'utm_content',
 ] as const;
-
-/**
- * A submission to a business's website form (docs/leads.md §3.1). The same schema checks the
- * hosted page and a plain HTML form posted from the business's own site.
- */
-export const webFormSubmissionSchema = z.object({
-  firstName: z.string().trim().min(1, 'Enter your first name').max(80),
-  lastName: formText(80),
-  email: z.email('Enter a valid email address').max(200),
-  phone: formText(40),
-  companyName: formText(160),
-  jobTitle: formText(120),
-  message: formText(4000),
-  consent: z
-    .union([z.boolean(), z.literal('on'), z.literal('true'), z.literal('')])
-    .optional()
-    .transform((value) => value === true || value === 'on' || value === 'true'),
-  utm_source: formText(200),
-  utm_medium: formText(200),
-  utm_campaign: formText(200),
-  utm_term: formText(200),
-  utm_content: formText(200),
-});
-
-export type WebFormSubmission = z.output<typeof webFormSubmissionSchema>;

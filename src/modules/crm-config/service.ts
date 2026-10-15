@@ -28,6 +28,7 @@ import { AppError } from '@/lib/errors';
 import { isScoped, PERMISSION_KEYS, type PermissionKey } from '@/lib/permissions/catalog';
 import { DEFAULT_PIPELINE } from '@/lib/tenant/defaults';
 import { keyFromLabel } from '@/modules/custom-fields/validation';
+import { formFieldsSchema, type FormField } from '@/modules/leads/form-fields';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
@@ -590,7 +591,10 @@ export function saveStageRules(ctx: TenantContext, input: StageRulesInput): Prom
 
 // ── Custom fields ────────────────────────────────────────────────────────────
 
-export function saveCustomField(ctx: TenantContext, input: CustomFieldInput): Promise<Result> {
+export function saveCustomField(
+  ctx: TenantContext,
+  input: CustomFieldInput,
+): Promise<{ id: string; key: string }> {
   return configure(ctx, async (tx) => {
     const choices =
       input.fieldType === 'select' || input.fieldType === 'multi_select'
@@ -636,7 +640,7 @@ export function saveCustomField(ctx: TenantContext, input: CustomFieldInput): Pr
         entityId: existing.id,
         context: { label: input.label },
       });
-      return { id: existing.id };
+      return { id: existing.id, key: existing.key };
     }
     const base = keyFromLabel(input.label);
     const taken = await tx
@@ -680,7 +684,7 @@ export function saveCustomField(ctx: TenantContext, input: CustomFieldInput): Pr
       entityId: created.id,
       context: { key },
     });
-    return created;
+    return { id: created.id, key };
   });
 }
 
@@ -819,6 +823,39 @@ export function toggleSequence(ctx: TenantContext, input: { id: string; isActive
 
 // ── Web forms ────────────────────────────────────────────────────────────────
 
+/** The business's own contact fields a form names must exist and be switched on. */
+async function assertFormFields(tx: Tx, ctx: TenantContext, fields: FormField[]) {
+  const wanted = fields
+    .filter((field) => field.target.startsWith('custom.'))
+    .map((field) => field.target.slice('custom.'.length));
+  if (wanted.length === 0) return;
+  const known = await tx
+    .select({ key: customFieldDefinitions.key })
+    .from(customFieldDefinitions)
+    .where(
+      and(
+        eq(customFieldDefinitions.tenantId, ctx.tenantId),
+        eq(customFieldDefinitions.entityType, 'contact'),
+        eq(customFieldDefinitions.isActive, true),
+        inArray(customFieldDefinitions.key, wanted),
+      ),
+    );
+  const missing = wanted.filter((key) => !known.some((row) => row.key === key));
+  if (missing.length > 0) {
+    throw new AppError(
+      'VALIDATION',
+      'A field on this form was removed or switched off. Take it off the form.',
+      {
+        fields: ['Unknown field'],
+      },
+    );
+  }
+}
+
+/**
+ * Saves a website form as the admin built it (docs/leads.md §3.1). A new form is a draft until
+ * it is published; saving a published form changes it live.
+ */
 export function saveWebForm(ctx: TenantContext, input: WebFormInput): Promise<Result> {
   return configure(ctx, async (tx) => {
     const [source] = await tx
@@ -844,15 +881,22 @@ export function saveWebForm(ctx: TenantContext, input: WebFormInput): Promise<Re
           subSourceId: ['Invalid'],
         });
     }
+    await assertFormFields(tx, ctx, input.fields);
+    const targets = new Set(input.fields.map((field) => field.target));
     const values = {
       name: input.name,
       sourceId: input.sourceId,
       subSourceId: input.subSourceId,
       leadType: input.leadType,
+      heading: input.heading,
+      intro: input.intro,
+      submitLabel: input.submitLabel,
       thankYouMessage: input.thankYouMessage,
-      askCompany: input.askCompany,
-      askMessage: input.askMessage,
-      askConsent: input.askConsent,
+      fields: input.fields,
+      // Kept in step for anything still reading the older switches.
+      askCompany: targets.has('companyName') || targets.has('jobTitle'),
+      askMessage: targets.has('message'),
+      askConsent: targets.has('consent'),
       updatedAt: new Date(),
     };
     if (input.id) {
@@ -862,7 +906,12 @@ export function saveWebForm(ctx: TenantContext, input: WebFormInput): Promise<Re
         .where(and(eq(webForms.tenantId, ctx.tenantId), eq(webForms.id, input.id)))
         .returning({ id: webForms.id });
       if (!row) throw new AppError('NOT_FOUND', 'That form was not found.');
-      await audit(tx, ctx, { action: 'update', entityType: 'web_form', entityId: row.id });
+      await audit(tx, ctx, {
+        action: 'update',
+        entityType: 'web_form',
+        entityId: row.id,
+        context: { fields: input.fields.length },
+      });
       return row;
     }
     const [created] = await tx
@@ -870,6 +919,7 @@ export function saveWebForm(ctx: TenantContext, input: WebFormInput): Promise<Re
       .values({
         tenantId: ctx.tenantId,
         ...values,
+        isActive: false,
         publicKey: randomBytes(18).toString('base64url'),
         createdBy: ctx.userId,
       })
@@ -880,21 +930,42 @@ export function saveWebForm(ctx: TenantContext, input: WebFormInput): Promise<Re
   });
 }
 
-export function toggleWebForm(ctx: TenantContext, input: { id: string; isActive: boolean }) {
+/** Puts a form live, or takes it down; the stored fields are checked again before it goes live. */
+export function publishWebForm(ctx: TenantContext, input: { id: string; publish: boolean }) {
   return configure(ctx, async (tx) => {
-    const [row] = await tx
-      .update(webForms)
-      .set({ isActive: input.isActive })
+    const [form] = await tx
+      .select({ id: webForms.id, fields: webForms.fields, isActive: webForms.isActive })
+      .from(webForms)
       .where(and(eq(webForms.tenantId, ctx.tenantId), eq(webForms.id, input.id)))
-      .returning({ id: webForms.id });
-    if (!row) throw new AppError('NOT_FOUND', 'That form was not found.');
+      .limit(1)
+      .for('update');
+    if (!form) throw new AppError('NOT_FOUND', 'That form was not found.');
+    if (input.publish) {
+      const fields = formFieldsSchema.safeParse(form.fields);
+      if (!fields.success) {
+        throw new AppError(
+          'VALIDATION',
+          fields.error.issues[0]?.message ?? 'Finish the form first.',
+        );
+      }
+      await assertFormFields(tx, ctx, fields.data);
+    }
+    const now = new Date();
+    await tx
+      .update(webForms)
+      .set({
+        isActive: input.publish,
+        updatedAt: now,
+        ...(input.publish ? { publishedAt: now } : {}),
+      })
+      .where(and(eq(webForms.tenantId, ctx.tenantId), eq(webForms.id, form.id)));
     await audit(tx, ctx, {
       action: 'update',
       entityType: 'web_form',
-      entityId: row.id,
-      changes: { isActive: [!input.isActive, input.isActive] },
+      entityId: form.id,
+      changes: { isActive: [form.isActive, input.publish] },
     });
-    return row;
+    return { id: form.id };
   });
 }
 

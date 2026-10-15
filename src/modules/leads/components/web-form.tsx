@@ -3,53 +3,157 @@
 import { CheckCircle2 } from 'lucide-react';
 import { useState, useTransition } from 'react';
 
+import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import type { RenderedField } from '@/modules/leads/form-fields';
 
-type Fields = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  companyName: string;
-  jobTitle: string;
-  message: string;
+type Value = string | boolean | string[];
+
+const AUTOCOMPLETE: Record<string, string> = {
+  firstName: 'given-name',
+  lastName: 'family-name',
+  email: 'email',
+  phone: 'tel',
+  city: 'address-level2',
+  region: 'address-level1',
+  companyName: 'organization',
+  jobTitle: 'organization-title',
+  companyWebsite: 'url',
 };
 
-/** A business's public enquiry form: what it asks for is set in Settings → Forms. */
+const INPUT_TYPE: Partial<Record<RenderedField['kind'], string>> = {
+  email: 'email',
+  phone: 'tel',
+  url: 'url',
+  number: 'number',
+  date: 'date',
+};
+
+function FieldInput({
+  field,
+  value,
+  onChange,
+  invalid,
+}: {
+  field: RenderedField;
+  value: Value | undefined;
+  onChange: (value: Value) => void;
+  invalid: boolean;
+}) {
+  const id = `wf-${field.id}`;
+  const describedBy = field.help ? `${id}-help` : undefined;
+  if (field.kind === 'checkbox') {
+    return (
+      <input
+        id={id}
+        type="checkbox"
+        className="mt-0.5 size-4 shrink-0 accent-primary"
+        checked={value === true}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    );
+  }
+  if (field.kind === 'textarea') {
+    return (
+      <Textarea
+        id={id}
+        rows={4}
+        maxLength={field.max}
+        value={typeof value === 'string' ? value : ''}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    );
+  }
+  if (field.kind === 'select') {
+    return (
+      <NativeSelect
+        id={id}
+        value={typeof value === 'string' ? value : ''}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">Choose…</option>
+        {field.choices.map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </NativeSelect>
+    );
+  }
+  if (field.kind === 'multi_select') {
+    const chosen = Array.isArray(value) ? value : [];
+    return (
+      <div className="flex flex-col gap-1.5" role="group" aria-labelledby={`${id}-label`}>
+        {field.choices.map((choice) => (
+          <label key={choice.value} className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={chosen.includes(choice.value)}
+              onChange={(event) =>
+                onChange(
+                  event.target.checked
+                    ? [...chosen, choice.value]
+                    : chosen.filter((item) => item !== choice.value),
+                )
+              }
+            />
+            {choice.label}
+          </label>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <Input
+      id={id}
+      type={INPUT_TYPE[field.kind] ?? 'text'}
+      autoComplete={AUTOCOMPLETE[field.target]}
+      maxLength={field.kind === 'number' || field.kind === 'date' ? undefined : field.max}
+      value={typeof value === 'string' ? value : ''}
+      aria-invalid={invalid}
+      aria-describedby={describedBy}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+/**
+ * A business's website form, drawn from the fields its admin built (docs/leads.md §3.1). The
+ * builder shows the same component as a live preview, where it cannot be sent.
+ */
 export function WebForm({
   formKey,
   businessName,
-  askCompany,
-  askMessage,
-  askConsent,
+  fields,
+  submitLabel,
   thankYouMessage,
-  utm,
-  initiallySent,
-  initiallyFailed,
+  utm = {},
+  initiallySent = false,
+  initiallyFailed = false,
+  preview = false,
 }: {
-  formKey: string;
+  formKey?: string;
   businessName: string;
-  askCompany: boolean;
-  askMessage: boolean;
-  askConsent: boolean;
+  fields: RenderedField[];
+  submitLabel: string | null;
   thankYouMessage: string | null;
-  utm: Record<string, string>;
-  initiallySent: boolean;
-  initiallyFailed: boolean;
+  utm?: Record<string, string>;
+  initiallySent?: boolean;
+  initiallyFailed?: boolean;
+  preview?: boolean;
 }) {
-  const [fields, setFields] = useState<Fields>({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    companyName: '',
-    jobTitle: '',
-    message: '',
-  });
-  const [consent, setConsent] = useState(false);
+  const [values, setValues] = useState<Record<string, Value>>({});
   const [website, setWebsite] = useState('');
   const [done, setDone] = useState(initiallySent);
   const [error, setError] = useState<string | null>(
@@ -70,37 +174,15 @@ export function WebForm({
     );
   }
 
-  const field = (
-    name: keyof Fields,
-    label: string,
-    options: { type?: string; autoComplete?: string; required?: boolean; maxLength?: number } = {},
-  ) => (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={`wf-${name}`}>
-        {label}
-        {options.required && <span className="text-destructive-text"> *</span>}
-      </Label>
-      <Input
-        id={`wf-${name}`}
-        type={options.type ?? 'text'}
-        autoComplete={options.autoComplete}
-        required={options.required}
-        maxLength={options.maxLength ?? 120}
-        value={fields[name]}
-        aria-invalid={Boolean(fieldErrors[name])}
-        onChange={(event) => setFields({ ...fields, [name]: event.target.value })}
-      />
-      {fieldErrors[name] && (
-        <p className="text-xs text-destructive-text">{fieldErrors[name]?.[0]}</p>
-      )}
-    </div>
-  );
+  const half = (field: RenderedField) =>
+    ['text', 'email', 'phone', 'url', 'number', 'date', 'select'].includes(field.kind);
 
   return (
     <form
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
+        if (preview || !formKey) return;
         startTransition(async () => {
           setError(null);
           setFieldErrors({});
@@ -108,7 +190,7 @@ export function WebForm({
             const response = await fetch(`/api/forms/${formKey}`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ ...fields, consent, website, ...utm }),
+              body: JSON.stringify({ ...values, website, ...utm }),
             });
             const reply = (await response.json()) as {
               ok: boolean;
@@ -124,48 +206,51 @@ export function WebForm({
       }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        {field('firstName', 'First name', {
-          autoComplete: 'given-name',
-          required: true,
-          maxLength: 80,
+        {fields.map((field) => {
+          const id = `wf-${field.id}`;
+          const problem = fieldErrors[field.target]?.[0];
+          const control = (
+            <FieldInput
+              field={field}
+              value={values[field.target]}
+              invalid={Boolean(problem)}
+              onChange={(value) => setValues((current) => ({ ...current, [field.target]: value }))}
+            />
+          );
+          const label = (
+            <>
+              {field.label}
+              {field.required && <span className="text-destructive-text"> *</span>}
+            </>
+          );
+          return (
+            <div
+              key={field.id}
+              className={cn('flex flex-col gap-1.5', !half(field) && 'sm:col-span-2')}
+            >
+              {field.kind === 'checkbox' ? (
+                <label htmlFor={id} className="flex items-start gap-2 text-sm">
+                  {control}
+                  <span>{label}</span>
+                </label>
+              ) : (
+                <>
+                  <Label htmlFor={id} id={`${id}-label`}>
+                    {label}
+                  </Label>
+                  {control}
+                </>
+              )}
+              {field.help && (
+                <p id={`${id}-help`} className="text-xs text-muted-foreground">
+                  {field.help}
+                </p>
+              )}
+              {problem && <p className="text-xs text-destructive-text">{problem}</p>}
+            </div>
+          );
         })}
-        {field('lastName', 'Last name', { autoComplete: 'family-name', maxLength: 80 })}
-        {field('email', 'Email', {
-          type: 'email',
-          autoComplete: 'email',
-          required: true,
-          maxLength: 200,
-        })}
-        {field('phone', 'Phone', { type: 'tel', autoComplete: 'tel', maxLength: 40 })}
-        {askCompany &&
-          field('companyName', 'Company', { autoComplete: 'organization', maxLength: 160 })}
-        {askCompany && field('jobTitle', 'Job title', { autoComplete: 'organization-title' })}
       </div>
-      {askMessage && (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="wf-message">How can we help?</Label>
-          <Textarea
-            id="wf-message"
-            rows={4}
-            maxLength={4000}
-            value={fields.message}
-            onChange={(event) => setFields({ ...fields, message: event.target.value })}
-          />
-        </div>
-      )}
-      {askConsent && (
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5 size-4 accent-primary"
-            checked={consent}
-            onChange={(event) => setConsent(event.target.checked)}
-          />
-          <span>
-            {businessName} may send me news and offers by email. I can unsubscribe at any time.
-          </span>
-        </label>
-      )}
       {/* Hidden from people; scripts that fill every field give themselves away. */}
       <div aria-hidden className="absolute -left-[9999px] size-px overflow-hidden">
         <label>
@@ -183,11 +268,13 @@ export function WebForm({
           {error}
         </p>
       )}
-      <Button type="submit" size="lg" disabled={isPending}>
-        {isPending ? 'Sending…' : 'Send enquiry'}
+      <Button type="submit" size="lg" disabled={isPending || preview}>
+        {isPending ? 'Sending…' : submitLabel || 'Send enquiry'}
       </Button>
       <p className="text-center text-xs text-muted-foreground">
-        Your details go only to {businessName}.
+        {preview
+          ? 'Preview — this form cannot be sent from here.'
+          : `Your details go only to ${businessName}.`}
       </p>
     </form>
   );

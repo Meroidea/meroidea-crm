@@ -43,7 +43,6 @@ import {
 } from '@/modules/crm-config/queries';
 import { getCustomFields } from '@/modules/custom-fields/queries';
 import { getLeadConfig } from '@/modules/leads/config';
-import { allowedLeadTypes } from '@/modules/leads/settings';
 import { listActiveMembers } from '@/modules/members/queries';
 import { getPipelineConfig, getPipelineSummaries } from '@/modules/pipelines/queries';
 import { LostReasonList } from '@/modules/settings/components/settings-lists';
@@ -101,7 +100,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   const [lists, agreement, leadConfig, pipelines, members, teams] = await Promise.all([
     getSettingsLists(ctx),
     getAcceptedAgreement(ctx),
-    crm && ['leads', 'sources', 'routing', 'forms'].includes(tab) ? getLeadConfig(ctx) : null,
+    crm && ['leads', 'sources', 'routing'].includes(tab) ? getLeadConfig(ctx) : null,
     crm && tab === 'pipeline' ? getPipelineSummaries(ctx) : [],
     needsPeople ? listActiveMembers(ctx) : [],
     needsPeople ? getTeams(ctx) : [],
@@ -434,28 +433,18 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
               </CardContent>
             </>
           )}
-          {tab === 'forms' && leadConfig && (
+          {tab === 'forms' && (
             <>
               <CardHeader>
                 <CardTitle>Website forms</CardTitle>
                 <CardDescription>
-                  Contact-us, enquiry and feedback forms that create leads automatically, with their
-                  source, sub-source and web tracking (UTM). Share the link or embed it.
+                  Build your own enquiry forms: choose the questions, add your own, preview them and
+                  publish. Every answer lands on a new lead with its source, sub-source and web
+                  tracking (UTM). Share the link or embed it on your website.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <WebFormsEditor
-                  forms={webForms}
-                  sources={leadConfig.sources
-                    .filter((source) => source.isActive)
-                    .map((source) => ({
-                      id: source.id,
-                      name: source.name,
-                      subSources: source.subSources.filter((sub) => sub.isActive),
-                    }))}
-                  leadTypes={allowedLeadTypes(leadConfig.settings)}
-                  appUrl={serverEnv().APP_URL}
-                />
+                <WebFormsEditor forms={webForms} appUrl={serverEnv().APP_URL} />
               </CardContent>
             </>
           )}

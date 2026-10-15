@@ -5,6 +5,7 @@ import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import {
   auditLogs,
   contacts,
+  customFieldDefinitions,
   leadIntakeEvents,
   leadStatuses,
   tenantMemberships,
@@ -13,6 +14,7 @@ import {
   webForms,
 } from '@/db/schema';
 import { AppError } from '@/lib/errors';
+import { choicesOf, type CustomFieldDefinition } from '@/modules/custom-fields/validation';
 import { normalizeEmail, normalizePhone } from '@/lib/normalize';
 import { recordSystemActivity } from '@/modules/activities/service';
 import { notify, sendNoticeEmails, type PendingEmail } from '@/modules/notifications/service';
@@ -20,8 +22,10 @@ import { adminDb } from '@/server/db/admin';
 import { enforceRateLimit } from '@/server/rate-limit';
 
 import { systemStatus, type LeadStatus } from './config';
+import { readAnswers } from './form-answers';
+import { readFormFields, renderFields, type RenderedField } from './form-fields';
 import { routeLead } from './routing';
-import { UTM_KEYS, type WebFormSubmission } from './schemas';
+import { UTM_KEYS } from './schemas';
 
 /**
  * The public side of a business's website forms (docs/leads.md §3.1). There is no session, so
@@ -48,9 +52,10 @@ async function formByKey(key: string) {
       subSourceId: webForms.subSourceId,
       leadType: webForms.leadType,
       thankYouMessage: webForms.thankYouMessage,
-      askCompany: webForms.askCompany,
-      askMessage: webForms.askMessage,
-      askConsent: webForms.askConsent,
+      heading: webForms.heading,
+      intro: webForms.intro,
+      submitLabel: webForms.submitLabel,
+      fields: webForms.fields,
       createdBy: webForms.createdBy,
       businessName: tenants.name,
       country: tenants.defaultCountry,
@@ -69,13 +74,37 @@ async function formByKey(key: string) {
   return row ?? null;
 }
 
+/** The business's own contact fields, for the forms of one business. */
+async function contactFields(tenantId: string): Promise<CustomFieldDefinition[]> {
+  const rows = await adminDb()
+    .select()
+    .from(customFieldDefinitions)
+    .where(
+      and(
+        eq(customFieldDefinitions.tenantId, tenantId),
+        eq(customFieldDefinitions.entityType, 'contact'),
+      ),
+    );
+  return rows.map((row) => ({
+    id: row.id,
+    key: row.key,
+    label: row.label,
+    description: row.description,
+    fieldType: row.fieldType,
+    choices: choicesOf(row.options),
+    isRequired: row.isRequired,
+    isActive: row.isActive,
+    showInList: row.showInList,
+  }));
+}
+
 export type PublicWebForm = {
   businessName: string;
-  name: string;
-  askCompany: boolean;
-  askMessage: boolean;
-  askConsent: boolean;
+  heading: string;
+  intro: string | null;
+  submitLabel: string | null;
   thankYouMessage: string | null;
+  fields: RenderedField[];
 };
 
 export async function getPublicWebForm(key: string): Promise<PublicWebForm | null> {
@@ -83,11 +112,11 @@ export async function getPublicWebForm(key: string): Promise<PublicWebForm | nul
   if (!form) return null;
   return {
     businessName: form.businessName,
-    name: form.name,
-    askCompany: form.askCompany,
-    askMessage: form.askMessage,
-    askConsent: form.askConsent,
+    heading: form.heading ?? form.name,
+    intro: form.intro,
+    submitLabel: form.submitLabel,
     thankYouMessage: form.thankYouMessage,
+    fields: renderFields(readFormFields(form.fields), await contactFields(form.tenantId)),
   };
 }
 
@@ -99,7 +128,7 @@ export async function getPublicWebForm(key: string): Promise<PublicWebForm | nul
  */
 export async function submitWebForm(
   key: string,
-  input: WebFormSubmission,
+  body: Record<string, unknown>,
   sender: string | null,
 ): Promise<{ thankYouMessage: string | null }> {
   const form = await formByKey(key);
@@ -131,24 +160,24 @@ export async function submitWebForm(
     );
   }
 
-  // Only what the form asks for is kept; anything else a script adds is dropped.
-  const submission = {
-    firstName: input.firstName,
-    lastName: input.lastName,
-    email: input.email,
-    phone: input.phone,
-    companyName: form.askCompany ? input.companyName : null,
-    jobTitle: form.askCompany ? input.jobTitle : null,
-    message: form.askMessage ? input.message : null,
-    consent: form.askConsent ? input.consent : false,
-  };
+  // Only what the form asks for is read; anything else a script adds is dropped.
+  const definitions = await contactFields(form.tenantId);
+  const fields = renderFields(readFormFields(form.fields), definitions);
+  const { answers, errors } = readAnswers(fields, definitions, body);
+  if (Object.keys(errors).length > 0) {
+    throw new AppError('VALIDATION', 'Please check the highlighted fields.', errors);
+  }
+  const person = answers.contact;
+  const firstName = person.firstName ?? '';
   const utmEntries = UTM_KEYS.flatMap((utmKey) => {
-    const value = input[utmKey];
-    return value ? [[utmKey, value] as const] : [];
+    const value = body[utmKey];
+    return typeof value === 'string' && value.trim()
+      ? [[utmKey, value.trim().slice(0, 200)] as const]
+      : [];
   });
   const utm = utmEntries.length > 0 ? Object.fromEntries(utmEntries) : null;
-  const email = normalizeEmail(submission.email);
-  const phone = normalizePhone(submission.phone, form.country);
+  const email = normalizeEmail(person.email);
+  const phone = normalizePhone(person.phone, form.country);
   const consentSource = `Website form: ${form.name}`.slice(0, 80);
   const system = { tenantId: form.tenantId, userId: null };
 
@@ -159,30 +188,51 @@ export async function submitWebForm(
         tenantId: form.tenantId,
         channel: 'web_form',
         webFormId: form.id,
-        payload: { ...submission, utm },
+        payload: {
+          ...person,
+          message: answers.message,
+          consent: answers.consent,
+          custom: answers.custom,
+          utm,
+        },
       })
       .returning({ id: leadIntakeEvents.id });
     if (!event) throw new AppError('INTERNAL', 'Your enquiry could not be saved.');
 
     const now = new Date();
     const subject = `Enquiry from the website form “${form.name}”`;
-    const [existing] = email
-      ? await tx
-          .select({
-            id: contacts.id,
-            ownerUserId: contacts.ownerUserId,
-            marketingConsent: contacts.marketingConsent,
-          })
-          .from(contacts)
-          .where(
-            and(
-              eq(contacts.tenantId, form.tenantId),
-              eq(contacts.emailNormalized, email),
-              isNull(contacts.deletedAt),
-            ),
-          )
-          .limit(1)
-      : [];
+    // The same person writing again is found by email, or by phone when the form asked no email.
+    const [existing] =
+      email || phone
+        ? await tx
+            .select({
+              id: contacts.id,
+              ownerUserId: contacts.ownerUserId,
+              marketingConsent: contacts.marketingConsent,
+              record: contacts,
+            })
+            .from(contacts)
+            .where(
+              and(
+                eq(contacts.tenantId, form.tenantId),
+                email ? eq(contacts.emailNormalized, email) : eq(contacts.phoneE164, phone!),
+                isNull(contacts.deletedAt),
+              ),
+            )
+            .limit(1)
+        : [];
+    const details = {
+      lastName: person.lastName ?? null,
+      city: person.city ?? null,
+      region: person.region ?? null,
+      language: person.language ?? null,
+      companyName: person.companyName ?? null,
+      jobTitle: person.jobTitle ?? null,
+      companyWebsite: person.companyWebsite ?? null,
+      companySize: person.companySize ?? null,
+      industry: person.industry ?? null,
+      interest: person.interest ?? null,
+    };
 
     let contactId: string;
     let recipient: string | null;
@@ -191,12 +241,31 @@ export async function submitWebForm(
       contactId = existing.id;
       recipient = existing.ownerUserId;
       notice = 'enquiry_received';
-      // A new yes to marketing is recorded; a form never takes an earlier yes away.
+      // What the form adds fills the record's gaps; nothing already there is overwritten. A new
+      // yes to marketing is recorded; a form never takes an earlier yes away.
+      const fill: Record<string, unknown> = {};
+      for (const [column, value] of Object.entries(details)) {
+        const current = existing.record[column as keyof typeof existing.record];
+        if (value && (current === null || current === '')) fill[column] = value;
+      }
+      if (!existing.record.email && person.email) {
+        fill.email = person.email;
+        fill.emailNormalized = email;
+      }
+      if (!existing.record.phone && person.phone) {
+        fill.phone = person.phone;
+        fill.phoneE164 = phone;
+      }
+      const known = existing.record.customFields as Record<string, unknown>;
+      if (Object.keys(answers.custom).some((customKey) => known[customKey] === undefined)) {
+        fill.customFields = { ...answers.custom, ...known };
+      }
       await tx
         .update(contacts)
         .set({
+          ...fill,
           lastActivityAt: now,
-          ...(submission.consent && !existing.marketingConsent
+          ...(answers.consent && !existing.marketingConsent
             ? { marketingConsent: true, consentUpdatedAt: now, consentSource }
             : {}),
         })
@@ -224,12 +293,12 @@ export async function submitWebForm(
           leadType: form.leadType,
           sourceId: form.sourceId,
           subSourceId: form.subSourceId,
-          country: null,
-          region: null,
-          industry: null,
-          companySize: null,
-          language: null,
-          interest: null,
+          country: form.country,
+          region: details.region,
+          industry: details.industry,
+          companySize: details.companySize,
+          language: details.language,
+          interest: details.interest,
         },
         'intake',
       );
@@ -237,14 +306,13 @@ export async function submitWebForm(
         .insert(contacts)
         .values({
           tenantId: form.tenantId,
-          firstName: submission.firstName,
-          lastName: submission.lastName,
-          email: submission.email,
+          firstName,
+          ...details,
+          email: person.email ?? null,
           emailNormalized: email,
-          phone: submission.phone,
+          phone: person.phone ?? null,
           phoneE164: phone,
-          companyName: submission.companyName,
-          jobTitle: submission.jobTitle,
+          customFields: answers.custom,
           sourceId: form.sourceId,
           subSourceId: form.subSourceId,
           campaignName: utm?.utm_campaign?.slice(0, 120) ?? null,
@@ -254,9 +322,9 @@ export async function submitWebForm(
           leadStatusChangedAt: now,
           ownerUserId: owner,
           assignedAt: owner ? now : null,
-          marketingConsent: submission.consent,
-          consentUpdatedAt: submission.consent ? now : null,
-          consentSource: submission.consent ? consentSource : null,
+          marketingConsent: answers.consent,
+          consentUpdatedAt: answers.consent ? now : null,
+          consentSource: answers.consent ? consentSource : null,
           lastActivityAt: now,
         })
         .returning({ id: contacts.id });
@@ -269,7 +337,8 @@ export async function submitWebForm(
     await recordSystemActivity(tx, system, {
       type: 'enquiry',
       subject,
-      body: submission.message,
+      // Their message, then what else they answered, so the enquiry reads whole on the timeline.
+      body: [answers.message, answers.summary.join('\n')].filter(Boolean).join('\n\n') || null,
       contactId,
       metadata: { webFormId: form.id, intakeEventId: event.id, ...(utm ? { utm } : {}) },
     });
@@ -309,8 +378,8 @@ export async function submitWebForm(
         userId: recipient,
         type: notice,
         title: existing
-          ? `New enquiry from ${submission.firstName} through “${form.name}”`
-          : `New lead from the website: ${[submission.firstName, submission.lastName].filter(Boolean).join(' ')}`,
+          ? `New enquiry from ${firstName} through “${form.name}”`
+          : `New lead from the website: ${[firstName, person.lastName].filter(Boolean).join(' ')}`,
         url: `/contacts/${contactId}`,
         email: true,
       },

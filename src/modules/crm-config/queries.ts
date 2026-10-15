@@ -15,6 +15,7 @@ import {
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
+import { readFormFields } from '@/modules/leads/form-fields';
 import type { RuleConditions } from '@/modules/leads/routing';
 
 export async function getRoutingRules(ctx: TenantContext) {
@@ -100,15 +101,50 @@ export async function getSequences(ctx: TenantContext, activeOnly = false) {
   }));
 }
 
+/** The business's website forms, for the list in Settings → Website forms. */
 export async function getWebForms(ctx: TenantContext) {
   requirePermission(ctx, 'settings.manage');
-  return withRls(ctx, (tx) =>
+  const rows = await withRls(ctx, (tx) =>
     tx
-      .select()
+      .select({
+        id: webForms.id,
+        name: webForms.name,
+        publicKey: webForms.publicKey,
+        leadType: webForms.leadType,
+        fields: webForms.fields,
+        isActive: webForms.isActive,
+      })
       .from(webForms)
       .where(eq(webForms.tenantId, ctx.tenantId))
       .orderBy(asc(webForms.name)),
   );
+  return rows.map(({ fields, ...row }) => ({ ...row, fieldCount: readFormFields(fields).length }));
+}
+
+/** One form as the builder edits it; `null` when it is not this business's. */
+export async function getWebForm(ctx: TenantContext, id: string) {
+  requirePermission(ctx, 'settings.manage');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: webForms.id,
+        name: webForms.name,
+        publicKey: webForms.publicKey,
+        sourceId: webForms.sourceId,
+        subSourceId: webForms.subSourceId,
+        leadType: webForms.leadType,
+        heading: webForms.heading,
+        intro: webForms.intro,
+        submitLabel: webForms.submitLabel,
+        thankYouMessage: webForms.thankYouMessage,
+        fields: webForms.fields,
+        isActive: webForms.isActive,
+      })
+      .from(webForms)
+      .where(and(eq(webForms.tenantId, ctx.tenantId), eq(webForms.id, id)))
+      .limit(1),
+  );
+  return row ? { ...row, fields: readFormFields(row.fields) } : null;
 }
 
 /** Roles with their grants and how many people hold each, for the roles editor. */

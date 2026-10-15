@@ -23,6 +23,7 @@ import {
   stageRulesSchema,
   subSourceSchema,
   toggleSchema,
+  publishWebFormSchema,
   webFormSchema,
 } from './schemas';
 import * as config from './service';
@@ -143,9 +144,9 @@ export const saveWebFormAction = authedAction(
   { permission: manage, input: webFormSchema, revalidate: SETTINGS },
   (ctx, input) => config.saveWebForm(ctx, input),
 );
-export const toggleWebFormAction = authedAction(
-  { permission: manage, input: toggleSchema, revalidate: SETTINGS },
-  (ctx, input) => config.toggleWebForm(ctx, input),
+export const publishWebFormAction = authedAction(
+  { permission: manage, input: publishWebFormSchema, revalidate: SETTINGS },
+  (ctx, input) => config.publishWebForm(ctx, input),
 );
 
 export const saveRoleAction = authedAction(
