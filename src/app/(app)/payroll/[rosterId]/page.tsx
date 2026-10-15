@@ -33,7 +33,7 @@ export default async function PayRunPage({ params }: PageProps<'/payroll/[roster
   const money = (value: string, currency: string) => formatMoney(value, currency);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <div>
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
           <Link href="/payroll" className="underline-offset-4 hover:underline">

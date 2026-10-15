@@ -139,7 +139,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     .join(', ');
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <Link
         href="/contacts"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

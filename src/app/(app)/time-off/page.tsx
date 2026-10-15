@@ -114,7 +114,7 @@ export default async function TimeOffPage({ searchParams }: PageProps<'/time-off
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
         title="Time off"
         description="Ask for leave, see what has been approved, and who is away."

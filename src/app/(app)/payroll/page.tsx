@@ -18,7 +18,7 @@ export default async function PayrollPage() {
   const runs = await listPayRuns(ctx);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Payroll"
         description="Authorise each roster’s worked hours, add tax, and release payslips to staff."

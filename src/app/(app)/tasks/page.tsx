@@ -51,7 +51,7 @@ export default async function TasksPage({ searchParams }: PageProps<'/tasks'>) {
   }));
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Tasks"
         description={

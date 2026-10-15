@@ -150,7 +150,7 @@ export default async function StaffProfilePage({ params, searchParams }: PagePro
     : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <div className="flex w-full max-w-6xl flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">

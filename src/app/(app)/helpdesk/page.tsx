@@ -50,7 +50,7 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Helpdesk"
         description="Customer requests in one queue: who has them, how urgent they are, and what was said."

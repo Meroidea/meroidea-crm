@@ -59,7 +59,7 @@ export default async function ReviewsPage({ searchParams }: PageProps<'/reviews'
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Reviews"
         description="What customers say, from the links and QR codes you hand out."

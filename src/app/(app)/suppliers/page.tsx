@@ -21,7 +21,7 @@ export default async function SuppliersPage() {
   const suppliers = await listSuppliers(ctx);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Suppliers"
         description="Who you buy from, their price lists, and when they deliver."

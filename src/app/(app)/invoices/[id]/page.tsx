@@ -26,7 +26,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<'/
     : { draft: 'Draft', sent: 'Sent', paid: 'Paid', void: 'Void' }[invoice.status];
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <div className="no-print">
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
           <Link href="/invoices" className="underline-offset-4 hover:underline">

@@ -52,7 +52,7 @@ export default async function ImportReportPage({ params }: PageProps<'/imports/[
   ] as const;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <Button asChild variant="ghost" size="sm" className="w-fit">
         <Link href="/imports">
           <ArrowLeft aria-hidden /> Imports

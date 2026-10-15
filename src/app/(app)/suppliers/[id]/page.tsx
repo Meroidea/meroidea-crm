@@ -49,7 +49,7 @@ export default async function SupplierPage({ params }: PageProps<'/suppliers/[id
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <div>
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
           <Link href="/suppliers" className="underline-offset-4 hover:underline">

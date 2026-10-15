@@ -20,7 +20,7 @@ export default async function EditModulePage({
   if (!lesson) notFound();
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <Link
         href={`/training/manage/${lesson.courseId}`}
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

@@ -41,7 +41,7 @@ export default async function ExpensesPage({ searchParams }: PageProps<'/expense
   ] as const;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
         title="Expenses"
         description="Claim back what you paid for the business, with the receipt attached."

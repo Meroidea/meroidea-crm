@@ -21,7 +21,7 @@ export default async function ManageTrainingPage() {
   const courses = await listCoursesToManage(ctx);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Training"
         description="Write the courses your staff complete online, and decide who must do each one."

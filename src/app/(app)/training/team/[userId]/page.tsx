@@ -24,7 +24,7 @@ export default async function PersonTrainingPage({
   const overview = await getTrainingFor(ctx, member.userId);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <Link
         href="/training/team"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

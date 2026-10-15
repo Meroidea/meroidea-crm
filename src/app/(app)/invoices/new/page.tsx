@@ -14,7 +14,7 @@ export default async function NewInvoicePage() {
   const today = zonedToday(ctx.tenant.timezone);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
         title="New invoice"
         description="Saved as a draft first. Nothing is sent until you choose to."

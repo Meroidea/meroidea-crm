@@ -16,7 +16,7 @@ export default async function NewPartnerPage() {
     : [];
   const labels = ctx.tenant.labels;
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader title={`Add ${labels.partner.singular.toLowerCase()}`} />
       <Card>
         <CardContent>

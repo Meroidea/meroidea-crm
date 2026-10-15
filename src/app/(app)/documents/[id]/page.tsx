@@ -23,7 +23,7 @@ export default async function DocumentPage({ params }: PageProps<'/documents/[id
   const folders = canManage ? await listFolders(ctx) : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <div>
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
           <Link href="/documents" className="underline-offset-4 hover:underline">

@@ -145,7 +145,7 @@ export default async function LeadReportsPage({ searchParams }: PageProps<'/repo
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
+    <div className="flex w-full max-w-7xl flex-col gap-5">
       <PageHeader
         title="Lead reports"
         description={`Where leads come from, how quickly they are worked, and how handovers land. ${scope === 'own' ? 'Showing your own leads.' : scope === 'team' ? "Showing your team's leads." : 'Showing the whole workspace.'}`}

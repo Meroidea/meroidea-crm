@@ -66,7 +66,7 @@ export default async function InventoryPage({ searchParams }: PageProps<'/invent
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Inventory"
         description="What you have on hand, what is running low, and every change that got it there."

@@ -65,7 +65,7 @@ export default async function MyDayPage() {
   }).format(new Date());
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="My Day"
         description={

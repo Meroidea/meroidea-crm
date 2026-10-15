@@ -30,7 +30,7 @@ export default async function ApplicantPage({ params }: PageProps<'/recruitment/
     hasPermission(ctx, 'employees.manage') && ['offer', 'hired'].includes(applicant.stage);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full max-w-3xl flex-col gap-5">
       <Link
         href={jobHref}
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

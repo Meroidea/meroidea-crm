@@ -79,7 +79,7 @@ export default async function StaffPage({ searchParams }: PageProps<'/staff'>) {
   ].filter((group) => group.people.length > 0 || (!filtering && group.id !== 'none'));
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Staff"
         description="Everyone you have hired or offered work to, grouped the way your business is organised."

@@ -29,10 +29,10 @@ export default async function PartnersPage() {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <PageHeader
         title={label.plural}
-        description="The organisations that refer business to you, and how it converts."
+        description="The organizations that refer business to you, and how it converts."
         actions={addButton}
       />
       {partners.length === 0 ? (

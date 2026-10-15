@@ -29,7 +29,7 @@ export default async function InvoicesPage() {
   const money = (value: string) => formatMoney(value, ctx.tenant.currency);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Invoices"
         description="Bill your customers and keep track of what is owed."

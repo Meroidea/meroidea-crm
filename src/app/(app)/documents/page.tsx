@@ -46,7 +46,7 @@ export default async function DocumentsPage({ searchParams }: PageProps<'/docume
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Documents"
         description="Your business’s shared files. Open one to edit it here, together, without downloading."

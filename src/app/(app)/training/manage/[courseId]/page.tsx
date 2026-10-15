@@ -30,7 +30,7 @@ export default async function ManageCoursePage({
   const options = await getAssignmentOptions(ctx);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <Link
         href="/training/manage"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

@@ -25,7 +25,7 @@ export default async function PayslipPage({ params }: PageProps<'/payslips/[id]'
   const canAsk = payslip.mine && hasPermission(ctx, 'concerns.raise');
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
           <Link

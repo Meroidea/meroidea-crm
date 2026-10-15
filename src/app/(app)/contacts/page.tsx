@@ -72,7 +72,7 @@ export default async function ContactsPage({ searchParams }: PageProps<'/contact
   const isFiltered = Boolean(filters.q || filters.status || filters.source || filters.owner);
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
+    <div className="flex w-full max-w-7xl flex-col gap-5">
       <PageHeader
         title={label.plural}
         description={`Everyone your team works with. ${counts.all.toLocaleString('en-AU')} in view.`}

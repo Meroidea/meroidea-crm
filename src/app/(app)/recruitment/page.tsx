@@ -21,7 +21,7 @@ export default async function RecruitmentPage() {
   const openings = await listOpenings(ctx);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
         title="Recruitment"
         description="Advertise a job, collect applications on its own page, and track each person through to hiring."

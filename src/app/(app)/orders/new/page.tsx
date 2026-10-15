@@ -41,7 +41,7 @@ export default async function NewOrderPage({ searchParams }: PageProps<'/orders/
           : null));
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
         title="Place an order"
         description="Pick the supplier and delivery date, enter what you need, and send."

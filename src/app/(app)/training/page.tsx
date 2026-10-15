@@ -17,7 +17,7 @@ export default async function MyTrainingPage({ searchParams }: PageProps<'/train
   const [overview, name] = await Promise.all([getTrainingFor(ctx, ctx.userId), getMyName(ctx)]);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <PageHeader
         title="Training"
         description="The courses your business has set for you. Open a module to read it and take its quiz."
