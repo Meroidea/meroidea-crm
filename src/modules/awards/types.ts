@@ -10,6 +10,11 @@ export type AwardShift = {
   endTime: string;
   /** Meal break time that is not paid. */
   unpaidBreakMinutes: number;
+  /**
+   * Real minutes from start to end, when known. On the night clocks change the wall-clock times
+   * are an hour out, so this is what is paid.
+   */
+  elapsedMinutes?: number;
 };
 
 export type AwardPayKind =

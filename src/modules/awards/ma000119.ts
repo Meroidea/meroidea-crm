@@ -130,7 +130,9 @@ type Piece = {
 function workedPieces(shift: AwardShift): { start: number; end: number; pieces: Piece[] } {
   const start = dayNumber(shift.date) * DAY + clock(shift.startTime);
   const length = clock(shift.endTime) - clock(shift.startTime);
-  const end = start + (length <= 0 ? length + DAY : length);
+  // Real elapsed time when given: across a daylight-saving change, wall-clock times would pay
+  // an hour too much or too little.
+  const end = start + (shift.elapsedMinutes ?? (length <= 0 ? length + DAY : length));
   const unpaid = Math.max(0, Math.min(shift.unpaidBreakMinutes, end - start));
   if (unpaid === 0) return { start, end, pieces: [{ shift, from: start, to: end }] };
   // The award leaves the time of the break to the roster; without one, assume the middle.

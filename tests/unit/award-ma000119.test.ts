@@ -103,6 +103,16 @@ describe('Restaurant Industry Award: ordinary hours and penalties (cl 24)', () =
     expect(result.warnings).toEqual([]);
   });
 
+  it('pays the real hours on the night clocks go forward, not the wall-clock span', () => {
+    // 10 pm to 6 am across the start of daylight saving is 7 real hours, not 8.
+    const overnight = { ...shift('2026-10-03', '22:00', '06:00', 0), elapsedMinutes: 420 };
+    const paid = payFor('full_time', [overnight]).lines.reduce(
+      (sum, line) => sum + line.minutes,
+      0,
+    );
+    expect(paid).toBe(420);
+  });
+
   it('pays a casual the loaded rate, and the Saturday rate on a Saturday', () => {
     const result = payFor('casual', [shift('2026-10-17', '12:00', '16:00')]);
     expect(summary(result)).toEqual([['Saturday', 240, '39.66', 15864, '24.2']]);
