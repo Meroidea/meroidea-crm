@@ -9,7 +9,7 @@ import { recordSystemActivity, redactContactActivities } from '@/modules/activit
 import { redactContactTasks } from '@/modules/tasks/service';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
-import { withRls } from '@/server/db/with-rls';
+import { withRls, type Tx } from '@/server/db/with-rls';
 
 import { contactRecord } from './access';
 
@@ -207,48 +207,68 @@ export async function anonymizeContact(ctx: TenantContext, id: string): Promise<
     if (contact.anonymizedAt) throw new AppError('CONFLICT', 'This record is already erased.');
 
     const now = new Date();
-    await tx
-      .update(contacts)
-      .set({
-        firstName: 'Erased',
-        lastName: null,
-        email: null,
-        emailNormalized: null,
-        phone: null,
-        phoneE164: null,
-        altPhone: null,
-        dateOfBirth: null,
-        gender: null,
-        addressLine: null,
-        city: null,
-        region: null,
-        jobTitle: null,
-        linkedinUrl: null,
-        language: null,
-        interest: null,
-        customFields: {},
-        leadReasonNote: null,
-        handoverSummary: null,
-        rejectedNote: null,
-        consentSource: null,
-        marketingConsent: false,
-        consentUpdatedAt: now,
-        doNotEmail: true,
-        doNotCall: true,
-        status: 'do_not_contact',
-        anonymizedAt: now,
-        updatedBy: ctx.userId,
-      })
-      .where(and(eq(contacts.tenantId, ctx.tenantId), eq(contacts.id, contact.id)));
-    await redactContactActivities(tx, ctx, contact.id);
-    await redactContactTasks(tx, ctx, contact.id);
-    await tx.execute(sql`select app.erase_contact_traces(${contact.id}::uuid)`);
+    // Records merged into this one were folded in, not deleted: they still hold the person's
+    // details, so they are erased with it (and anything merged into them in turn).
+    const merged = (await tx.execute(sql`
+      with recursive folded(id) as (
+        select entity_id from audit_logs
+        where tenant_id = ${ctx.tenantId} and entity_type = 'contact'
+          and context ->> 'mergedInto' = ${contact.id}
+        union
+        select a.entity_id from audit_logs a
+        join folded f on a.context ->> 'mergedInto' = f.id::text
+        where a.tenant_id = ${ctx.tenantId} and a.entity_type = 'contact'
+      )
+      select id from folded where id is not null`)) as unknown as { id: string }[];
+    for (const id of [contact.id, ...merged.map((row) => row.id)]) {
+      await eraseRecord(tx, ctx, id, now);
+    }
     await audit(tx, ctx, {
       action: 'update',
       entityType: 'contact',
       entityId: contact.id,
-      context: { erasedOnRequest: true },
+      context: { erasedOnRequest: true, mergedRecordsErased: merged.length },
     });
     return { id: contact.id };
   });
+}
+
+/** Clears one record's personal details and the traces they left elsewhere. */
+async function eraseRecord(tx: Tx, ctx: TenantContext, id: string, now: Date) {
+  await tx
+    .update(contacts)
+    .set({
+      firstName: 'Erased',
+      lastName: null,
+      email: null,
+      emailNormalized: null,
+      phone: null,
+      phoneE164: null,
+      altPhone: null,
+      dateOfBirth: null,
+      gender: null,
+      addressLine: null,
+      city: null,
+      region: null,
+      jobTitle: null,
+      linkedinUrl: null,
+      language: null,
+      interest: null,
+      customFields: {},
+      leadReasonNote: null,
+      handoverSummary: null,
+      rejectedNote: null,
+      consentSource: null,
+      marketingConsent: false,
+      consentUpdatedAt: now,
+      doNotEmail: true,
+      doNotCall: true,
+      status: 'do_not_contact',
+      anonymizedAt: now,
+      updatedBy: ctx.userId,
+    })
+    .where(and(eq(contacts.tenantId, ctx.tenantId), eq(contacts.id, id)));
+  await redactContactActivities(tx, ctx, id);
+  await redactContactTasks(tx, ctx, id);
+  await tx.execute(sql`select app.erase_contact_traces(${id}::uuid)`);
 }

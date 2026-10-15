@@ -8,14 +8,19 @@ import { Badge } from '@/components/ui/badge';
 import { formatRelative } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { NewTicketButton, PublicFormCard } from '@/modules/helpdesk/components/helpdesk-tools';
-import { getHelpdeskForm, getTicketCounts, listTickets } from '@/modules/helpdesk/queries';
+import {
+  getHelpdeskForm,
+  getTicketCounts,
+  listTickets,
+  TICKET_LIST_LIMIT,
+} from '@/modules/helpdesk/queries';
 import {
   helpdeskParamsSchema,
   PRIORITY_LABELS,
   STATUS_LABELS,
   type Queue,
 } from '@/modules/helpdesk/schemas';
-import { listActiveMembers } from '@/modules/members/queries';
+import { helpdeskAssignees } from '@/modules/helpdesk/queries';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 import { serverEnv } from '@/server/env';
 
@@ -37,7 +42,7 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
     listTickets(ctx, { queue, q: params.q }),
     getTicketCounts(ctx),
     getHelpdeskForm(ctx),
-    listActiveMembers(ctx),
+    helpdeskAssignees(ctx),
   ]);
   const now = new Date();
 
@@ -104,7 +109,9 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
         <div className="rounded-xl border bg-card">
           <EmptyState
             icon={LifeBuoy}
-            title={params.q ? 'No tickets match that search' : 'Nothing in this queue'}
+            title={
+              params.q ? 'No tickets match that search, in any queue' : 'Nothing in this queue'
+            }
             description="New requests appear here from the public contact form, or when you log one yourself."
           />
         </div>
@@ -143,6 +150,12 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
             );
           })}
         </ul>
+      )}
+      {tickets.length >= TICKET_LIST_LIMIT && (
+        <p className="text-sm text-muted-foreground">
+          Showing the first {TICKET_LIST_LIMIT}. Search by number, subject or customer to find
+          others.
+        </p>
       )}
     </div>
   );

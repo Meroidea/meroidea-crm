@@ -339,6 +339,24 @@ describe('helpdesk', () => {
     expect((await getTicket(owner, ticketId))?.assigneeUserId).toBeNull();
   });
 
+  it('a ticket goes only to someone whose role can work the helpdesk', async () => {
+    const viewerId = await addMember(alphaTenant, mail('voice-viewer'), 'Val Viewer', 'member');
+    alphaUsers.push(viewerId);
+    // A role of the business's own that has no helpdesk access at all.
+    await adminDb().execute(sql`
+      insert into roles (tenant_id, key, name) values (${alphaTenant}, 'viewer', 'Viewer')`);
+    await adminDb().execute(sql`
+      update tenant_memberships set role_id =
+        (select id from roles where tenant_id = ${alphaTenant} and key = 'viewer')
+      where tenant_id = ${alphaTenant} and user_id = ${viewerId}`);
+    expect(await code(updateTicket(owner, { id: ticketId, assigneeUserId: viewerId }))).toBe(
+      'VALIDATION',
+    );
+    // Someone who works tickets can still be given one.
+    await updateTicket(owner, { id: ticketId, assigneeUserId: member.userId });
+    await updateTicket(owner, { id: ticketId, assigneeUserId: null });
+  });
+
   it('the public form is off until a manager switches it on', async () => {
     expect(await getHelpdeskForm(owner)).toBeNull();
     expect(await code(setFormOpen(member, true))).toBe('FORBIDDEN');

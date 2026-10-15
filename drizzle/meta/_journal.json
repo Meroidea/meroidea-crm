@@ -435,6 +435,13 @@
       "when": 1792096334097,
       "tag": "0061_support_seat_can_end",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792098188309,
+      "tag": "0062_erase_ticket_messages",
+      "breakpoints": true
     }
   ]
 }

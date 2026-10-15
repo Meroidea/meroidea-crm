@@ -4,7 +4,14 @@ import { randomBytes } from 'node:crypto';
 
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { contacts, helpdeskForms, tenantMemberships, ticketMessages, tickets } from '@/db/schema';
+import {
+  contacts,
+  helpdeskForms,
+  rolePermissions,
+  tenantMemberships,
+  ticketMessages,
+  tickets,
+} from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { getMyName } from '@/modules/members/queries';
 import { audit } from '@/server/audit';
@@ -33,16 +40,26 @@ async function findTicket(tx: Tx, ctx: TenantContext, id: string) {
   return ticket;
 }
 
+/** A ticket goes only to one of the business's own people whose role can work tickets. */
 async function assertMember(tx: Tx, ctx: TenantContext, userId: string | null | undefined) {
   if (!userId) return;
   const [member] = await tx
     .select({ id: tenantMemberships.id })
     .from(tenantMemberships)
+    .innerJoin(
+      rolePermissions,
+      and(
+        eq(rolePermissions.tenantId, tenantMemberships.tenantId),
+        eq(rolePermissions.roleId, tenantMemberships.roleId),
+        eq(rolePermissions.permission, 'tickets.work'),
+      ),
+    )
     .where(
       and(
         eq(tenantMemberships.tenantId, ctx.tenantId),
         eq(tenantMemberships.userId, userId),
         eq(tenantMemberships.status, 'active'),
+        eq(tenantMemberships.isSupport, false),
       ),
     )
     .limit(1);
@@ -144,7 +161,8 @@ export async function replyToTicket(
           firstResponseAt: found.firstResponseAt ?? now,
           solvedAt: status === 'solved' || status === 'closed' ? (found.solvedAt ?? now) : null,
           // Whoever answers an unassigned ticket takes it.
-          assigneeUserId: found.assigneeUserId ?? ctx.userId,
+          // Replying takes an unassigned ticket, unless it is the platform owner on support.
+          assigneeUserId: found.assigneeUserId ?? (ctx.isSupport ? null : ctx.userId),
           lastActivityAt: now,
           updatedBy: ctx.userId,
         })
