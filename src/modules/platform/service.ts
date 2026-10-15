@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomBytes } from 'node:crypto';
 
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 
 import {
   auditLogs,
@@ -11,10 +11,12 @@ import {
   tenantAgreements,
   tenantMemberships,
   tenants,
+  users,
 } from '@/db/schema';
 import { diffChanges } from '@/lib/audit-diff';
 import { AppError } from '@/lib/errors';
-import { isFeatureKey, type FeatureKey } from '@/lib/features';
+import { FEATURES, isFeatureKey, type FeatureKey } from '@/lib/features';
+import { notify } from '@/modules/notifications/service';
 import { provisionTenant } from '@/modules/tenants/provision';
 import { createLinkToken } from '@/server/crypto';
 import { adminDb } from '@/server/db/admin';
@@ -446,21 +448,116 @@ export async function publishAgreement(
   return published;
 }
 
+/** A business whose people are using it, so a newly switched-on feature is worth announcing. */
+const IN_USE_STATUSES = ['trialing', 'active', 'past_due'];
+
+const ROLE_ACCESS_URL = '/settings?tab=roles';
+
+/**
+ * The switched-on features' names, joined with commas only: several labels already contain "and"
+ * ("Payroll and payslips"), so "A, B and C" would read as more features than there are.
+ */
+function featureWords(labels: string[]) {
+  return { names: labels.join(', '), them: labels.length > 1 ? 'them' : 'it' };
+}
+
+async function emailFeaturesSwitchedOn(input: {
+  businessName: string;
+  labels: string[];
+  recipients: { email: string; fullName: string }[];
+}): Promise<void> {
+  const { names, them } = featureWords(input.labels);
+  const link = new URL(ROLE_ACCESS_URL, serverEnv().APP_URL).toString();
+  const access = `People in the built-in roles can use ${them} straight away, with their usual access. Roles you created yourself need access given in Settings → Roles.`;
+  await Promise.all(
+    input.recipients.map(async ({ email, fullName }) => {
+      const intro = `Hi ${fullName}, Meroidea has switched on more for ${input.businessName}: ${names}.`;
+      await sendEmail({
+        to: email,
+        subject: `New in Meroidea for ${input.businessName}: ${names}`,
+        text: [intro, access, `Review who can use ${them}: ${link}`].join('\n\n'),
+        html: `<p>${escapeHtml(intro)}</p><p>${escapeHtml(access)}</p><p><a href="${escapeHtml(link)}">Review who can use ${them}</a></p>`,
+      });
+    }),
+  );
+}
+
+/**
+ * Switches a business's features on and off. Its Admins are told about any switched on, in the
+ * workspace and by email: a new menu item alone is easy to miss, and roles they made themselves
+ * only get the new permissions when they grant them. Switching off is not announced.
+ */
 export async function setBusinessFeatures(
   admin: PlatformAdmin,
   input: { tenantId: string; features: FeatureKey[] },
-): Promise<{ id: string }> {
-  const [updated] = await adminDb()
-    .update(tenants)
-    .set({ features: input.features })
-    .where(eq(tenants.id, input.tenantId))
-    .returning({ id: tenants.id });
-  if (!updated) throw new AppError('NOT_FOUND', 'That business was not found.');
-  await record(input.tenantId, admin, {
-    action: 'update',
-    context: { features: input.features },
+): Promise<{ id: string; notified: number }> {
+  const outcome = await adminDb().transaction(async (tx) => {
+    const [before] = await tx
+      .select({ name: tenants.name, status: tenants.status, features: tenants.features })
+      .from(tenants)
+      .where(eq(tenants.id, input.tenantId))
+      .for('update')
+      .limit(1);
+    if (!before) throw new AppError('NOT_FOUND', 'That business was not found.');
+    const previous = before.features.filter(isFeatureKey);
+    const added = input.features.filter((key) => !previous.includes(key));
+    const removed = previous.filter((key) => !input.features.includes(key));
+    if (added.length === 0 && removed.length === 0) return null;
+
+    await tx
+      .update(tenants)
+      .set({ features: input.features })
+      .where(eq(tenants.id, input.tenantId));
+    await tx.insert(auditLogs).values({
+      tenantId: input.tenantId,
+      actorUserId: admin.userId,
+      actorType: 'platform',
+      action: 'update',
+      entityType: 'tenant',
+      entityId: input.tenantId,
+      changes: diffChanges({ features: previous }, { features: input.features }),
+      context: { featuresAdded: added, featuresRemoved: removed },
+    });
+    if (added.length === 0 || !IN_USE_STATUSES.includes(before.status)) return null;
+
+    const admins = await tx
+      .select({ userId: tenantMemberships.userId, email: users.email, fullName: users.fullName })
+      .from(tenantMemberships)
+      .innerJoin(roles, eq(roles.id, tenantMemberships.roleId))
+      .innerJoin(users, eq(users.id, tenantMemberships.userId))
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, input.tenantId),
+          eq(tenantMemberships.status, 'active'),
+          eq(tenantMemberships.isSupport, false),
+          eq(roles.key, 'owner'),
+          // The platform owner running their own business is not told about their own change.
+          ne(tenantMemberships.userId, admin.userId),
+        ),
+      );
+    const labels = FEATURES.filter((feature) => added.includes(feature.key)).map(
+      (feature) => feature.label,
+    );
+    const { names, them } = featureWords(labels);
+    await notify(
+      tx,
+      { tenantId: input.tenantId, userId: admin.userId },
+      admins.map(({ userId }) => ({
+        userId,
+        type: 'features_enabled',
+        title: `Now switched on: ${names}`,
+        body: `Built-in roles can use ${them} straight away. Give roles you created yourself access in Settings → Roles.`,
+        url: ROLE_ACCESS_URL,
+      })),
+    );
+    return { businessName: before.name, labels, recipients: admins };
   });
-  return updated;
+
+  // Sent once the change is committed. Best effort: a failed email never undoes it.
+  if (outcome && outcome.recipients.length > 0) {
+    await emailFeaturesSwitchedOn(outcome).catch(() => undefined);
+  }
+  return { id: input.tenantId, notified: outcome?.recipients.length ?? 0 };
 }
 
 /**

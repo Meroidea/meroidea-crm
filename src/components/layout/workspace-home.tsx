@@ -1,5 +1,6 @@
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 
 import { NAVIGATION, navItemTitle } from '@/components/layout/navigation';
 import type { Labels } from '@/lib/tenant/labels';
@@ -15,12 +16,15 @@ export function WorkspaceHome({
   labels,
   permissions,
   features,
+  notice,
 }: {
   greeting: string;
   businessName: string;
   labels: Labels;
   permissions: string[];
   features: string[];
+  /** Shown under the greeting, e.g. that new features were switched on. */
+  notice?: ReactNode;
 }) {
   const granted = new Set(permissions);
   const areas = NAVIGATION.flatMap((group) =>
@@ -43,6 +47,7 @@ export function WorkspaceHome({
           Everything {businessName} runs here, in one place.
         </p>
       </header>
+      {notice}
       {areas.length === 0 ? (
         <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
           Nothing has been switched on for you yet. Ask your workspace admin for access.

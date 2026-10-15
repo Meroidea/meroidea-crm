@@ -54,3 +54,29 @@ export async function listNotifications(
       .limit(limit),
   );
 }
+
+/** Unread notices that features were switched on, shown on the dashboard until dismissed. */
+export async function listUnreadFeatureNotices(
+  ctx: TenantContext,
+): Promise<Pick<NotificationRow, 'id' | 'title' | 'body' | 'url'>[]> {
+  return withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: notifications.id,
+        title: notifications.title,
+        body: notifications.body,
+        url: notifications.url,
+      })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.tenantId, ctx.tenantId),
+          eq(notifications.userId, ctx.userId),
+          eq(notifications.type, 'features_enabled'),
+          isNull(notifications.readAt),
+        ),
+      )
+      .orderBy(desc(notifications.createdAt))
+      .limit(5),
+  );
+}

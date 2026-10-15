@@ -28,6 +28,7 @@ export const NOTIFICATION_EMAIL: Record<string, string> = {
   stale_opportunity: 'An opportunity has gone quiet',
   task_overdue: 'You have an overdue task',
   enquiry_received: 'A new enquiry arrived from your website',
+  features_enabled: 'New features have been switched on for your business',
 };
 
 export type NoticeInput = {

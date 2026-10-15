@@ -311,8 +311,9 @@ export function BusinessControls({
       <section className="rounded-xl border bg-card p-5">
         <h2 className="font-medium">Features</h2>
         <p className="mt-1 mb-3 text-sm text-muted-foreground">
-          Switching a feature off hides it from everyone in the business. Their records are kept and
-          come back if it is switched on again.
+          Switching a feature on tells the business’s Admins, in their workspace and by email.
+          Switching one off hides it from everyone in the business. Their records are kept and come
+          back if it is switched on again.
         </p>
         <FeaturePicker value={features} onChange={setFeatures} />
         <Button

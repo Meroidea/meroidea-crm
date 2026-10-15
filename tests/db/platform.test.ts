@@ -6,6 +6,8 @@ import { BUSINESS_TYPES, featureForPermission } from '@/lib/features';
 import { createItemSchema } from '@/modules/inventory/schemas';
 import { createItem } from '@/modules/inventory/service';
 import { listItems } from '@/modules/inventory/queries';
+import { listUnreadFeatureNotices } from '@/modules/notifications/queries';
+import { markRead } from '@/modules/notifications/service';
 import { acceptAgreement, getAgreementByToken } from '@/modules/platform/agreement-public';
 import {
   acceptAgreementSchema,
@@ -40,6 +42,7 @@ import { withRls } from '@/server/db/with-rls';
 import type { PlatformAdmin } from '@/server/platform';
 
 import {
+  addMember,
   contextFor,
   createAuthUser,
   createWorkspace,
@@ -481,6 +484,114 @@ describe('suspending a business', () => {
     );
     await expectCode(() => startSupportAccess(admin, unknown), 'NOT_FOUND');
     expect(await getBusiness(admin, unknown)).toBeNull();
+  });
+});
+
+describe('switching features on for a business already running', () => {
+  const lastPlatformChange = async (ctx: TenantContext) => {
+    const rows = (await withRls(ctx, (tx) =>
+      tx.execute(sql`select changes, context from audit_logs
+                     where tenant_id = ${ctx.tenantId} and actor_type = 'platform'
+                     order by created_at desc limit 1`),
+    )) as unknown as {
+      changes: Record<string, [unknown, unknown]> | null;
+      context: Record<string, unknown>;
+    }[];
+    return rows[0];
+  };
+  let staff: TenantContext;
+
+  beforeAll(async () => {
+    const staffId = await addMember(cafeTenant, mail('cafe-staff'), 'Sam Staff', 'member');
+    cleanup.find((entry) => entry.tenantId === cafeTenant)?.userIds.push(staffId);
+    staff = await contextFor(staffId, cafeTenant);
+    await setBusinessFeatures(admin, { tenantId: cafeTenant, features: ['roster', 'inventory'] });
+    // Earlier tests switched features on too; start from nothing unread.
+    await markRead(await contextFor(cafeOwnerId, cafeTenant), 'all');
+  });
+
+  it('tells the business’s Admin in their workspace, and not its staff or another business', async () => {
+    const result = await setBusinessFeatures(admin, {
+      tenantId: cafeTenant,
+      features: ['roster', 'inventory', 'timesheets', 'payroll'],
+    });
+    expect(result.notified).toBe(1);
+
+    const owner = await contextFor(cafeOwnerId, cafeTenant);
+    expect(await listUnreadFeatureNotices(owner)).toEqual([
+      expect.objectContaining({
+        title: 'Now switched on: Timesheets, Payroll and payslips',
+        url: '/settings?tab=roles',
+      }),
+    ]);
+    expect(await listUnreadFeatureNotices(staff)).toEqual([]);
+    expect(await listUnreadFeatureNotices(await contextFor(admin.userId, homeTenant))).toEqual([]);
+  });
+
+  it('records what was switched on in the business’s audit log', async () => {
+    const entry = await lastPlatformChange(cafeOwner);
+    expect(entry?.context).toMatchObject({
+      featuresAdded: ['timesheets', 'payroll'],
+      featuresRemoved: [],
+    });
+    expect(entry?.changes?.features).toEqual([
+      ['roster', 'inventory'],
+      ['roster', 'inventory', 'timesheets', 'payroll'],
+    ]);
+  });
+
+  it('stops showing the notice once the Admin dismisses it', async () => {
+    const owner = await contextFor(cafeOwnerId, cafeTenant);
+    const [notice] = await listUnreadFeatureNotices(owner);
+    await markRead(owner, notice?.id ?? '');
+    expect(await listUnreadFeatureNotices(owner)).toEqual([]);
+  });
+
+  it('records what was switched off, without telling anyone', async () => {
+    const result = await setBusinessFeatures(admin, {
+      tenantId: cafeTenant,
+      features: ['roster', 'inventory'],
+    });
+    expect(result.notified).toBe(0);
+    expect(await listUnreadFeatureNotices(await contextFor(cafeOwnerId, cafeTenant))).toEqual([]);
+    expect((await lastPlatformChange(cafeOwner))?.context).toMatchObject({
+      featuresAdded: [],
+      featuresRemoved: ['timesheets', 'payroll'],
+    });
+  });
+
+  it('writes nothing when the features have not changed', async () => {
+    const count = async () => {
+      const rows = (await adminDb().execute(
+        sql`select count(*)::int as n from audit_logs where tenant_id = ${cafeTenant}`,
+      )) as unknown as { n: number }[];
+      return rows[0]?.n;
+    };
+    const before = await count();
+    await setBusinessFeatures(admin, { tenantId: cafeTenant, features: ['inventory', 'roster'] });
+    expect(await count()).toBe(before);
+  });
+
+  it('does not announce features to a business still waiting to accept its agreement', async () => {
+    const waiting = await createBusiness(
+      admin,
+      business({
+        companyName: 'Waiting Cafe',
+        adminEmail: mail('waiting-admin'),
+        primaryContactEmail: mail('waiting-contact'),
+      }),
+    );
+    cleanup.push({ tenantId: waiting.tenantId, userIds: [await ownerOf(waiting.tenantId)] });
+
+    const result = await setBusinessFeatures(admin, {
+      tenantId: waiting.tenantId,
+      features: ['roster', 'inventory', 'payroll'],
+    });
+    expect(result.notified).toBe(0);
+    const rows = (await adminDb().execute(
+      sql`select count(*)::int as n from notifications where tenant_id = ${waiting.tenantId}`,
+    )) as unknown as { n: number }[];
+    expect(rows[0]?.n).toBe(0);
   });
 });
 
