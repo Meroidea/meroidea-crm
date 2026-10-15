@@ -35,6 +35,7 @@ import {
   unpublishRoster,
 } from '@/modules/roster/service';
 import type { TenantContext } from '@/server/context';
+import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
@@ -562,6 +563,41 @@ describe('roster rules', () => {
     expect(await getRosterForDate(owner, '2031-03-10')).toBeNull();
     expect(await listRosterShifts(owner, roster.id)).toHaveLength(0);
     await createRoster(owner, createRosterSchema.parse({ startsOn: '2031-03-10', span: 'week' }));
+  });
+
+  it('copies without double-booking anyone, and without keeping a team the person has left', async () => {
+    const source = await getRosterForDate(owner, '2031-03-10');
+    if (!source) throw new Error('no roster to copy');
+    const inSource = (ctx: TenantContext, overrides: Record<string, unknown>) =>
+      saveShift(owner, shift(ctx, { rosterId: source.id, breaks: [], ...overrides }));
+    // Sunday night runs into the next roster's Monday, where the copied Monday shift starts.
+    await inSource(member, { date: '2031-03-16', startTime: '22:00', endTime: '06:00' });
+    await inSource(member, { date: '2031-03-10', startTime: '05:00', endTime: '13:00' });
+    // A shift kept in a team the person is not in (written past the service, as old data could be).
+    const [floor] = (await adminDb().execute(sql`
+      select id from roster_teams where tenant_id = ${alphaTenant} and name = 'Floor'
+        and deleted_at is null`)) as unknown as { id: string }[];
+    const ownerShift = await inSource(owner, { date: '2031-03-11' });
+    await adminDb().execute(
+      sql`update roster_shifts set team_id = ${floor!.id} where id = ${ownerShift.id}`,
+    );
+
+    const copy = await createRoster(
+      owner,
+      createRosterSchema.parse({ startsOn: '2031-03-17', span: 'week', copyPrevious: true }),
+    );
+    expect(copy).toMatchObject({ copiedShifts: 2, skippedShifts: 1 });
+    const copied = (await adminDb().execute(sql`
+      select user_id, team_id, to_char(starts_at at time zone ${owner.tenant.timezone}, 'YYYY-MM-DD HH24:MI') as starts
+      from roster_shifts where roster_id = ${copy.id} order by starts_at`)) as unknown as {
+      user_id: string;
+      team_id: string | null;
+      starts: string;
+    }[];
+    expect(copied).toEqual([
+      { user_id: owner.userId, team_id: null, starts: '2031-03-18 09:00' },
+      { user_id: member.userId, team_id: null, starts: '2031-03-23 22:00' },
+    ]);
   });
 
   it('writes an audit entry for creating a roster and for every publish', async () => {

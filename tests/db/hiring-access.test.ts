@@ -20,6 +20,7 @@ import {
   createHireSchema,
   payrollDetailsSchema,
 } from '@/modules/hiring/schemas';
+import { removePendingHire } from '@/modules/hiring/staff-service';
 import {
   createHire,
   refreshAwardRates,
@@ -358,6 +359,23 @@ describe('declining and withdrawing', () => {
     await withdrawContract(owner, created.contractId);
     expect(await getOfferByToken(second)).toBeNull();
     await expectCode(() => withdrawContract(member, created.contractId), 'FORBIDDEN');
+  });
+
+  it('lets a hire who never started be removed, once no offer is out', async () => {
+    const created = await createHire(owner, hire({ email: mail('never-started') }));
+    const token = tokenOf(handedOver(await sendContract(owner, created.contractId)));
+    await expectCode(() => removePendingHire(owner, created.employeeId), 'CONFLICT');
+    await declineOffer(token, META);
+    await expectCode(() => removePendingHire(manager, created.employeeId), 'FORBIDDEN');
+    await expectCode(() => removePendingHire(outsider, created.employeeId), 'NOT_FOUND');
+    await removePendingHire(owner, created.employeeId);
+    expect(await getEmployee(owner, created.employeeId)).toBeNull();
+    const all = await listStaff(owner, { view: 'all' });
+    expect(all.rows.map((row) => row.id)).not.toContain(created.employeeId);
+
+    // Someone who did start is never removed this way: their employment is ended instead.
+    const started = (await listEmployees(owner)).find((row) => row.status === 'active');
+    if (started) await expectCode(() => removePendingHire(owner, started.id), 'CONFLICT');
   });
 
   it('takes no acceptance while the business is suspended or its staff feature is off', async () => {

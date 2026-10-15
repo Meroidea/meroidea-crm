@@ -31,6 +31,7 @@ import {
   EmployeeSwitcher,
   EndEmployment,
   ProfileForm,
+  RemovePendingHire,
 } from '@/modules/hiring/components/profile-tools';
 import { getEmployee } from '@/modules/hiring/queries';
 import { employeeIdSchema } from '@/modules/hiring/schemas';
@@ -277,6 +278,11 @@ export default async function StaffProfilePage({ params, searchParams }: PagePro
                 {employee.status === 'active' && (
                   <div className="mt-4 flex justify-end">
                     <EndEmployment employeeId={employee.id} name={displayName} today={today} />
+                  </div>
+                )}
+                {employee.status === 'pending' && contract?.status !== 'sent' && (
+                  <div className="mt-4 flex justify-end">
+                    <RemovePendingHire employeeId={employee.id} name={displayName} />
                   </div>
                 )}
               </section>

@@ -123,6 +123,8 @@ export const holidayIdSchema = z.object({ id: z.uuid() });
 export const rosterPageParamsSchema = z.object({
   date: isoDate.optional().catch(undefined),
   view: z.enum(['day', 'person']).optional().catch(undefined),
+  /** Shifts a copy left out because they would overlap; shown once after creating. */
+  skipped: z.coerce.number().int().min(1).max(10_000).optional().catch(undefined),
 });
 
 export type CreateRosterInput = z.output<typeof createRosterSchema>;

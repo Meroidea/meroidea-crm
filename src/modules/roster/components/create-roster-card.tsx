@@ -43,7 +43,8 @@ export function CreateRosterCard({
         setError(result.error.fieldErrors?.startsOn?.[0] ?? result.error.message);
         return;
       }
-      router.push(`/roster?date=${startsOn}`);
+      const skipped = result.data.skippedShifts;
+      router.push(`/roster?date=${startsOn}${skipped > 0 ? `&skipped=${skipped}` : ''}`);
       router.refresh();
     });
 

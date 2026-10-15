@@ -920,6 +920,10 @@ unique (tenant_id, id)
 Profile edits are audited by field name only; values such as an address or date of birth are
 never copied into `audit_logs`.
 
+Someone hired who never started (their offer declined, withdrawn or never sent) can be removed:
+the employee row and its contracts are soft deleted and the removal is audited. An offer still
+out must be withdrawn first; anyone who accepted is ended, never removed.
+
 ### employment_contracts
 Terms offered to one employee. Frozen once sent; a change of terms is a new contract.
 ```sql
@@ -1247,6 +1251,11 @@ job_applicants  id, tenant_id, job_opening_id → job_openings, full_name, email
                 unique (tenant_id, job_opening_id, lower(email)) where deleted_at is null
 applicant_notes id, tenant_id, applicant_id → job_applicants (cascade), body, created_at, created_by
 ```
+Deleting an applicant erases them rather than only hiding the row: name, email, phone, cover
+note, rejection reason and résumé are cleared, and `app.erase_applicant_traces(applicant)`
+(security definer, `recruitment.manage`, only for an applicant already deleted) removes the notes
+about them, which are otherwise append-only, and blanks the values in their audit entries.
+
 RLS: all three tables are readable and writable only with `recruitment.manage`. Applications from
 the public page are written by `src/modules/recruitment/public.ts` with the privileged client,
 starting from the token of an **open** job in a business that is not suspended (ADR-034).

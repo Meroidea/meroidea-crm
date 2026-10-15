@@ -257,7 +257,7 @@ describe('working through applicants', () => {
     expect(await code(deleteApplicant(betaOwner, applicantId))).toBe('NOT_FOUND');
   });
 
-  it('deleting an applicant removes their résumé too', async () => {
+  it('deleting an applicant erases their details, notes and résumé, not only hides them', async () => {
     const rows = (await adminDb().execute(
       sql`select resume_path from job_applicants where id = ${applicantId}`,
     )) as unknown as { resume_path: string }[];
@@ -266,5 +266,36 @@ describe('working through applicants', () => {
     await deleteApplicant(owner, applicantId);
     expect(await readObject(path)).toBeNull();
     expect(await getApplicant(owner, applicantId)).toBeNull();
+
+    const [left] = (await adminDb().execute(sql`
+      select full_name, email, phone, cover_note, rejection_reason,
+        (select count(*)::int from applicant_notes where applicant_id = ${applicantId}) as notes
+      from job_applicants where id = ${applicantId}`)) as unknown as Record<string, unknown>[];
+    expect(left).toEqual({
+      full_name: 'Deleted applicant',
+      email: '',
+      phone: null,
+      cover_note: null,
+      rejection_reason: null,
+      notes: 0,
+    });
+  });
+
+  it('never lets the erasing function touch a live applicant or another business', async () => {
+    const live = (await adminDb().execute(sql`
+      select id from job_applicants where tenant_id = ${alphaTenant} and deleted_at is null
+      limit 1`)) as unknown as { id: string }[];
+    if (live[0]) {
+      await expect(
+        withRls(owner, (tx) =>
+          tx.execute(sql`select app.erase_applicant_traces(${live[0]!.id}::uuid)`),
+        ),
+      ).rejects.toThrow();
+    }
+    await expect(
+      withRls(betaOwner, (tx) =>
+        tx.execute(sql`select app.erase_applicant_traces(${applicantId}::uuid)`),
+      ),
+    ).rejects.toThrow();
   });
 });
