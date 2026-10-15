@@ -232,4 +232,38 @@ describe('tasks and activities', () => {
       'NOT_FOUND',
     );
   });
+
+  it("cannot reach a colleague's lead by naming it next to an opportunity of one's own", async () => {
+    const mine = await newDeal(mia, 'Mine');
+    const theirs = await newDeal(max, 'Theirs');
+    await expectCode(
+      () =>
+        logActivity(mia, {
+          type: 'call',
+          body: 'Fake call',
+          opportunityId: mine.id,
+          contactId: theirs.contactId,
+        }),
+      'NOT_FOUND',
+    );
+    await expectCode(
+      () =>
+        createTask(
+          mia,
+          createTaskSchema.parse({
+            title: 'Fake follow-up',
+            opportunityId: mine.id,
+            contactId: theirs.contactId,
+          }),
+        ),
+      'NOT_FOUND',
+    );
+    // The opportunity's own contact is still fine.
+    await logActivity(mia, {
+      type: 'note',
+      body: 'Real note',
+      opportunityId: mine.id,
+      contactId: mine.contactId,
+    });
+  });
 });
