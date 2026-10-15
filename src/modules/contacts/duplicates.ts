@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 
 import { normalizeEmail, normalizePhone } from '@/lib/normalize';
 import { canAccess } from '@/lib/permissions/scope';
-import type { TenantContext } from '@/server/context';
+import { hasPermission, type TenantContext } from '@/server/context';
 import type { Tx } from '@/server/db/with-rls';
 
 import type { DuplicateMatch } from './types';
@@ -40,7 +40,11 @@ export async function findDuplicateContacts(
   const email = normalizeEmail(probe.email);
   const phone = normalizePhone(probe.phone, ctx.tenant.country);
   const fullName = [probe.firstName, probe.lastName].filter(Boolean).join(' ').trim() || null;
-  const dateOfBirth = probe.dateOfBirth || null;
+  // Matching on a date of birth tells whoever asks whether that date is right for a name, so it
+  // counts only for someone allowed to see dates of birth (contacts.view_sensitive).
+  const dateOfBirth = hasPermission(ctx, 'contacts.view_sensitive')
+    ? probe.dateOfBirth || null
+    : null;
   const companyName = probe.companyName?.trim() || null;
   if (!email && !phone && !(fullName && dateOfBirth) && !(fullName && companyName)) return [];
 

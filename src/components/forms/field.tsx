@@ -52,3 +52,8 @@ export function fieldA11y(name: string, error?: string) {
     'aria-describedby': error ? `${name}-error` : undefined,
   };
 }
+
+/** fieldA11y for a SearchSelect, whose props name these differently. */
+export function searchA11y(name: string, error?: string) {
+  return { id: name, invalid: Boolean(error), describedBy: error ? `${name}-error` : undefined };
+}

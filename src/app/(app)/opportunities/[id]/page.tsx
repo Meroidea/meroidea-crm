@@ -33,7 +33,6 @@ import { StageStepper } from '@/modules/opportunities/components/stage-stepper';
 import { getOpportunity } from '@/modules/opportunities/queries';
 import { getPipelineConfig } from '@/modules/pipelines/queries';
 import { formatDateTime } from '@/lib/format';
-import { listContactOptions } from '@/modules/contacts/queries';
 import { getCustomFields } from '@/modules/custom-fields/queries';
 import { displayCustomValue } from '@/modules/custom-fields/validation';
 import { readCrmSettings } from '@/modules/leads/settings';
@@ -99,7 +98,6 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
   const assignees = hasPermission(ctx, 'tasks.assign_others')
     ? assignableOwners(ctx, members, 'tasks.manage')
     : undefined;
-  const contactOptions = canEdit ? await listContactOptions(ctx) : [];
   const currentStage = pipeline.stages.find((stage) => stage.id === opportunity.stageId);
   const shownCustom = customFields.filter(
     (field) => field.isActive || opportunity.customFields[field.key] !== undefined,
@@ -319,9 +317,10 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
               <OpportunityPeople
                 opportunityId={opportunity.id}
                 people={opportunity.people}
-                options={contactOptions
-                  .filter((option) => option.id !== opportunity.contactId)
-                  .map((option) => ({ value: option.id, label: option.name }))}
+                excludeIds={[
+                  opportunity.contactId,
+                  ...opportunity.people.map((person) => person.contactId),
+                ]}
                 roles={contactRoles}
                 canEdit={canEdit}
               />

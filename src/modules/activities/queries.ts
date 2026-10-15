@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, isNotNull, isNull, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { activities, auditLogs, contacts, opportunities, users } from '@/db/schema';
@@ -40,7 +40,18 @@ export async function getTimeline(
   const match: SQL | undefined = target.opportunityId
     ? eq(activities.opportunityId, target.opportunityId)
     : target.contactId
-      ? eq(activities.contactId, target.contactId)
+      ? and(
+          eq(activities.contactId, target.contactId),
+          // A contact's own history, plus what happened on its opportunities that the viewer
+          // can open. Seeing a person is not seeing every deal they are part of.
+          or(
+            isNull(activities.opportunityId),
+            and(
+              isNull(opportunities.deletedAt),
+              scopeFilter(ctx, 'opportunities.view', opportunities) ?? sql`true`,
+            ),
+          ),
+        )
       : undefined;
   if (!match) return [];
 

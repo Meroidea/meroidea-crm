@@ -1,6 +1,19 @@
 import 'server-only';
 
-import { and, asc, count, desc, eq, ilike, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 
 import { contactOrganizations, contacts, organizations } from '@/db/schema';
 import { decodeCursor, encodeCursor, likePattern } from '@/lib/cursor';
@@ -97,18 +110,33 @@ export async function countOrganizationsByType(
   return rows.map((row) => ({ type: row.type ?? 'none', total: row.total }));
 }
 
-export async function listOrganizationOptions(
+/**
+ * Organizations for a picker: the ones whose name matches what was typed, or the named ones (a
+ * picker's current choice). Searched on the server, so every organization can be picked.
+ */
+export async function searchOrganizationOptions(
   ctx: TenantContext,
-): Promise<{ id: string; name: string }[]> {
+  input: { q?: string; ids?: string[] },
+): Promise<{ value: string; label: string; hint: string | null }[]> {
   requirePermission(ctx, 'organizations.view');
-  return withRls(ctx, (tx) =>
+  const q = input.q?.trim() ?? '';
+  if (input.ids && input.ids.length === 0) return [];
+  const rows = await withRls(ctx, (tx) =>
     tx
-      .select({ id: organizations.id, name: organizations.name })
+      .select({ id: organizations.id, name: organizations.name, city: organizations.city })
       .from(organizations)
-      .where(and(eq(organizations.tenantId, ctx.tenantId), isNull(organizations.deletedAt)))
-      .orderBy(asc(organizations.name))
-      .limit(500),
+      .where(
+        and(
+          eq(organizations.tenantId, ctx.tenantId),
+          isNull(organizations.deletedAt),
+          q ? ilike(organizations.name, likePattern(q)) : undefined,
+          input.ids ? inArray(organizations.id, input.ids) : undefined,
+        ),
+      )
+      .orderBy(asc(organizations.name), asc(organizations.id))
+      .limit(20),
   );
+  return rows.map((row) => ({ value: row.id, label: row.name, hint: row.city }));
 }
 
 export async function getOrganization(ctx: TenantContext, id: string): Promise<OrganizationDetail> {

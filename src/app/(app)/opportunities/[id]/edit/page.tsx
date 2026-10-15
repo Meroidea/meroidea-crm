@@ -42,6 +42,8 @@ export default async function EditOpportunityPage({
             opportunityId={opportunity.id}
             labels={ctx.tenant.labels}
             {...options}
+            contactLabel={opportunity.contactName}
+            organizationLabel={opportunity.organizationName}
             canAssign={mayReassign && options.canAssign}
             canViewRevenue={opportunity.canViewRevenue}
             currency={opportunity.currency ?? ctx.tenant.currency}

@@ -8,18 +8,23 @@ import { NativeSelect } from '@/components/forms/native-select';
 import { ErrorNote, useActionRunner } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
 import { linkContactsAction, unlinkContactsAction } from '@/modules/leads/actions';
+import { SearchSelect, type SearchOption } from '@/components/forms/search-select';
+import { searchContactOptionsAction } from '@/modules/contacts/actions';
 
 /** People linked to this one as a household or group (docs/leads.md §5.3). */
+async function searchContacts(q: string): Promise<SearchOption[]> {
+  const result = await searchContactOptionsAction({ q });
+  return result.ok ? result.data : [];
+}
+
 export function HouseholdLinks({
   contactId,
   links,
-  options,
   relationships,
   canEdit,
 }: {
   contactId: string;
   links: { linkId: string; contactId: string; name: string; relationship: string }[];
-  options: { value: string; label: string }[];
   relationships: string[];
   canEdit: boolean;
 }) {
@@ -27,10 +32,8 @@ export function HouseholdLinks({
   const [adding, setAdding] = useState(false);
   const [relatedContactId, setRelated] = useState('');
   const [relationship, setRelationship] = useState(relationships[0] ?? '');
-  const available = options.filter(
-    (option) =>
-      option.value !== contactId && !links.some((link) => link.contactId === option.value),
-  );
+  // Not this person, and not anyone already linked.
+  const exclude = [contactId, ...links.map((link) => link.contactId)];
 
   return (
     <div className="flex flex-col gap-3">
@@ -76,18 +79,14 @@ export function HouseholdLinks({
               );
             }}
           >
-            <NativeSelect
-              aria-label="Person"
+            <SearchSelect
+              ariaLabel="Person"
               value={relatedContactId}
-              onChange={(event) => setRelated(event.target.value)}
-            >
-              <option value="">Choose a person…</option>
-              {available.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </NativeSelect>
+              onChange={(value) => setRelated(value)}
+              search={searchContacts}
+              placeholder="Search for a person…"
+              exclude={exclude}
+            />
             <NativeSelect
               aria-label="Relationship"
               value={relationship}

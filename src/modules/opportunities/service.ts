@@ -19,7 +19,7 @@ import {
 } from '@/db/schema';
 import { diffChanges } from '@/lib/audit-diff';
 import { AppError } from '@/lib/errors';
-import { assertCanAccess, scopeDecision } from '@/lib/permissions/scope';
+import { assertCanAccess, canAccess, scopeDecision } from '@/lib/permissions/scope';
 import { recordSystemActivity } from '@/modules/activities/service';
 import { contactRecord } from '@/modules/contacts/access';
 import { loadCustomFields } from '@/modules/custom-fields/queries';
@@ -430,8 +430,9 @@ export async function updateOpportunity(
     if (Object.keys(custom.errors).length > 0) {
       throw new AppError('VALIDATION', 'Check the highlighted fields.', custom.errors);
     }
-    // Without revenue.view the form never showed the amount, so it must not overwrite it.
-    const canEditRevenue = hasPermission(ctx, 'revenue.view');
+    // Where the amount was masked (revenue.view not reaching this record), the form never showed
+    // it, so it must not overwrite it: the same per-record rule as the read.
+    const canEditRevenue = canAccess(ctx, 'revenue.view', existing);
     const next = {
       name: input.name,
       contactId: input.contactId,

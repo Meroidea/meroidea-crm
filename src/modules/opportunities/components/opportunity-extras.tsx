@@ -8,6 +8,8 @@ import { NativeSelect } from '@/components/forms/native-select';
 import { ErrorNote, useActionRunner } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SearchSelect, type SearchOption } from '@/components/forms/search-select';
+import { searchContactOptionsAction } from '@/modules/contacts/actions';
 import {
   addOpportunityContactAction,
   decideApprovalAction,
@@ -146,16 +148,23 @@ export function ApprovalBanner({
   );
 }
 
+/** Contacts the viewer may see, matching what was typed. */
+async function searchContacts(q: string): Promise<SearchOption[]> {
+  const result = await searchContactOptionsAction({ q });
+  return result.ok ? result.data : [];
+}
+
 export function OpportunityPeople({
   opportunityId,
   people,
-  options,
+  excludeIds,
   roles,
   canEdit,
 }: {
   opportunityId: string;
   people: { linkId: string; contactId: string; name: string; role: string }[];
-  options: { value: string; label: string }[];
+  /** People who may not be added again: the main contact and those already on it. */
+  excludeIds: string[];
   roles: string[];
   canEdit: boolean;
 }) {
@@ -209,18 +218,14 @@ export function OpportunityPeople({
               );
             }}
           >
-            <NativeSelect
-              aria-label="Person"
+            <SearchSelect
+              ariaLabel="Person"
               value={contactId}
-              onChange={(e) => setContactId(e.target.value)}
-            >
-              <option value="">Choose a person…</option>
-              {options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </NativeSelect>
+              onChange={(value) => setContactId(value)}
+              search={searchContacts}
+              placeholder="Search for a person…"
+              exclude={excludeIds}
+            />
             <NativeSelect aria-label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
               {roles.map((value) => (
                 <option key={value} value={value}>

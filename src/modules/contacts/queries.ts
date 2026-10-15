@@ -379,20 +379,34 @@ export async function getContact(ctx: TenantContext, id: string): Promise<Contac
 }
 
 /** Contacts the viewer may link a record to, newest first (pickers on other forms). */
-export async function listContactOptions(
+/**
+ * Contacts for a picker: the ones matching what was typed, or the named ones (a picker's
+ * current choice). Searched on the server, so every contact in scope can be picked however
+ * many there are, never a first-thousand list.
+ */
+export async function searchContactOptions(
   ctx: TenantContext,
-): Promise<{ id: string; name: string }[]> {
+  input: { q?: string; ids?: string[] },
+): Promise<{ value: string; label: string; hint: string | null }[]> {
   requirePermission(ctx, 'contacts.view');
+  const q = input.q?.trim() ?? '';
+  const conditions = baseConditions(ctx, { q: q || undefined });
+  if (input.ids) {
+    if (input.ids.length === 0) return [];
+    conditions.push(inArray(contacts.id, input.ids));
+  }
   const rows = await withRls(ctx, (tx) =>
     tx
       .select({ id: contacts.id, name: contacts.fullName, email: contacts.email })
       .from(contacts)
-      .where(and(...baseConditions(ctx, {})))
-      .orderBy(asc(contacts.fullName))
-      .limit(1000),
+      .where(and(...conditions))
+      .orderBy(asc(contacts.fullName), asc(contacts.id))
+      .limit(PICKER_LIMIT),
   );
-  return rows.map((row) => ({ id: row.id, name: row.name ?? '' }));
+  return rows.map((row) => ({ value: row.id, label: row.name ?? '', hint: row.email }));
 }
+
+const PICKER_LIMIT = 20;
 
 /**
  * Other records that look like the same person (same email or phone, or the same name at the
