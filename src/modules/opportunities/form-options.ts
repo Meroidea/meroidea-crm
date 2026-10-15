@@ -24,6 +24,11 @@ export async function getOpportunityFormOptions(ctx: TenantContext) {
       getCustomFields(ctx, 'opportunity'),
     ]);
   const active = summaries.filter((summary) => summary.isActive);
+  // Stages a new opportunity may start in: open ones, and of those, ones needing approval only
+  // for someone who could give it (openOpportunity enforces the same).
+  const canApprove = hasPermission(ctx, 'opportunities.approve');
+  const startable = (s: { isActive: boolean; category: string; requiresApproval: boolean }) =>
+    s.isActive && s.category === 'open' && (canApprove || !s.requiresApproval);
   const pipelines =
     active.length > 1
       ? await Promise.all(
@@ -33,9 +38,7 @@ export async function getOpportunityFormOptions(ctx: TenantContext) {
             return {
               value: summary.id,
               label: summary.name,
-              stages: config.stages
-                .filter((s) => s.isActive && s.category === 'open')
-                .map((s) => ({ value: s.id, label: s.name })),
+              stages: config.stages.filter(startable).map((s) => ({ value: s.id, label: s.name })),
             };
           }),
         )
@@ -44,9 +47,7 @@ export async function getOpportunityFormOptions(ctx: TenantContext) {
   return {
     contacts: contacts.map((c) => ({ value: c.id, label: c.name })),
     organizations: organizations.map((o) => ({ value: o.id, label: o.name })),
-    stages: pipeline.stages
-      .filter((s) => s.isActive && s.category === 'open')
-      .map((s) => ({ value: s.id, label: s.name })),
+    stages: pipeline.stages.filter(startable).map((s) => ({ value: s.id, label: s.name })),
     owners,
     sources: sources.map((s) => ({ value: s.id, label: s.name })),
     partners: partners.map((p) => ({ value: p.id, label: p.name })),

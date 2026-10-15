@@ -219,6 +219,12 @@ describe('stage gates', () => {
     expect((await row(id)).stage_id).toBe(stage('Negotiation').id);
   });
 
+  it('applies the same rules to a new opportunity as to a move: no starting past an approval or closed', async () => {
+    await expectCode(() => newOpportunity({ stageId: stage('Negotiation').id }), 'VALIDATION');
+    const won = stages.find((candidate) => candidate.category === 'won')!;
+    await expectCode(() => newOpportunity({ stageId: won.id }), 'VALIDATION');
+  });
+
   it('gives the stage owner a task when an opportunity is won', async () => {
     const { id } = await newOpportunity({ stageId: stage('Proposal').id });
     await moveStage(admin, {

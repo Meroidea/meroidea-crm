@@ -278,10 +278,20 @@ export async function openOpportunity(
     throw new AppError('VALIDATION', 'Choose a stage in this pipeline.', {
       stageId: ['Invalid stage'],
     });
-  if (stage.category === 'lost') {
-    throw new AppError('VALIDATION', 'A new opportunity can’t start as lost.', {
+  // A new opportunity starts in an open stage, by the same rules as moving into one: a closed
+  // stage would skip the checklist and win/loss rules, and a stage that needs a manager's
+  // approval may be started in only by someone who could approve it.
+  if (stage.category !== 'open') {
+    throw new AppError('VALIDATION', 'A new opportunity starts in an open stage.', {
       stageId: ['Choose an open stage'],
     });
+  }
+  if (stage.requiresApproval && !hasPermission(ctx, 'opportunities.approve')) {
+    throw new AppError(
+      'VALIDATION',
+      `Moving into ${stage.name} needs a manager’s approval. Start in an earlier stage and move it there.`,
+      { stageId: ['Needs approval'] },
+    );
   }
   await assertRequiredFields(tx, ctx, stage, { ...input });
 
@@ -309,7 +319,7 @@ export async function openOpportunity(
       nextStep: input.nextStep,
       customFields: input.customFields,
       stageEnteredAt: now,
-      closedAt: stage.category === 'won' ? now : null,
+      closedAt: null,
       createdBy: ctx.userId,
       updatedBy: ctx.userId,
     })
