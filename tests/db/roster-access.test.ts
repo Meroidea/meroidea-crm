@@ -468,6 +468,21 @@ describe('publishing shift by shift', () => {
     expect(await listRemovedShifts(owner, rosterId)).toHaveLength(0);
   });
 
+  it('tells the person a published shift was taken from when it is given to someone else', async () => {
+    const { id } = await saveShift(owner, shift(member, { date: '2031-03-09' }));
+    await publishRoster(owner, publish(rosterId));
+    const moved = await saveShift(owner, shift(manager, { id, date: '2031-03-09' }));
+    // The member's shift waits to be published as removed, so they are told; the manager has
+    // a new one.
+    expect((await listRemovedShifts(owner, rosterId)).map((row) => row.id)).toEqual([id]);
+    expect(moved.id).not.toBe(id);
+    const now = (await listRosterShifts(owner, rosterId)).find((row) => row.id === moved.id);
+    expect(now).toMatchObject({ userId: manager.userId, date: '2031-03-09' });
+
+    await deleteShift(owner, moved.id);
+    await publishRoster(owner, publish(rosterId));
+  });
+
   it('forgets a shift that was removed before anyone was shown it', async () => {
     const draft = await saveShift(
       owner,

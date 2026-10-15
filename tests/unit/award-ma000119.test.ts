@@ -107,7 +107,7 @@ describe('Restaurant Industry Award: ordinary hours and penalties (cl 24)', () =
     // 10 pm to 6 am across the start of daylight saving is 7 real hours, not 8.
     const overnight = { ...shift('2026-10-03', '22:00', '06:00', 0), elapsedMinutes: 420 };
     const paid = payFor('full_time', [overnight]).lines.reduce(
-      (sum, line) => sum + line.minutes,
+      (sum, line) => sum + (line.minutes ?? 0),
       0,
     );
     expect(paid).toBe(420);

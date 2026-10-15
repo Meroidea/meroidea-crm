@@ -493,6 +493,40 @@ export async function saveShift(
     };
 
     if (input.id) {
+      const [before] = await tx
+        .select({ userId: rosterShifts.userId, publishedAt: rosterShifts.publishedAt })
+        .from(rosterShifts)
+        .where(
+          and(
+            eq(rosterShifts.tenantId, ctx.tenantId),
+            eq(rosterShifts.id, input.id),
+            eq(rosterShifts.rosterId, roster.id),
+            isNull(rosterShifts.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (!before) throw new AppError('NOT_FOUND', 'That shift was not found.');
+      // A shift someone has already been told about, moved to someone else: it is taken off
+      // them like a removed shift (so publishing tells them) and given anew to the other person.
+      if (before.publishedAt && before.userId && before.userId !== input.userId) {
+        await tx
+          .update(rosterShifts)
+          .set({ deletedAt: new Date(), unpublishedChanges: true, updatedBy: ctx.userId })
+          .where(and(eq(rosterShifts.tenantId, ctx.tenantId), eq(rosterShifts.id, input.id)));
+        const [moved] = await tx
+          .insert(rosterShifts)
+          .values({ ...values, tenantId: ctx.tenantId, rosterId: roster.id, createdBy: ctx.userId })
+          .returning({ id: rosterShifts.id });
+        if (!moved) throw new AppError('INTERNAL', 'Could not save the shift.');
+        await audit(tx, ctx, {
+          action: 'update',
+          entityType: 'roster_shift',
+          entityId: moved.id,
+          changes: { userId: [before.userId, input.userId] },
+          context: { replacesShift: input.id },
+        });
+        return moved;
+      }
       const [updated] = await tx
         .update(rosterShifts)
         .set(values)
