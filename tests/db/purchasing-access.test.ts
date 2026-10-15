@@ -25,6 +25,7 @@ import {
   setSupplierActive,
 } from '@/modules/purchasing/service';
 import type { TenantContext } from '@/server/context';
+import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
@@ -206,6 +207,18 @@ describe('placing an order', () => {
     const again = await resendOrder(owner, orderId);
     expect(again.sent).toBe(false);
     expect(again.reason).toMatch(/email/i);
+  });
+
+  it('does not mark an order the supplier already has as not sent when a second send fails', async () => {
+    await adminDb().execute(
+      sql`update purchase_orders set status = 'sent', sent_at = now() where id = ${orderId}`,
+    );
+    const again = await resendOrder(owner, orderId);
+    expect(again.sent).toBe(false);
+    expect((await getOrder(owner, orderId))?.status).toBe('sent');
+    await adminDb().execute(
+      sql`update purchase_orders set status = 'not_sent', sent_at = null where id = ${orderId}`,
+    );
   });
 
   it('writes an email a supplier can act on, without prices in the plain text', async () => {

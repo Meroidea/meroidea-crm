@@ -148,6 +148,25 @@ export async function deleteDocument(ctx: TenantContext, id: string): Promise<{ 
 }
 
 /** A one-minute download link for the current version, or an earlier one. Every download is audited. */
+/**
+ * Opening a document in the browser editor hands its content to the person's browser, so it is
+ * audited as a download of that version, the same as the Download button.
+ */
+export async function recordEditorOpen(
+  ctx: TenantContext,
+  document: { id: string; version: number },
+): Promise<void> {
+  requirePermission(ctx, 'files.view');
+  await withRls(ctx, (tx) =>
+    audit(tx, ctx, {
+      action: 'download',
+      entityType: 'library_document',
+      entityId: document.id,
+      context: { version: document.version, via: 'editor' },
+    }),
+  );
+}
+
 export async function getDownloadUrl(
   ctx: TenantContext,
   input: { id: string; version?: number },

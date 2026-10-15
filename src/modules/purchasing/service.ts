@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
 
 import { purchaseOrderLines, purchaseOrders, supplierItems, suppliers } from '@/db/schema';
 import { instantToZoned } from '@/lib/dates';
@@ -140,6 +140,13 @@ export async function importPriceList(
     let added = 0;
     let updated = 0;
     const fresh = [];
+    const changed: {
+      id: string;
+      name: string;
+      code: string | null;
+      unit: string | null;
+      unitPrice: string;
+    }[] = [];
     for (const [key, item] of incoming) {
       const current = byKey.get(key);
       if (!current) {
@@ -148,11 +155,32 @@ export async function importPriceList(
         continue;
       }
       seen.add(current.id);
-      await tx
-        .update(supplierItems)
-        .set({ ...item, isActive: true })
-        .where(and(eq(supplierItems.tenantId, ctx.tenantId), eq(supplierItems.id, current.id)));
       updated += 1;
+      const same =
+        current.isActive &&
+        current.name === item.name &&
+        current.code === item.code &&
+        current.unit === item.unit &&
+        Number(current.unitPrice) === Number(item.unitPrice);
+      if (!same) changed.push({ id: current.id, ...item });
+    }
+    // One statement for every changed row, rather than a round trip each: a weekly list of
+    // thousands of lines otherwise holds its locks for seconds and can time out.
+    if (changed.length > 0) {
+      await tx.execute(sql`
+        update supplier_items s
+        set name = v.name, code = v.code, unit = v.unit, unit_price = v.unit_price,
+          is_active = true
+        from jsonb_to_recordset(${JSON.stringify(
+          changed.map((row) => ({
+            id: row.id,
+            name: row.name,
+            code: row.code,
+            unit: row.unit,
+            unit_price: row.unitPrice,
+          })),
+        )}::jsonb) as v(id uuid, name text, code text, unit text, unit_price numeric)
+        where s.tenant_id = ${ctx.tenantId} and s.id = v.id`);
     }
     if (fresh.length > 0) await tx.insert(supplierItems).values(fresh);
 
@@ -204,28 +232,47 @@ async function dispatch(ctx: TenantContext, orderId: string): Promise<SendOutcom
     result = { sent: false, reason: 'The order could not be sent. Try sending it again.' };
   }
 
-  await withRls(ctx, async (tx) => {
-    await tx
-      .update(purchaseOrders)
-      .set(
-        result.sent
-          ? {
-              status: 'sent',
-              sentAt: new Date(),
-              sentTo: result.sentTo,
-              externalReference: result.externalReference ?? null,
-              updatedBy: ctx.userId,
-            }
-          : { status: 'not_sent', updatedBy: ctx.userId },
-      )
-      .where(and(eq(purchaseOrders.tenantId, ctx.tenantId), eq(purchaseOrders.id, orderId)));
+  const cancelledMeanwhile = await withRls(ctx, async (tx) => {
+    const where = and(eq(purchaseOrders.tenantId, ctx.tenantId), eq(purchaseOrders.id, orderId));
+    // Never bring back an order cancelled while it was being sent, and never mark one the
+    // supplier already has as not sent because a second send failed.
+    const touched = result.sent
+      ? await tx
+          .update(purchaseOrders)
+          .set({
+            status: 'sent',
+            sentAt: new Date(),
+            sentTo: result.sentTo,
+            externalReference: result.externalReference ?? null,
+            updatedBy: ctx.userId,
+          })
+          .where(and(where, ne(purchaseOrders.status, 'cancelled')))
+          .returning({ id: purchaseOrders.id })
+      : await tx
+          .update(purchaseOrders)
+          .set({ status: 'not_sent', updatedBy: ctx.userId })
+          .where(and(where, notInArray(purchaseOrders.status, ['sent', 'cancelled'])))
+          .returning({ id: purchaseOrders.id });
+    const [current] = await tx
+      .select({ status: purchaseOrders.status })
+      .from(purchaseOrders)
+      .where(where)
+      .limit(1);
     await audit(tx, ctx, {
       action: 'update',
       entityType: 'purchase_order',
       entityId: orderId,
-      context: { sent: result.sent, channel: order.channel },
+      context: { sent: result.sent, channel: order.channel, statusKept: touched.length === 0 },
     });
+    return current?.status === 'cancelled';
   });
+  if (result.sent && cancelledMeanwhile) {
+    return {
+      sent: false,
+      reason:
+        'The order was cancelled while it was being sent, so the supplier may have received it. Let them know it is cancelled.',
+    };
+  }
   return { sent: result.sent, reason: result.sent ? null : result.reason };
 }
 

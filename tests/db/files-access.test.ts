@@ -26,6 +26,7 @@ import {
   deleteDocument,
   finishUpload,
   getDownloadUrl,
+  recordEditorOpen,
   renameDocument,
   startUpload,
 } from '@/modules/files/service';
@@ -271,6 +272,18 @@ describe('the link to the editing server', () => {
     };
     const readOnly = buildEditorConfig(viewer, document, 'Vera Viewer', settings()).config;
     expect((readOnly.editorConfig as { mode: string }).mode).toBe('view');
+    // Downloads go through the audited button, never the editor's own menu.
+    expect(claims.document?.permissions).toMatchObject({ download: false, print: false });
+  });
+
+  it('audits opening a document in the editor as a download of that version', async () => {
+    await recordEditorOpen(member, { id: documentId, version: 3 });
+    const rows = (await withRls(owner, (tx) =>
+      tx.execute(sql`select action, context from audit_logs
+        where tenant_id = ${owner.tenantId} and entity_id = ${documentId}
+          and context ->> 'via' = 'editor'`),
+    )) as unknown as { action: string; context: Record<string, unknown> }[];
+    expect(rows).toEqual([{ action: 'download', context: { version: 3, via: 'editor' } }]);
   });
 
   it('serves the file only for a correctly signed, unexpired link', async () => {

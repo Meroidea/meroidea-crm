@@ -7,6 +7,7 @@ import { DocumentEditor } from '@/modules/files/components/document-editor';
 import { DownloadButton } from '@/modules/files/components/files-tools';
 import { buildEditorConfig, editorSettings } from '@/modules/files/editor';
 import { getDocument } from '@/modules/files/queries';
+import { recordEditorOpen } from '@/modules/files/service';
 import { documentIdSchema } from '@/modules/files/schemas';
 import { getMyName } from '@/modules/members/queries';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
@@ -23,6 +24,7 @@ export default async function EditDocumentPage({ params }: PageProps<'/documents
   if (!document) notFound();
   const settings = editorSettings();
   const editor = settings ? buildEditorConfig(ctx, document, await getMyName(ctx), settings) : null;
+  if (editor) await recordEditorOpen(ctx, document);
 
   return (
     // Fills the space under the app's header: the editor needs a fixed height to lay itself out.
