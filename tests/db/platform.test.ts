@@ -239,6 +239,16 @@ describe('the service agreement', () => {
     expect(workspaceClosedReason({ ...ctx, isSupport: true })).toBeNull();
   });
 
+  it('treats a cancelled business, or any status it does not know, as closed', async () => {
+    const ctx = await contextFor(pendingOwnerId, pendingTenant);
+    const as = (status: string) => ({ ...ctx, tenant: { ...ctx.tenant, status } });
+    expect(workspaceClosedReason(as('cancelled'))).toBe('suspended');
+    expect(workspaceClosedReason(as('something_new'))).toBe('suspended');
+    for (const open of ['trialing', 'active', 'past_due']) {
+      expect(workspaceClosedReason(as(open))).toBeNull();
+    }
+  });
+
   it('shows the link’s holder the exact version they are asked to accept', async () => {
     expect(await getAgreementByToken(tokenOf(link))).toMatchObject({
       businessName: 'Pending Bakery',

@@ -1,8 +1,12 @@
 'use server';
 
+import { headers } from 'next/headers';
+
 import { AppError, toActionError, type ActionResult } from '@/lib/errors';
 import { authedAction } from '@/server/action';
 import { isEmailConfigured } from '@/server/email';
+import { consumeRateLimit, enforceRateLimit } from '@/server/rate-limit';
+import { clientAddress } from '@/server/request';
 import { createSupabaseServerClient } from '@/server/supabase/server';
 
 import {
@@ -36,7 +40,22 @@ export async function requestPasswordResetAction(
 ): Promise<ActionResult<{ emailAvailable: boolean }>> {
   try {
     const { email } = forgotPasswordSchema.parse(raw);
-    await accessService.requestPasswordReset(email);
+    const address = clientAddress(await headers());
+    if (address) {
+      await enforceRateLimit(
+        { bucket: 'password-reset:address', subject: address, limit: 10, windowSeconds: 3600 },
+        'Too many requests. Wait an hour and try again.',
+      );
+    }
+    // A few links an hour per address at most, so nobody can flood someone's inbox. Past that,
+    // the answer stays the same, so it never shows whether the address has a login.
+    const withinLimit = await consumeRateLimit({
+      bucket: 'password-reset:email',
+      subject: email.toLowerCase(),
+      limit: 3,
+      windowSeconds: 3600,
+    });
+    if (withinLimit) await accessService.requestPasswordReset(email);
     return { ok: true, data: { emailAvailable: isEmailConfigured() } };
   } catch (error) {
     return { ok: false, error: toActionError(error) };

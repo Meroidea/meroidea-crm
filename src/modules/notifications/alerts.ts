@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 import { notifications, tenants, users } from '@/db/schema';
 import { adminDb } from '@/server/db/admin';
 import { consumeRateLimit } from '@/server/rate-limit';
@@ -92,7 +93,7 @@ export async function sweepAllTenants(): Promise<{
     .from(tenants)
     .where(
       and(
-        inArray(tenants.status, ['trialing', 'active', 'past_due']),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
         sql`'crm' = any(${tenants.features})`,
       ),
     );

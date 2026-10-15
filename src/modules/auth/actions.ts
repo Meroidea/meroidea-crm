@@ -1,7 +1,11 @@
 'use server';
 
+import { headers } from 'next/headers';
+
 import { AppError, toActionError, type ActionResult } from '@/lib/errors';
 import { findWorkspaceForUser, provisionTenant } from '@/modules/tenants/provision';
+import { consumeRateLimit, enforceRateLimit, rateLimitReached } from '@/server/rate-limit';
+import { clientAddress } from '@/server/request';
 import { createSupabaseServerClient } from '@/server/supabase/server';
 
 import { signInSchema, signUpSchema } from './schemas';
@@ -50,17 +54,52 @@ export async function signUpAction(raw: unknown): Promise<ActionResult<{ slug: s
   }
 }
 
+/**
+ * Sign-in limits. Supabase's own per-address limit sees this server, not the person, so it would
+ * either let one guesser try without end or lock everyone out at once. Wrong passwords are
+ * counted per account, so nobody can lock a real user out just by knowing their email; every
+ * attempt is counted per sender address, which stops one sender trying many accounts.
+ */
+const SIGN_IN_WINDOW_SECONDS = 15 * 60;
+const SIGN_IN_FAILURES_PER_ACCOUNT = 10;
+const SIGN_IN_ATTEMPTS_PER_ADDRESS = 40;
+const SIGN_IN_LIMITED = 'Too many sign-in attempts. Wait 15 minutes and try again.';
+
 export async function signInAction(raw: unknown): Promise<ActionResult<null>> {
   try {
     const input = signInSchema.parse(raw);
-    const supabase = await createSupabaseServerClient();
+    const address = clientAddress(await headers());
+    // Unknown addresses (no proxy header) are not counted together: that would be one shared
+    // counter for everyone.
+    if (address) {
+      await enforceRateLimit(
+        {
+          bucket: 'sign-in:address',
+          subject: address,
+          limit: SIGN_IN_ATTEMPTS_PER_ADDRESS,
+          windowSeconds: SIGN_IN_WINDOW_SECONDS,
+        },
+        SIGN_IN_LIMITED,
+      );
+    }
+    const accountLimit = {
+      bucket: 'sign-in:account',
+      subject: input.email.toLowerCase(),
+      limit: SIGN_IN_FAILURES_PER_ACCOUNT,
+      windowSeconds: SIGN_IN_WINDOW_SECONDS,
+    };
+    if (await rateLimitReached(accountLimit)) throw new AppError('RATE_LIMITED', SIGN_IN_LIMITED);
 
+    const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.signInWithPassword({
       email: input.email,
       password: input.password,
     });
-    // Deliberately vague: never disclose whether the address exists.
-    if (error) throw new AppError('UNAUTHENTICATED', 'That email and password do not match.');
+    if (error) {
+      await consumeRateLimit(accountLimit);
+      // Deliberately vague: never disclose whether the address exists.
+      throw new AppError('UNAUTHENTICATED', 'That email and password do not match.');
+    }
 
     return { ok: true, data: null };
   } catch (error) {

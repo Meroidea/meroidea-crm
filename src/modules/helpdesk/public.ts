@@ -2,8 +2,9 @@ import 'server-only';
 
 import { randomBytes } from 'node:crypto';
 
-import { and, asc, eq, gte, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 import { auditLogs, contacts, helpdeskForms, tenants, ticketMessages, tickets } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { adminDb } from '@/server/db/admin';
@@ -39,7 +40,7 @@ async function formByToken(token: string) {
       and(
         eq(helpdeskForms.publicToken, token),
         eq(helpdeskForms.isOpen, true),
-        ne(tenants.status, 'suspended'),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
         sql`'helpdesk' = any(${tenants.features})`,
       ),
     )
@@ -158,7 +159,9 @@ async function ticketByToken(token: string) {
       and(
         eq(tickets.publicToken, token),
         isNull(tickets.deletedAt),
-        ne(tenants.status, 'suspended'),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
+        // With the helpdesk switched off nobody in the business would see a reply.
+        sql`'helpdesk' = any(${tenants.features})`,
       ),
     )
     .limit(1);

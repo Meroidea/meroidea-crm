@@ -13,6 +13,7 @@ import {
   tenants,
   users,
 } from '@/db/schema';
+import { isTenantOpen } from '@/lib/tenant/status';
 import { diffChanges } from '@/lib/audit-diff';
 import { AppError } from '@/lib/errors';
 import { FEATURES, isFeatureKey, type FeatureKey } from '@/lib/features';
@@ -448,9 +449,6 @@ export async function publishAgreement(
   return published;
 }
 
-/** A business whose people are using it, so a newly switched-on feature is worth announcing. */
-const IN_USE_STATUSES = ['trialing', 'active', 'past_due'];
-
 const ROLE_ACCESS_URL = '/settings?tab=roles';
 
 /**
@@ -518,7 +516,7 @@ export async function setBusinessFeatures(
       changes: diffChanges({ features: previous }, { features: input.features }),
       context: { featuresAdded: added, featuresRemoved: removed },
     });
-    if (added.length === 0 || !IN_USE_STATUSES.includes(before.status)) return null;
+    if (added.length === 0 || !isTenantOpen(before.status)) return null;
 
     const admins = await tx
       .select({ userId: tenantMemberships.userId, email: users.email, fullName: users.fullName })

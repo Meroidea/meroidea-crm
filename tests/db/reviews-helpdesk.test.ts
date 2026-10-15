@@ -189,6 +189,18 @@ describe('customer reviews', () => {
       sql`update tenants set features = array_append(features, 'reviews') where id = ${alphaTenant}`,
     );
   });
+
+  it('a business that is not open, such as a cancelled one, takes no reviews', async () => {
+    for (const status of ['cancelled', 'awaiting_agreement', 'suspended']) {
+      await adminDb().execute(
+        sql`update tenants set status = ${status}::tenant_status where id = ${alphaTenant}`,
+      );
+      expect(await getPublicReviewLink(token)).toBeNull();
+      expect(await code(submitReview(token, review(4), SENDER))).toBe('NOT_FOUND');
+    }
+    await adminDb().execute(sql`update tenants set status = 'trialing' where id = ${alphaTenant}`);
+    expect(await getPublicReviewLink(token)).not.toBeNull();
+  });
 });
 
 describe('helpdesk', () => {
@@ -374,6 +386,36 @@ describe('helpdesk', () => {
     await setFormOpen(owner, false);
     expect(await getPublicForm(formToken)).toBeNull();
     expect(await code(submitPublicTicket(formToken, input, SENDER))).toBe('NOT_FOUND');
+  });
+
+  it('a customer’s ticket page closes with the helpdesk feature or the business', async () => {
+    // The form was closed above; reopen it for one more ticket.
+    await setFormOpen(owner, true);
+    const created = await submitPublicTicket(
+      formToken,
+      publicTicketSchema.parse({
+        requesterName: 'Ola Open',
+        requesterEmail: mail('ola'),
+        subject: 'Opening hours',
+        description: 'Are you open on public holidays?',
+      }),
+      '192.0.2.11',
+    );
+    await setFormOpen(owner, false);
+
+    await adminDb().execute(
+      sql`update tenants set features = array_remove(features, 'helpdesk') where id = ${alphaTenant}`,
+    );
+    expect(await getPublicTicket(created.ticketToken)).toBeNull();
+    expect(await code(replyAsCustomer(created.ticketToken, 'Hello?'))).toBe('NOT_FOUND');
+    await adminDb().execute(
+      sql`update tenants set features = array_append(features, 'helpdesk') where id = ${alphaTenant}`,
+    );
+
+    await adminDb().execute(sql`update tenants set status = 'cancelled' where id = ${alphaTenant}`);
+    expect(await getPublicTicket(created.ticketToken)).toBeNull();
+    await adminDb().execute(sql`update tenants set status = 'trialing' where id = ${alphaTenant}`);
+    expect(await getPublicTicket(created.ticketToken)).not.toBeNull();
   });
 
   it('only a manager deletes a ticket', async () => {
