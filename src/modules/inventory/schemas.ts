@@ -84,6 +84,7 @@ export const inventoryFiltersSchema = z.object({
   q: z.string().trim().max(100).optional().catch(undefined),
   category: z.uuid().optional().catch(undefined),
   view: z.enum(INVENTORY_VIEWS).optional().catch(undefined),
+  cursor: z.string().max(500).optional().catch(undefined),
 });
 
 export type ItemFormValues = z.input<typeof createItemSchema>;

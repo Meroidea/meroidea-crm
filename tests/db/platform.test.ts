@@ -423,7 +423,7 @@ describe('feature switches', () => {
     // Switching it back on brings the records back: nothing was deleted.
     await setBusinessFeatures(admin, { tenantId: cafeTenant, features: ['roster', 'inventory'] });
     const again = await contextFor(cafeOwnerId, cafeTenant);
-    expect((await listItems(again, {})).map((row) => row.name)).toEqual(['Coffee beans']);
+    expect((await listItems(again, {})).items.map((row) => row.name)).toEqual(['Coffee beans']);
   });
 
   it('records feature changes in the business’s own audit log as a platform action', async () => {
@@ -505,7 +505,7 @@ describe('suspending a business', () => {
     await setBusinessStatus(admin, { tenantId: cafeTenant, status: 'active' });
     const back = await contextFor(cafeOwnerId, cafeTenant);
     expect(back.tenant.status).toBe('active');
-    expect(await listItems(back, {})).toHaveLength(1);
+    expect((await listItems(back, {})).items).toHaveLength(1);
   });
 
   it('reports an unknown business as not found', async () => {

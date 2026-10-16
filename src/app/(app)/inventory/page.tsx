@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
 import { FilterBar } from '@/components/data/filter-bar';
+import { ListPagination } from '@/components/data/list-pagination';
 import { PageHeader } from '@/components/data/page-header';
 import { StatusCountBar } from '@/components/data/status-count-bar';
 import { withParams } from '@/components/data/url';
@@ -24,7 +25,7 @@ export default async function InventoryPage({ searchParams }: PageProps<'/invent
   requirePermission(ctx, 'inventory.view');
   const canManage = hasPermission(ctx, 'inventory.manage');
   const filters = inventoryFiltersSchema.parse(await searchParams);
-  const [items, summary, categories] = await Promise.all([
+  const [{ items, nextCursor }, summary, categories] = await Promise.all([
     listItems(ctx, filters),
     getInventorySummary(ctx),
     listCategories(ctx),
@@ -32,6 +33,7 @@ export default async function InventoryPage({ searchParams }: PageProps<'/invent
 
   const view = filters.view ?? 'all';
   const current = { q: filters.q, category: filters.category, view: filters.view };
+  const paged = { ...current, cursor: filters.cursor };
   const counts = (
     [
       ['all', 'All items', summary.items, 'primary'],
@@ -51,7 +53,9 @@ export default async function InventoryPage({ searchParams }: PageProps<'/invent
   const groups = new Map<string, InventoryItemRow[]>();
   for (const item of items) {
     const name = item.categoryName ?? 'Uncategorised';
-    groups.set(name, [...(groups.get(name) ?? []), item]);
+    const list = groups.get(name);
+    if (list) list.push(item);
+    else groups.set(name, [item]);
   }
 
   const tiles = [
@@ -166,6 +170,16 @@ export default async function InventoryPage({ searchParams }: PageProps<'/invent
             </ul>
           </section>
         ))
+      )}
+      {items.length > 0 && (
+        <div className="overflow-hidden rounded-xl border bg-card empty:hidden">
+          <ListPagination
+            pathname="/inventory"
+            filters={paged}
+            nextCursor={nextCursor}
+            shown={items.length}
+          />
+        </div>
       )}
     </div>
   );
