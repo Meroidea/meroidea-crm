@@ -80,7 +80,7 @@ export function ApprovalViews({
   );
   const recorded = period.day.flatMap((row) => (row.entry?.endTime ? [row] : []));
   const waitingIds = recorded
-    .filter((row) => row.entry?.status === 'pending')
+    .filter((row) => row.entry?.status === 'pending' && row.canApprove)
     .flatMap((row) => row.entry?.id ?? []);
   const dayCost = recorded.reduce((sum, row) => sum + (row.workedCents ?? 0), 0);
   const totals = [

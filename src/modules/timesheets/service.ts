@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 
 import { rosterShifts, rosters, tenantMemberships, timeEntries } from '@/db/schema';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { addDaysToDate, instantToZoned, zonedDateTimeToInstant } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { distanceMetres } from '@/lib/geo';
@@ -338,7 +339,12 @@ export async function decideEntries(
   requirePermission(ctx, 'timesheets.manage');
   return withRls(ctx, async (tx) => {
     const entries = await tx
-      .select({ id: timeEntries.id, clockIn: timeEntries.clockIn, clockOut: timeEntries.clockOut })
+      .select({
+        id: timeEntries.id,
+        userId: timeEntries.userId,
+        clockIn: timeEntries.clockIn,
+        clockOut: timeEntries.clockOut,
+      })
       .from(timeEntries)
       .where(
         and(
@@ -352,6 +358,12 @@ export async function decideEntries(
     }
     if (entries.some((entry) => !entry.clockOut)) {
       throw new AppError('CONFLICT', 'Someone is still clocked in on one of those entries.');
+    }
+    if (
+      input.decision === 'approved' &&
+      entries.some((entry) => !maySignOffFor(ctx, entry.userId))
+    ) {
+      throw new AppError('CONFLICT', 'Someone else has to approve your own time.');
     }
     await assertPayPeriodOpen(
       tx,
@@ -429,6 +441,9 @@ export async function saveDayEntry(
     throw new AppError('VALIDATION', 'Time can only be recorded after it has been worked.', {
       end: ['This is in the future'],
     });
+  }
+  if (input.approve && !maySignOffFor(ctx, input.userId)) {
+    throw new AppError('CONFLICT', 'Someone else has to approve your own time.');
   }
   const status = input.approve ? ('approved' as const) : ('pending' as const);
   const decision = {

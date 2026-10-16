@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { EmptyState } from '@/components/data/empty-state';
 import { PageHeader } from '@/components/data/page-header';
 import { Badge } from '@/components/ui/badge';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { zonedToday } from '@/lib/dates';
 import { formatCalendarDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -41,11 +42,14 @@ function RequestList({
   requests,
   showPerson,
   userId,
+  roleKey,
   canManage,
 }: {
   requests: LeaveRequestRow[];
   showPerson: boolean;
   userId: string;
+  /** The viewer's role: only the Admin may approve their own. */
+  roleKey: string;
   canManage: boolean;
 }) {
   return (
@@ -75,7 +79,11 @@ function RequestList({
           </Badge>
           <RequestActions
             id={request.id}
-            canDecide={canManage && request.status === 'pending'}
+            canDecide={
+              canManage &&
+              request.status === 'pending' &&
+              maySignOffFor({ userId, roleKey }, request.userId)
+            }
             canCancel={
               request.status === 'pending'
                 ? canManage || request.userId === userId
@@ -171,6 +179,7 @@ export default async function TimeOffPage({ searchParams }: PageProps<'/time-off
               requests={mine}
               showPerson={false}
               userId={ctx.userId}
+              roleKey={ctx.roleKey}
               canManage={canManage}
             />
           )}
@@ -186,7 +195,13 @@ export default async function TimeOffPage({ searchParams }: PageProps<'/time-off
                 Nothing is waiting.
               </p>
             ) : (
-              <RequestList requests={waiting} showPerson userId={ctx.userId} canManage />
+              <RequestList
+                requests={waiting}
+                showPerson
+                userId={ctx.userId}
+                roleKey={ctx.roleKey}
+                canManage
+              />
             )}
           </section>
           <section className="flex flex-col gap-2">
@@ -196,7 +211,13 @@ export default async function TimeOffPage({ searchParams }: PageProps<'/time-off
                 Nobody has approved leave coming up.
               </p>
             ) : (
-              <RequestList requests={upcoming} showPerson userId={ctx.userId} canManage />
+              <RequestList
+                requests={upcoming}
+                showPerson
+                userId={ctx.userId}
+                roleKey={ctx.roleKey}
+                canManage
+              />
             )}
           </section>
         </>

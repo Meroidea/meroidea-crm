@@ -7,6 +7,7 @@ import { ListPagination } from '@/components/data/list-pagination';
 import { PageHeader } from '@/components/data/page-header';
 import { withParams } from '@/components/data/url';
 import { Badge } from '@/components/ui/badge';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { zonedToday } from '@/lib/dates';
 import { formatCalendarDate, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -161,7 +162,7 @@ export default async function ExpensesPage({ searchParams }: PageProps<'/expense
                   canDecide={
                     canManage &&
                     expense.status === 'submitted' &&
-                    (expense.userId !== ctx.userId || ctx.roleKey === 'owner')
+                    maySignOffFor(ctx, expense.userId)
                   }
                   canPay={canManage && expense.status === 'approved'}
                   canWithdraw={expense.userId === ctx.userId && expense.status === 'submitted'}

@@ -20,6 +20,7 @@ import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 import { writeWorkbook } from '@/server/xlsx';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { toCsv } from '@/lib/csv';
 
 import { buildTimesheetWorkbook } from './workbook';
@@ -33,6 +34,8 @@ export type DayRowView = DayRow & {
   rosteredCents: number | null;
   lines: AwardPayLine[];
   warnings: AwardWarning[];
+  /** The viewer may approve this time: anyone else's, and their own only as Admin. */
+  canApprove: boolean;
 };
 
 export type PersonSummary = {
@@ -247,7 +250,7 @@ export async function getTimesheetPeriod(
     : null;
   const rosteredCost = rates ? costRoster(shifts, rates, rules, holidays, weeks) : null;
 
-  const day: DayRowView[] = matchDay(
+  const day: Omit<DayRowView, 'canApprove'>[] = matchDay(
     shifts.filter((shift) => shift.date === date),
     entries.filter((entry) => entry.date === date),
   )
@@ -314,7 +317,7 @@ export async function getTimesheetPeriod(
     locked: data.locked,
     showCost: rates !== null,
     date,
-    day,
+    day: day.map((row) => ({ ...row, canApprove: maySignOffFor(ctx, row.userId) })),
     summary,
     entries: entries.map((entry) => ({
       ...entry,

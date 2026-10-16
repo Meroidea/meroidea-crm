@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { expenseClaims } from '@/db/schema';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { AppError } from '@/lib/errors';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
@@ -109,7 +110,7 @@ export async function decideExpense(
     if (claim.status !== 'submitted') {
       throw new AppError('CONFLICT', 'That expense has already been dealt with.');
     }
-    if (claim.userId === ctx.userId && ctx.roleKey !== 'owner') {
+    if (!maySignOffFor(ctx, claim.userId)) {
       throw new AppError('CONFLICT', 'Someone else has to approve your own expense.');
     }
     await tx

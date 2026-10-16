@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/data/empty-state';
 import { PageHeader } from '@/components/data/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { addDaysToDate, instantToZoned, mondayOf, zonedToday } from '@/lib/dates';
 import { formatCalendarDate } from '@/lib/format';
 import { listActiveMembers } from '@/modules/members/queries';
@@ -35,6 +36,7 @@ function EntryRows({
   timezone,
   today,
   userId,
+  roleKey,
   canManage,
   locked,
 }: {
@@ -42,6 +44,8 @@ function EntryRows({
   timezone: string;
   today: string;
   userId: string;
+  /** The viewer's role: only the Admin may approve their own. */
+  roleKey: string;
   canManage: boolean;
   /** True where time must be clocked at the workplace, so staff cannot edit their own entries. */
   locked: boolean;
@@ -95,7 +99,7 @@ function EntryRows({
                 <EntryActions
                   ids={[entry.id]}
                   status={entry.status}
-                  canDecide={canManage}
+                  canDecide={canManage && maySignOffFor({ userId, roleKey }, entry.userId)}
                   canDelete={canManage || ownWaiting}
                 />
               </div>
@@ -159,7 +163,9 @@ export default async function TimesheetsPage({ searchParams }: PageProps<'/times
     byPerson.set(entry.userId, [...(byPerson.get(entry.userId) ?? []), entry]);
   }
   const waitingIds = entries
-    .filter((entry) => entry.status === 'pending' && entry.clockOut)
+    .filter(
+      (entry) => entry.status === 'pending' && entry.clockOut && maySignOffFor(ctx, entry.userId),
+    )
     .map((entry) => entry.id);
   const openLabel = open ? instantToZoned(timezone, open.clockIn) : null;
 
@@ -254,6 +260,7 @@ export default async function TimesheetsPage({ searchParams }: PageProps<'/times
               timezone={timezone}
               today={today}
               userId={ctx.userId}
+              roleKey={ctx.roleKey}
               canManage={canManage}
               locked={Boolean(ctx.tenant.clockLocation)}
             />
