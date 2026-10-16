@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { and, asc, desc, eq, ilike, isNotNull, isNull, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
 
 import { libraryDocuments, libraryDocumentVersions, users } from '@/db/schema';
 import { likePattern } from '@/lib/cursor';
@@ -30,25 +31,66 @@ const typed = <T extends { extension: string }>(row: T) => ({
   extension: row.extension as DocumentExtension,
 });
 
+export const DOCUMENT_PAGE_SIZE = 100;
+
+const cursorSchema = z.object({ u: z.boolean(), f: z.string(), n: z.string(), id: z.uuid() });
+type DocumentCursor = z.infer<typeof cursorSchema>;
+
+const encodeDocumentCursor = (row: DocumentRow) =>
+  Buffer.from(
+    JSON.stringify({
+      u: row.folder === null,
+      f: row.folder ?? '',
+      n: row.name,
+      id: row.id,
+    } satisfies DocumentCursor),
+  ).toString('base64url');
+
+function decodeDocumentCursor(raw: string | undefined): DocumentCursor | null {
+  if (!raw) return null;
+  try {
+    const parsed = cursorSchema.safeParse(JSON.parse(Buffer.from(raw, 'base64url').toString()));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** By folder then name, a page at a time, so no document is silently out of reach. */
 export async function listDocuments(
   ctx: TenantContext,
   filters: DocumentFilters,
-): Promise<DocumentRow[]> {
+): Promise<{ items: DocumentRow[]; nextCursor: string | null }> {
   requirePermission(ctx, 'files.view');
   const where: (SQL | undefined)[] = [live(ctx)];
   if (filters.q) where.push(ilike(libraryDocuments.name, likePattern(filters.q)));
   if (filters.type) where.push(eq(libraryDocuments.extension, filters.type));
   if (filters.folder) where.push(eq(libraryDocuments.folder, filters.folder));
+  // Documents outside a folder come last, as they did before paging.
+  const unfiled = sql`(${libraryDocuments.folder} is null)`;
+  const folder = sql`coalesce(${libraryDocuments.folder}, '')`;
+  const cursor = decodeDocumentCursor(filters.cursor);
+  if (cursor) {
+    where.push(
+      sql`(${unfiled}, ${folder}, ${libraryDocuments.name}, ${libraryDocuments.id})
+        > (${cursor.u}, ${cursor.f}, ${cursor.n}, ${cursor.id}::uuid)`,
+    );
+  }
   const rows = await withRls(ctx, (tx) =>
     tx
       .select(columns)
       .from(libraryDocuments)
       .leftJoin(users, eq(users.id, libraryDocuments.updatedBy))
       .where(and(...where))
-      .orderBy(asc(libraryDocuments.folder), asc(libraryDocuments.name))
-      .limit(500),
+      .orderBy(asc(unfiled), asc(folder), asc(libraryDocuments.name), asc(libraryDocuments.id))
+      .limit(DOCUMENT_PAGE_SIZE + 1),
   );
-  return rows.map(typed);
+  const items = rows.slice(0, DOCUMENT_PAGE_SIZE).map(typed);
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor: rows.length > DOCUMENT_PAGE_SIZE && last ? encodeDocumentCursor(last) : null,
+  };
 }
 
 export async function listFolders(ctx: TenantContext): Promise<string[]> {

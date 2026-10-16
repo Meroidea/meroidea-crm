@@ -11,6 +11,7 @@ import {
   listMyOpenTasks,
   listProjects,
   listProjectTasks,
+  listRecentTimeLogs,
 } from '@/modules/projects/queries';
 import { logTimeSchema, saveProjectSchema, saveTaskSchema } from '@/modules/projects/schemas';
 import {
@@ -21,6 +22,7 @@ import {
   setTaskStatus,
   startTimer,
   stopTimer,
+  deleteTimeLog,
 } from '@/modules/projects/service';
 import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
@@ -200,6 +202,38 @@ describe('timing work', () => {
     // A colleague's logged time stays private to them and to managers.
     const seenByGale = await listProjectTasks(gale, projectId);
     expect(seenByGale.find((row) => row.id === harperTask)?.loggedMinutes).toBe(0);
+  });
+
+  it('lets a mistake be removed by whoever logged it, and audits every entry', async () => {
+    const typo = await logTime(
+      gale,
+      logTimeSchema.parse({ taskId: galeTask, date: today, hours: '10' }),
+    );
+    expect((await listRecentTimeLogs(gale, projectId)).map((row) => row.id)).toContain(typo.id);
+    // A colleague's entry is not theirs to remove, nor visible in their list.
+    const harpers = await listRecentTimeLogs(harper, projectId);
+    expect(harpers.map((row) => row.id)).not.toContain(typo.id);
+    expect(await code(deleteTimeLog(harper, typo.id))).toBe('NOT_FOUND');
+    await deleteTimeLog(gale, typo.id);
+    expect((await listRecentTimeLogs(owner, projectId)).map((row) => row.id)).not.toContain(
+      typo.id,
+    );
+    const audited = (await adminDb().execute(sql`
+      select action from audit_logs where entity_type = 'task_time_log' and entity_id = ${typo.id}
+      order by created_at`)) as unknown as { action: string }[];
+    expect(audited.map((row) => row.action)).toEqual(['create', 'delete']);
+  });
+
+  it('keeps staff to the last month when logging time afterwards; a manager may go further', async () => {
+    const old = addDaysToDate(today, -40);
+    expect(
+      await code(logTime(gale, logTimeSchema.parse({ taskId: galeTask, date: old, hours: '1' }))),
+    ).toBe('VALIDATION');
+    const fixed = await logTime(
+      owner,
+      logTimeSchema.parse({ taskId: galeTask, date: old, hours: '1' }),
+    );
+    await deleteTimeLog(owner, fixed.id);
   });
 });
 

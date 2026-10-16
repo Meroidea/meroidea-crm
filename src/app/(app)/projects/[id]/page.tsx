@@ -7,17 +7,23 @@ import { z } from 'zod';
 import { PageHeader } from '@/components/data/page-header';
 import { Badge } from '@/components/ui/badge';
 import { zonedToday } from '@/lib/dates';
-import { formatCalendarDate } from '@/lib/format';
+import { formatCalendarDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { listActiveMembers } from '@/modules/members/queries';
 import {
   ProjectButton,
+  RemoveTimeLog,
   RunningTimer,
   TaskButton,
   TaskStatusSelect,
   TaskTime,
 } from '@/modules/projects/components/project-tools';
-import { getProject, getRunningTimer, listProjectTasks } from '@/modules/projects/queries';
+import {
+  getProject,
+  getRunningTimer,
+  listProjectTasks,
+  listRecentTimeLogs,
+} from '@/modules/projects/queries';
 import {
   PROJECT_STATUS_LABELS,
   TASK_STATUS_LABELS,
@@ -36,10 +42,11 @@ export default async function ProjectPage({ params }: PageProps<'/projects/[id]'
   const project = parsed.success ? await getProject(ctx, parsed.data.id) : null;
   if (!project) notFound();
   const today = zonedToday(ctx.tenant.timezone);
-  const [tasks, timer, people] = await Promise.all([
+  const [tasks, timer, people, recentTime] = await Promise.all([
     listProjectTasks(ctx, project.id),
     getRunningTimer(ctx),
     canManage ? listActiveMembers(ctx) : [],
+    listRecentTimeLogs(ctx, project.id),
   ]);
   const logged = tasks.reduce((sum, task) => sum + task.loggedMinutes, 0);
   const estimated = tasks.reduce((sum, task) => sum + (task.estimateMinutes ?? 0), 0);
@@ -194,6 +201,33 @@ export default async function ProjectPage({ params }: PageProps<'/projects/[id]'
           })}
         </div>
       </div>
+
+      {recentTime.length > 0 && (
+        <section aria-labelledby="recent-time" className="rounded-xl border bg-card">
+          <h2 id="recent-time" className="border-b px-4 py-2.5 text-sm font-medium">
+            {canManage ? 'Recent time logged' : 'Your recent time'}
+          </h2>
+          <ul className="divide-y">
+            {recentTime.map((entry) => (
+              <li key={entry.id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{entry.taskTitle}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {canManage && `${entry.personName} · `}
+                    {formatDateTime(ctx, entry.startedAt)}
+                    {entry.note && ` · ${entry.note}`}
+                  </span>
+                </span>
+                <span className="tabular-nums">{formatHours(entry.minutes)}</span>
+                <RemoveTimeLog
+                  id={entry.id}
+                  label={`${formatHours(entry.minutes)} on ${entry.taskTitle}`}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

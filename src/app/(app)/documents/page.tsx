@@ -11,6 +11,7 @@ import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
 import { FilterBar } from '@/components/data/filter-bar';
+import { ListPagination } from '@/components/data/list-pagination';
 import { PageHeader } from '@/components/data/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
@@ -35,14 +36,19 @@ export default async function DocumentsPage({ searchParams }: PageProps<'/docume
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'files.view');
   const filters = documentFiltersSchema.parse(await searchParams);
-  const [documents, folders] = await Promise.all([listDocuments(ctx, filters), listFolders(ctx)]);
+  const [{ items: documents, nextCursor }, folders] = await Promise.all([
+    listDocuments(ctx, filters),
+    listFolders(ctx),
+  ]);
   const canManage = hasPermission(ctx, 'files.manage');
   const filtering = Boolean(filters.q || filters.type || filters.folder);
 
   const groups = new Map<string, DocumentRow[]>();
   for (const document of documents) {
     const key = document.folder ?? '';
-    groups.set(key, [...(groups.get(key) ?? []), document]);
+    const list = groups.get(key);
+    if (list) list.push(document);
+    else groups.set(key, [document]);
   }
 
   return (
@@ -149,6 +155,21 @@ export default async function DocumentsPage({ searchParams }: PageProps<'/docume
             </ul>
           </section>
         ))
+      )}
+      {documents.length > 0 && (
+        <div className="overflow-hidden rounded-xl border bg-card empty:hidden">
+          <ListPagination
+            pathname="/documents"
+            filters={{
+              q: filters.q,
+              type: filters.type,
+              folder: filters.folder,
+              cursor: filters.cursor,
+            }}
+            nextCursor={nextCursor}
+            shown={documents.length}
+          />
+        </div>
       )}
     </div>
   );

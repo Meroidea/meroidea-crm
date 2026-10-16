@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   deleteProjectAction,
   deleteTaskAction,
+  deleteTimeLogAction,
   logTimeAction,
   saveProjectAction,
   saveTaskAction,
@@ -470,6 +471,25 @@ export function TaskTime({
       </div>
       <ErrorNote error={error} />
     </div>
+  );
+}
+
+/** Takes off time logged by mistake. */
+export function RemoveTimeLog({ id, label }: { id: string; label: string }) {
+  const { run, error, isPending } = useRun();
+  return (
+    <span className="flex flex-col items-end">
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={`Remove ${label}`}
+        disabled={isPending}
+        onClick={() => run(() => deleteTimeLogAction({ id }))}
+      >
+        <Trash2 aria-hidden />
+      </Button>
+      <ErrorNote error={error} />
+    </span>
   );
 }
 
