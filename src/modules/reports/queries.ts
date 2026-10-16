@@ -14,12 +14,12 @@ import {
   tasks,
   users,
 } from '@/db/schema';
-import { startOfZonedMonth } from '@/lib/dates';
+import { startOfZonedMonth, zonedToday } from '@/lib/dates';
 import type { Grant } from '@/lib/permissions/catalog';
 import { scopeFilter } from '@/lib/permissions/scope';
 import { loadPipelineConfig } from '@/modules/pipelines/queries';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
-import { withRls } from '@/server/db/with-rls';
+import { withRls, type Tx } from '@/server/db/with-rls';
 import { contactScope } from '@/modules/contacts/access';
 
 /** Dates inside raw SQL need an explicit type; the driver can't infer one for a bare Date. */
@@ -69,6 +69,56 @@ export type Dashboard = {
   }[];
   leaderboard: { name: string; won: string; count: number }[];
 };
+
+/** Open deals whose stage says they have gone too long without activity, the quietest first. */
+function quietDeals(tx: Tx, ctx: TenantContext) {
+  const owners = alias(users, 'owners');
+  return tx
+    .select({
+      id: opportunities.id,
+      name: opportunities.name,
+      contactName: contacts.fullName,
+      stageName: pipelineStages.name,
+      days: sql<number>`extract(day from now() - coalesce(${opportunities.lastActivityAt}, ${opportunities.stageEnteredAt}))::int`,
+      ownerName: owners.fullName,
+    })
+    .from(opportunities)
+    .innerJoin(
+      pipelineStages,
+      and(
+        eq(pipelineStages.tenantId, opportunities.tenantId),
+        eq(pipelineStages.id, opportunities.stageId),
+      ),
+    )
+    .innerJoin(
+      contacts,
+      and(eq(contacts.tenantId, opportunities.tenantId), eq(contacts.id, opportunities.contactId)),
+    )
+    .leftJoin(owners, eq(owners.id, opportunities.ownerUserId))
+    .where(
+      and(
+        ...live(ctx),
+        scopeFilter(ctx, 'opportunities.view', opportunities),
+        eq(opportunities.status, 'open'),
+        sql`${pipelineStages.staleAfterDays} is not null`,
+        sql`coalesce(${opportunities.lastActivityAt}, ${opportunities.stageEnteredAt}) < now() - make_interval(days => ${pipelineStages.staleAfterDays})`,
+      ),
+    )
+    .orderBy(sql`coalesce(${opportunities.lastActivityAt}, ${opportunities.stageEnteredAt}) asc`)
+    .limit(6);
+}
+
+/**
+ * The deals going quiet that the person may see, for My Day. Needs only opportunities.view, not
+ * the whole dashboard.
+ */
+export async function listQuietDeals(
+  ctx: TenantContext,
+): Promise<{ id: string; name: string; contactName: string; stageName: string; days: number }[]> {
+  requirePermission(ctx, 'opportunities.view');
+  const rows = await withRls(ctx, (tx) => quietDeals(tx, ctx));
+  return rows.map((row) => ({ ...row, contactName: row.contactName ?? '' }));
+}
 
 export async function getDashboard(ctx: TenantContext): Promise<Dashboard | null> {
   if (!hasPermission(ctx, 'reports.view')) return null;
@@ -169,42 +219,7 @@ export async function getDashboard(ctx: TenantContext): Promise<Dashboard | null
       .limit(6);
 
     const owners = alias(users, 'owners');
-    const staleRows = await tx
-      .select({
-        id: opportunities.id,
-        name: opportunities.name,
-        contactName: contacts.fullName,
-        stageName: pipelineStages.name,
-        days: sql<number>`extract(day from now() - coalesce(${opportunities.lastActivityAt}, ${opportunities.stageEnteredAt}))::int`,
-        ownerName: owners.fullName,
-      })
-      .from(opportunities)
-      .innerJoin(
-        pipelineStages,
-        and(
-          eq(pipelineStages.tenantId, opportunities.tenantId),
-          eq(pipelineStages.id, opportunities.stageId),
-        ),
-      )
-      .innerJoin(
-        contacts,
-        and(
-          eq(contacts.tenantId, opportunities.tenantId),
-          eq(contacts.id, opportunities.contactId),
-        ),
-      )
-      .leftJoin(owners, eq(owners.id, opportunities.ownerUserId))
-      .where(
-        and(
-          ...live(ctx),
-          scopeFilter(ctx, 'opportunities.view', opportunities),
-          eq(opportunities.status, 'open'),
-          sql`${pipelineStages.staleAfterDays} is not null`,
-          sql`coalesce(${opportunities.lastActivityAt}, ${opportunities.stageEnteredAt}) < now() - make_interval(days => ${pipelineStages.staleAfterDays})`,
-        ),
-      )
-      .orderBy(sql`coalesce(${opportunities.lastActivityAt}, ${opportunities.stageEnteredAt}) asc`)
-      .limit(6);
+    const staleRows = await quietDeals(tx, ctx);
 
     const quarterStart = new Date(Date.now() - 90 * 86_400_000);
     const leaderRows =
@@ -230,11 +245,15 @@ export async function getDashboard(ctx: TenantContext): Promise<Dashboard | null
             .orderBy(sql`count(*) desc`)
             .limit(5);
 
+    // The business's own calendar month, as the data is bucketed: in UTC, Sydney's 1st of the
+    // month would still be last month until mid-morning.
+    const [year, month] = zonedToday(ctx.tenant.timezone).split('-').map(Number) as [
+      number,
+      number,
+    ];
     const months: string[] = [];
-    const now = new Date();
     for (let back = 5; back >= 0; back -= 1) {
-      const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
-      months.push(date.toISOString().slice(0, 7));
+      months.push(new Date(Date.UTC(year, month - 1 - back, 1)).toISOString().slice(0, 7));
     }
     const k = kpiRow ?? {
       openCount: 0,

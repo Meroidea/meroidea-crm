@@ -19,6 +19,7 @@ export const metadata: Metadata = { title: 'Tasks' };
 
 export default async function TasksPage({ searchParams }: PageProps<'/tasks'>) {
   const ctx = await requireTenantContext();
+  const canManageTasks = hasPermission(ctx, 'tasks.manage');
   requirePermission(ctx, 'tasks.view');
   const filters = taskListFiltersSchema.parse(await searchParams);
   const [tasks, counts, members] = await Promise.all([
@@ -92,7 +93,12 @@ export default async function TasksPage({ searchParams }: PageProps<'/tasks'>) {
               description="Add a follow-up above, or from any contact or opportunity."
             />
           ) : (
-            <TaskList tasks={tasks} timezone={ctx.tenant.timezone} showAssignee={seesOthers} />
+            <TaskList
+              canManage={canManageTasks}
+              tasks={tasks}
+              timezone={ctx.tenant.timezone}
+              showAssignee={seesOthers}
+            />
           )}
         </CardContent>
       </Card>

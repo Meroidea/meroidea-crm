@@ -101,6 +101,7 @@ function monthLabel(month: string) {
 
 export default async function DashboardPage() {
   const ctx = await requireTenantContext();
+  const canManageTasks = hasPermission(ctx, 'tasks.manage');
   const labels = ctx.tenant.labels;
   // The dashboard below is about sales. A business without those features gets a plain way in
   // to the areas it does have.
@@ -377,6 +378,7 @@ export default async function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <TaskList
+                  canManage={canManageTasks}
                   tasks={dueNow.slice(0, 6)}
                   timezone={ctx.tenant.timezone}
                   emptyText="You're all caught up for today."

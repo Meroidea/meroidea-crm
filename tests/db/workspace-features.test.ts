@@ -12,7 +12,8 @@ import { listPartners } from '@/modules/partners/queries';
 import { partnerFieldsSchema } from '@/modules/partners/schemas';
 import { createPartner } from '@/modules/partners/service';
 import { getPipelineConfig } from '@/modules/pipelines/queries';
-import { getDashboard, getReports } from '@/modules/reports/queries';
+import { getDashboard, getReports, listQuietDeals } from '@/modules/reports/queries';
+import { zonedToday } from '@/lib/dates';
 import { getSettingsLists } from '@/modules/settings/queries';
 import { changeMemberRole, toggleStage } from '@/modules/settings/service';
 import { countTasks, getMyDay } from '@/modules/tasks/queries';
@@ -71,6 +72,17 @@ describe('dashboard and reports', () => {
     expect(dashboard?.kpis.wonThisMonthValue).toBe('5000.00');
     expect(dashboard?.kpis.winRate).toBe(100);
     expect(dashboard?.trend).toHaveLength(6);
+    // The last bar is the business's own current month, whatever the month is in UTC.
+    expect(dashboard?.trend.at(-1)?.month).toBe(zonedToday(owner.tenant.timezone).slice(0, 7));
+  });
+
+  it('lists deals going quiet for anyone who sees deals, and refuses everyone else', async () => {
+    await expect(listQuietDeals(owner)).resolves.toEqual(expect.any(Array));
+    const noDeals = {
+      ...member,
+      grants: new Map([...member.grants].filter(([key]) => key !== 'opportunities.view')),
+    };
+    await expect(listQuietDeals(noDeals)).rejects.toThrow();
   });
 
   it("keeps a consultant's dashboard to their own records", async () => {

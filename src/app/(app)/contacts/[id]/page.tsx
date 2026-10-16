@@ -68,6 +68,7 @@ function Detail({
 
 export default async function ContactPage({ params }: PageProps<'/contacts/[id]'>) {
   const ctx = await requireTenantContext();
+  const canManageTasks = hasPermission(ctx, 'tasks.manage');
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
@@ -424,6 +425,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
                   <TaskQuickAdd contactId={contact.id} currentUserId={ctx.userId} />
                 )}
                 <TaskList
+                  canManage={canManageTasks}
                   tasks={tasks}
                   timezone={ctx.tenant.timezone}
                   showRecord={false}

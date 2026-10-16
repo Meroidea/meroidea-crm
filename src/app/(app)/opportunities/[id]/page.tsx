@@ -277,6 +277,7 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
                 />
               )}
               <TaskList
+                canManage={canManageTasks}
                 tasks={tasks}
                 timezone={ctx.tenant.timezone}
                 showRecord={false}
