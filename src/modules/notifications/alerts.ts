@@ -1,7 +1,8 @@
 import 'server-only';
 
-import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 import { notifications, tenants, users } from '@/db/schema';
 import { adminDb } from '@/server/db/admin';
 import { consumeRateLimit } from '@/server/rate-limit';
@@ -50,11 +51,13 @@ export async function sendPendingAlertEmails(tenantId?: string): Promise<number>
               tenantId ? eq(notifications.tenantId, tenantId) : undefined,
             ),
           )
+          .orderBy(asc(notifications.createdAt))
           .limit(EMAIL_BATCH)
           .for('update', { skipLocked: true }),
       ),
     )
     .returning({
+      id: notifications.id,
       tenantId: notifications.tenantId,
       userId: notifications.userId,
       type: notifications.type,
@@ -72,13 +75,30 @@ export async function sendPendingAlertEmails(tenantId?: string): Promise<number>
       .from(tenants)
       .where(inArray(tenants.id, [...new Set(claimed.map((row) => row.tenantId))])),
   ]);
+  // Claimed first so two runs never both send; one that then fails to send is released, so a
+  // later run (within the 48 hours) tries it again instead of it being lost.
+  const failedIds: string[] = [];
   for (const business of businesses) {
     const pending = claimed
       .filter((row) => row.tenantId === business.id)
-      .map((row) => ({ userId: row.userId, type: row.type, url: row.url ?? '/notifications' }));
-    await sendNoticeEmails(business.name, pending, people).catch(() => undefined);
+      .map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        type: row.type,
+        url: row.url ?? '/notifications',
+      }));
+    const { failed } = await sendNoticeEmails(business.name, pending, people).catch(() => ({
+      failed: pending,
+    }));
+    failedIds.push(...failed.flatMap((item) => (item.id ? [item.id] : [])));
   }
-  return claimed.length;
+  if (failedIds.length > 0) {
+    await db
+      .update(notifications)
+      .set({ emailedAt: null })
+      .where(inArray(notifications.id, failedIds));
+  }
+  return claimed.length - failedIds.length;
 }
 
 /** The scheduler's run: every business with the CRM switched on. */
@@ -92,7 +112,7 @@ export async function sweepAllTenants(): Promise<{
     .from(tenants)
     .where(
       and(
-        inArray(tenants.status, ['trialing', 'active', 'past_due']),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
         sql`'crm' = any(${tenants.features})`,
       ),
     );

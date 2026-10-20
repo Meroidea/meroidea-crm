@@ -5,6 +5,7 @@ import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm
 import { helpdeskForms, ticketMessages, tickets, users } from '@/db/schema';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
+import { listActiveMembers, listMemberIdsWithPermission } from '@/modules/members/queries';
 
 import type { Priority, Queue, TicketStatus } from './schemas';
 
@@ -73,6 +74,9 @@ const QUEUE_ORDER = [
   asc(tickets.lastActivityAt),
 ];
 
+/** The most a ticket list shows; the page says so when there are more. */
+export const TICKET_LIST_LIMIT = 200;
+
 export async function listTickets(
   ctx: TenantContext,
   options: { queue: Queue; q?: string | undefined },
@@ -90,7 +94,9 @@ export async function listTickets(
         and(
           eq(tickets.tenantId, ctx.tenantId),
           isNull(tickets.deletedAt),
-          queueFilter(ctx, options.queue),
+          // A search looks through every ticket, not just the queue it was typed in: someone
+          // looking up "#123" or a customer's name wants it wherever it now sits.
+          search ? undefined : queueFilter(ctx, options.queue),
           search
             ? or(
                 ilike(tickets.subject, search),
@@ -101,8 +107,14 @@ export async function listTickets(
             : undefined,
         ),
       )
-      .orderBy(...(options.queue === 'solved' ? [desc(tickets.lastActivityAt)] : QUEUE_ORDER))
-      .limit(200),
+      // Working queues put the most urgent and longest-waiting first; everything else (all,
+      // solved, a search) the most recent first, so the cap never hides today's tickets.
+      .orderBy(
+        ...(search || options.queue === 'solved' || options.queue === 'all'
+          ? [desc(tickets.lastActivityAt)]
+          : QUEUE_ORDER),
+      )
+      .limit(TICKET_LIST_LIMIT),
   );
   return rows as TicketRow[];
 }
@@ -161,4 +173,14 @@ export async function getHelpdeskForm(ctx: TenantContext) {
       .limit(1),
   );
   return form ?? null;
+}
+
+/** Who a ticket can be given to: the business's own people whose role can work tickets. */
+export async function helpdeskAssignees(ctx: TenantContext) {
+  requirePermission(ctx, 'tickets.work');
+  const [members, workers] = await Promise.all([
+    listActiveMembers(ctx),
+    listMemberIdsWithPermission(ctx, 'tickets.work'),
+  ]);
+  return members.filter((member) => workers.includes(member.userId));
 }

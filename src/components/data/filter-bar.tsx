@@ -71,7 +71,8 @@ export function FilterBar({
           onChange={(event) => setQuery(event.target.value)}
           placeholder={searchLabel}
           aria-label={searchLabel}
-          className="pl-9"
+          // A long hint ends in "…" on a phone instead of being cut off mid-word.
+          className="pl-9 text-ellipsis"
         />
       </div>
       <div className="flex flex-wrap gap-2">

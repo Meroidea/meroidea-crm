@@ -28,6 +28,8 @@ import { formatMoney } from '@/lib/format';
 import { Timeline } from '@/modules/activities/components/timeline';
 import { getRecentActivity } from '@/modules/activities/queries';
 import { getMyName, getWorkspaceCounts } from '@/modules/members/queries';
+import { FeatureNotice } from '@/modules/notifications/components/feature-notice';
+import { listUnreadFeatureNotices } from '@/modules/notifications/queries';
 import { BarList, Ring, TrendChart } from '@/modules/reports/components/charts';
 import { getDashboard } from '@/modules/reports/queries';
 import { TaskList } from '@/modules/tasks/components/task-list';
@@ -99,13 +101,19 @@ function monthLabel(month: string) {
 
 export default async function DashboardPage() {
   const ctx = await requireTenantContext();
+  const canManageTasks = hasPermission(ctx, 'tasks.manage');
   const labels = ctx.tenant.labels;
   // The dashboard below is about sales. A business without those features gets a plain way in
   // to the areas it does have.
   if (!hasFeature(ctx, 'crm')) {
-    const firstName = (await getMyName(ctx)).split(' ')[0];
+    const [name, featureNotices] = await Promise.all([
+      getMyName(ctx),
+      listUnreadFeatureNotices(ctx),
+    ]);
+    const firstName = name.split(' ')[0];
     return (
       <WorkspaceHome
+        notice={<FeatureNotice notices={featureNotices} />}
         greeting={`${greeting(ctx.tenant.timezone)}, ${firstName}`}
         businessName={ctx.tenant.name}
         labels={labels}
@@ -114,12 +122,13 @@ export default async function DashboardPage() {
       />
     );
   }
-  const [name, dashboard, day, activity, counts] = await Promise.all([
+  const [name, dashboard, day, activity, counts, featureNotices] = await Promise.all([
     getMyName(ctx),
     getDashboard(ctx),
     hasPermission(ctx, 'tasks.view') ? getMyDay(ctx) : Promise.resolve(null),
     getRecentActivity(ctx, 8),
     getWorkspaceCounts(ctx),
+    listUnreadFeatureNotices(ctx),
   ]);
   const firstName = name.split(' ')[0];
   const currency = ctx.tenant.currency;
@@ -151,7 +160,7 @@ export default async function DashboardPage() {
   const setupLeft = setup.filter((step) => !step.done).length;
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
+    <div className="flex w-full max-w-7xl flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -180,6 +189,8 @@ export default async function DashboardPage() {
           )}
         </div>
       </header>
+
+      <FeatureNotice notices={featureNotices} />
 
       {setupLeft > 0 && (
         <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-accent to-card">
@@ -367,6 +378,7 @@ export default async function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <TaskList
+                  canManage={canManageTasks}
                   tasks={dueNow.slice(0, 6)}
                   timezone={ctx.tenant.timezone}
                   emptyText="You're all caught up for today."

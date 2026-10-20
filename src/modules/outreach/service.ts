@@ -23,6 +23,7 @@ import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 import { sendEmail } from '@/server/email';
+import { enforceRateLimit } from '@/server/rate-limit';
 
 /** Emails one person may send from the CRM in a day: generous for real work, a brake on misuse. */
 export const DAILY_EMAIL_LIMIT = 200;
@@ -128,6 +129,18 @@ export async function sendContactEmail(
       .limit(1);
     return { contact, me };
   });
+
+  // The count above misses sends still in flight, so many at once could all pass it. This
+  // counter is taken atomically before sending, and holds the line however many arrive together.
+  await enforceRateLimit(
+    {
+      bucket: `crm-email:${ctx.tenantId}`,
+      subject: ctx.userId,
+      limit: DAILY_EMAIL_LIMIT,
+      windowSeconds: 24 * 60 * 60,
+    },
+    `You can send up to ${DAILY_EMAIL_LIMIT} emails a day from here.`,
+  );
 
   const values = {
     firstName: prepared.contact.firstName,

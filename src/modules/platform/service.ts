@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomBytes } from 'node:crypto';
 
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 
 import {
   auditLogs,
@@ -11,10 +11,13 @@ import {
   tenantAgreements,
   tenantMemberships,
   tenants,
+  users,
 } from '@/db/schema';
+import { isTenantOpen } from '@/lib/tenant/status';
 import { diffChanges } from '@/lib/audit-diff';
 import { AppError } from '@/lib/errors';
-import { isFeatureKey, type FeatureKey } from '@/lib/features';
+import { FEATURES, isFeatureKey, type FeatureKey } from '@/lib/features';
+import { notify } from '@/modules/notifications/service';
 import { provisionTenant } from '@/modules/tenants/provision';
 import { createLinkToken } from '@/server/crypto';
 import { adminDb } from '@/server/db/admin';
@@ -117,12 +120,16 @@ const AGREEMENT_LINK_DAYS = 14;
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
-export type AgreementLinkDelivery = {
-  /** True when the link was emailed to the business's admin. */
-  emailed: boolean;
-  /** Returned only to the platform owner, to pass on when email is not set up. Never stored. */
-  link: string;
-};
+/**
+ * What happened to the agreement link. The link comes back to the platform owner only when it
+ * could not be emailed, to pass on by hand. Once it is in the admin's inbox, the platform owner
+ * holding it too could accept the agreement as the admin and get their password link (ADR-047).
+ * Never stored.
+ */
+export type AgreementLinkDelivery = { emailed: true } | { emailed: false; link: string };
+
+const agreementDelivery = (emailed: boolean, link: string): AgreementLinkDelivery =>
+  emailed ? { emailed: true } : { emailed: false, link };
 
 async function latestAgreement() {
   const [agreement] = await adminDb()
@@ -254,7 +261,7 @@ export async function createBusiness(
     businessName: input.companyName,
     link: url,
   });
-  return { tenantId, adminEmail, emailed, link: url };
+  return { tenantId, adminEmail, ...agreementDelivery(emailed, url) };
 }
 
 function agreementUrl(token: string): string {
@@ -312,7 +319,7 @@ export async function resendAgreementLink(
     businessName: sent.businessName,
     link: url,
   });
-  return { emailed, link: url };
+  return agreementDelivery(emailed, url);
 }
 
 export type BusinessAgreement = {
@@ -446,21 +453,116 @@ export async function publishAgreement(
   return published;
 }
 
+const ROLE_ACCESS_URL = '/settings?tab=roles';
+
+/**
+ * The switched-on features' names, joined with commas only: several labels already contain "and"
+ * ("Payroll and payslips"), so "A, B and C" would read as more features than there are.
+ */
+function featureWords(labels: string[]) {
+  return { names: labels.join(', '), them: labels.length > 1 ? 'them' : 'it' };
+}
+
+async function emailFeaturesSwitchedOn(input: {
+  businessName: string;
+  labels: string[];
+  recipients: { email: string; fullName: string }[];
+}): Promise<boolean> {
+  const { names, them } = featureWords(input.labels);
+  const link = new URL(ROLE_ACCESS_URL, serverEnv().APP_URL).toString();
+  const access = `People in the built-in roles can use ${them} straight away, with their usual access. Roles you created yourself need access given in Settings → Roles.`;
+  const results = await Promise.all(
+    input.recipients.map(async ({ email, fullName }) => {
+      const intro = `Hi ${fullName}, Meroidea has switched on more for ${input.businessName}: ${names}.`;
+      return sendEmail({
+        to: email,
+        subject: `New in Meroidea for ${input.businessName}: ${names}`,
+        text: [intro, access, `Review who can use ${them}: ${link}`].join('\n\n'),
+        html: `<p>${escapeHtml(intro)}</p><p>${escapeHtml(access)}</p><p><a href="${escapeHtml(link)}">Review who can use ${them}</a></p>`,
+      });
+    }),
+  );
+  return results.every((result) => result.sent);
+}
+
+/**
+ * Switches a business's features on and off. Its Admins are told about any switched on, in the
+ * workspace and by email: a new menu item alone is easy to miss, and roles they made themselves
+ * only get the new permissions when they grant them. Switching off is not announced.
+ */
 export async function setBusinessFeatures(
   admin: PlatformAdmin,
   input: { tenantId: string; features: FeatureKey[] },
-): Promise<{ id: string }> {
-  const [updated] = await adminDb()
-    .update(tenants)
-    .set({ features: input.features })
-    .where(eq(tenants.id, input.tenantId))
-    .returning({ id: tenants.id });
-  if (!updated) throw new AppError('NOT_FOUND', 'That business was not found.');
-  await record(input.tenantId, admin, {
-    action: 'update',
-    context: { features: input.features },
+): Promise<{ id: string; notified: number; emailed: boolean }> {
+  const outcome = await adminDb().transaction(async (tx) => {
+    const [before] = await tx
+      .select({ name: tenants.name, status: tenants.status, features: tenants.features })
+      .from(tenants)
+      .where(eq(tenants.id, input.tenantId))
+      .for('update')
+      .limit(1);
+    if (!before) throw new AppError('NOT_FOUND', 'That business was not found.');
+    const previous = before.features.filter(isFeatureKey);
+    const added = input.features.filter((key) => !previous.includes(key));
+    const removed = previous.filter((key) => !input.features.includes(key));
+    if (added.length === 0 && removed.length === 0) return null;
+
+    await tx
+      .update(tenants)
+      .set({ features: input.features })
+      .where(eq(tenants.id, input.tenantId));
+    await tx.insert(auditLogs).values({
+      tenantId: input.tenantId,
+      actorUserId: admin.userId,
+      actorType: 'platform',
+      action: 'update',
+      entityType: 'tenant',
+      entityId: input.tenantId,
+      changes: diffChanges({ features: previous }, { features: input.features }),
+      context: { featuresAdded: added, featuresRemoved: removed },
+    });
+    if (added.length === 0 || !isTenantOpen(before.status)) return null;
+
+    const admins = await tx
+      .select({ userId: tenantMemberships.userId, email: users.email, fullName: users.fullName })
+      .from(tenantMemberships)
+      .innerJoin(roles, eq(roles.id, tenantMemberships.roleId))
+      .innerJoin(users, eq(users.id, tenantMemberships.userId))
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, input.tenantId),
+          eq(tenantMemberships.status, 'active'),
+          eq(tenantMemberships.isSupport, false),
+          eq(roles.key, 'owner'),
+          // The platform owner running their own business is not told about their own change.
+          ne(tenantMemberships.userId, admin.userId),
+        ),
+      );
+    const labels = FEATURES.filter((feature) => added.includes(feature.key)).map(
+      (feature) => feature.label,
+    );
+    const { names, them } = featureWords(labels);
+    await notify(
+      tx,
+      { tenantId: input.tenantId, userId: admin.userId },
+      admins.map(({ userId }) => ({
+        userId,
+        type: 'features_enabled',
+        title: `Now switched on: ${names}`,
+        body: `Built-in roles can use ${them} straight away. Give roles you created yourself access in Settings → Roles.`,
+        url: ROLE_ACCESS_URL,
+      })),
+    );
+    return { businessName: before.name, labels, recipients: admins };
   });
-  return updated;
+
+  // Sent once the change is committed. Best effort: a failed email never undoes it, but the
+  // console is told, so the platform owner can let the Admins know another way.
+  const emailed =
+    outcome && outcome.recipients.length > 0
+      ? await emailFeaturesSwitchedOn(outcome).catch(() => false)
+      : false;
+  return { id: input.tenantId, notified: outcome?.recipients.length ?? 0, emailed };
 }
 
 /**
@@ -536,44 +638,67 @@ export async function startSupportAccess(admin: PlatformAdmin, tenantId: string)
     .limit(1);
   if (!owner) throw new AppError('NOT_FOUND', 'That business was not found.');
 
-  const [existing] = await db
-    .select({ id: tenantMemberships.id })
-    .from(tenantMemberships)
-    .where(
-      and(eq(tenantMemberships.tenantId, tenantId), eq(tenantMemberships.userId, admin.userId)),
-    )
-    .limit(1);
-  // Already a member in their own right (their own business): nothing to add.
-  if (existing) return;
+  await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: tenantMemberships.id, isSupport: tenantMemberships.isSupport })
+      .from(tenantMemberships)
+      .where(
+        and(eq(tenantMemberships.tenantId, tenantId), eq(tenantMemberships.userId, admin.userId)),
+      )
+      .for('update')
+      .limit(1);
+    // Already a member in their own right (their own business): nothing to add.
+    if (existing && !existing.isSupport) return;
 
-  await db.insert(tenantMemberships).values({
-    tenantId,
-    userId: admin.userId,
-    roleId: owner.id,
-    status: 'active',
-    isSupport: true,
-  });
-  await record(tenantId, admin, {
-    action: 'permission_change',
-    context: { supportAccess: 'started' },
+    if (existing) {
+      // A seat from an earlier visit, switched off when they left: switched back on.
+      await tx
+        .update(tenantMemberships)
+        .set({ status: 'active', roleId: owner.id })
+        .where(eq(tenantMemberships.id, existing.id));
+    } else {
+      await tx.insert(tenantMemberships).values({
+        tenantId,
+        userId: admin.userId,
+        roleId: owner.id,
+        status: 'active',
+        isSupport: true,
+      });
+    }
+    await tx.insert(auditLogs).values(supportAudit(tenantId, admin, 'started'));
   });
 }
 
+const supportAudit = (tenantId: string, admin: PlatformAdmin, step: 'started' | 'ended') => ({
+  tenantId,
+  actorUserId: admin.userId,
+  actorType: 'platform' as const,
+  action: 'permission_change' as const,
+  entityType: 'tenant',
+  entityId: tenantId,
+  context: { supportAccess: step },
+});
+
+/**
+ * Leaving switches the support seat off rather than deleting it. Anything the platform owner
+ * created or was given while inside still points at the seat, so a delete would fail and leave
+ * them with full access nobody in the business could remove; a switched-off seat grants nothing,
+ * since access needs an active membership (loadTenantContext and app.tenant_ids()).
+ */
 export async function endSupportAccess(admin: PlatformAdmin, tenantId: string): Promise<void> {
-  const removed = await adminDb()
-    .delete(tenantMemberships)
-    .where(
-      and(
-        eq(tenantMemberships.tenantId, tenantId),
-        eq(tenantMemberships.userId, admin.userId),
-        eq(tenantMemberships.isSupport, true),
-      ),
-    )
-    .returning({ id: tenantMemberships.id });
-  if (removed.length > 0) {
-    await record(tenantId, admin, {
-      action: 'permission_change',
-      context: { supportAccess: 'ended' },
-    });
-  }
+  await adminDb().transaction(async (tx) => {
+    const ended = await tx
+      .update(tenantMemberships)
+      .set({ status: 'deactivated' })
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, tenantId),
+          eq(tenantMemberships.userId, admin.userId),
+          eq(tenantMemberships.isSupport, true),
+          eq(tenantMemberships.status, 'active'),
+        ),
+      )
+      .returning({ id: tenantMemberships.id });
+    if (ended.length > 0) await tx.insert(auditLogs).values(supportAudit(tenantId, admin, 'ended'));
+  });
 }

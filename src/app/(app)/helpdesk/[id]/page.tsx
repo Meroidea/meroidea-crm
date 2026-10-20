@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { CopyField, ReplyBox, TicketControls } from '@/modules/helpdesk/components/helpdesk-tools';
 import { getTicket } from '@/modules/helpdesk/queries';
 import { PRIORITY_LABELS, RESPONSE_HOURS, STATUS_LABELS } from '@/modules/helpdesk/schemas';
-import { listActiveMembers } from '@/modules/members/queries';
+import { helpdeskAssignees } from '@/modules/helpdesk/queries';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 import { serverEnv } from '@/server/env';
 
@@ -22,13 +22,13 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
   const parsed = z.object({ id: z.uuid() }).safeParse(await params);
   const ticket = parsed.success ? await getTicket(ctx, parsed.data.id) : null;
   if (!ticket) notFound();
-  const people = await listActiveMembers(ctx);
+  const people = await helpdeskAssignees(ctx);
   const customerLink = `${serverEnv().APP_URL}/support/ticket/${ticket.publicToken}`;
   const active = ['open', 'pending', 'on_hold'].includes(ticket.status);
   const overdue = active && !ticket.firstResponseAt && ticket.responseDueAt < new Date();
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <Link
         href="/helpdesk"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -80,11 +80,7 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
               );
             })}
           </ol>
-          <ReplyBox
-            ticketId={ticket.id}
-            hasEmail={Boolean(ticket.requesterEmail)}
-            customerLink={customerLink}
-          />
+          <ReplyBox ticketId={ticket.id} customerLink={customerLink} />
         </div>
 
         <aside className="flex flex-col gap-4">

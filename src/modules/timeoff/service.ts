@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq, gte, inArray, lte, ne } from 'drizzle-orm';
 
 import { leaveRequests, leaveTypes, tenantMemberships } from '@/db/schema';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { AppError } from '@/lib/errors';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
@@ -118,6 +119,9 @@ export async function decideLeave(
     const request = await findRequest(tx, ctx, input.id);
     if (request.status !== 'pending') {
       throw new AppError('CONFLICT', 'That request has already been dealt with.');
+    }
+    if (input.decision === 'approved' && !maySignOffFor(ctx, request.userId)) {
+      throw new AppError('CONFLICT', 'Someone else has to approve your own leave.');
     }
     await tx
       .update(leaveRequests)

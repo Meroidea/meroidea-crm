@@ -20,6 +20,7 @@ import {
   createHireSchema,
   payrollDetailsSchema,
 } from '@/modules/hiring/schemas';
+import { removePendingHire } from '@/modules/hiring/staff-service';
 import {
   createHire,
   refreshAwardRates,
@@ -31,7 +32,13 @@ import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 
-import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
+import {
+  addMember,
+  contextFor,
+  createWorkspace,
+  destroyWorkspace,
+  handedOver,
+} from '../support/workspaces';
 
 const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
@@ -186,7 +193,7 @@ describe('sending and accepting a contract', () => {
 
   it('freezes the wording and issues a link when sent; no email provider means it is not emailed', async () => {
     const sent = await sendContract(owner, contractId);
-    token = tokenOf(sent.link);
+    token = tokenOf(handedOver(sent));
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(sent.emailed).toBe(false);
 
@@ -335,7 +342,7 @@ describe('sending and accepting a contract', () => {
 describe('declining and withdrawing', () => {
   it('records a decline and leaves the person pending', async () => {
     const created = await createHire(owner, hire({ email: mail('decline') }));
-    const token = tokenOf((await sendContract(owner, created.contractId)).link);
+    const token = tokenOf(handedOver(await sendContract(owner, created.contractId)));
     await declineOffer(token, META);
     const detail = await getEmployee(owner, created.employeeId);
     expect(detail?.status).toBe('pending');
@@ -344,14 +351,68 @@ describe('declining and withdrawing', () => {
 
   it('kills the link when the owner withdraws, and a re-send replaces the old link', async () => {
     const created = await createHire(owner, hire({ email: mail('withdraw') }));
-    const first = tokenOf((await sendContract(owner, created.contractId)).link);
-    const second = tokenOf((await sendContract(owner, created.contractId)).link);
+    const first = tokenOf(handedOver(await sendContract(owner, created.contractId)));
+    const second = tokenOf(handedOver(await sendContract(owner, created.contractId)));
     expect(await getOfferByToken(first)).toBeNull();
     expect(await getOfferByToken(second)).not.toBeNull();
 
     await withdrawContract(owner, created.contractId);
     expect(await getOfferByToken(second)).toBeNull();
     await expectCode(() => withdrawContract(member, created.contractId), 'FORBIDDEN');
+  });
+
+  it('lets a hire who never started be removed, once no offer is out', async () => {
+    const created = await createHire(owner, hire({ email: mail('never-started') }));
+    const token = tokenOf(handedOver(await sendContract(owner, created.contractId)));
+    await expectCode(() => removePendingHire(owner, created.employeeId), 'CONFLICT');
+    await declineOffer(token, META);
+    await expectCode(() => removePendingHire(manager, created.employeeId), 'FORBIDDEN');
+    await expectCode(() => removePendingHire(outsider, created.employeeId), 'NOT_FOUND');
+    await removePendingHire(owner, created.employeeId);
+    expect(await getEmployee(owner, created.employeeId)).toBeNull();
+    const all = await listStaff(owner, { view: 'all' });
+    expect(all.rows.map((row) => row.id)).not.toContain(created.employeeId);
+
+    // Someone who did start is never removed this way: their employment is ended instead.
+    const started = (await listEmployees(owner)).find((row) => row.status === 'active');
+    if (started) await expectCode(() => removePendingHire(owner, started.id), 'CONFLICT');
+  });
+
+  it('takes no acceptance while the business is suspended or its staff feature is off', async () => {
+    const created = await createHire(owner, hire({ email: mail('closed') }));
+    const token = tokenOf(handedOver(await sendContract(owner, created.contractId)));
+    const accept = () =>
+      acceptOffer(
+        acceptOfferSchema.parse({
+          token,
+          fullName: 'Sam Starter',
+          readContract: true,
+          readStatements: true,
+        }),
+        META,
+      );
+    try {
+      await adminDb().execute(
+        sql`update tenants set status = 'suspended' where id = ${alphaTenant}`,
+      );
+      expect(await getOfferByToken(token)).toBeNull();
+      await expectCode(accept, 'NOT_FOUND');
+
+      await adminDb().execute(sql`update tenants set status = 'active' where id = ${alphaTenant}`);
+      await adminDb().execute(
+        sql`update tenants set features = array_remove(features, 'staff') where id = ${alphaTenant}`,
+      );
+      expect(await getOfferByToken(token)).toBeNull();
+      await expectCode(accept, 'NOT_FOUND');
+    } finally {
+      await adminDb().execute(sql`update tenants set status = 'active' where id = ${alphaTenant}`);
+      await adminDb().execute(
+        sql`update tenants set features = array_append(array_remove(features, 'staff'), 'staff')
+            where id = ${alphaTenant}`,
+      );
+    }
+    // Open again, the same link still works.
+    expect(await getOfferByToken(token)).not.toBeNull();
   });
 });
 

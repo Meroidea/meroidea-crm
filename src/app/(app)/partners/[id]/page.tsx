@@ -27,7 +27,7 @@ export default async function PartnerPage({ params }: PageProps<'/partners/[id]'
   const rate = partner.referred > 0 ? Math.round((partner.won / partner.referred) * 100) : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <Link
         href="/partners"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

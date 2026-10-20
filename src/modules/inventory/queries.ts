@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
 
 import { inventoryCategories, inventoryItems, inventoryMovements, users } from '@/db/schema';
 import { likePattern } from '@/lib/cursor';
@@ -50,10 +51,39 @@ const categoryJoin = and(
   eq(inventoryCategories.id, inventoryItems.categoryId),
 );
 
+export const INVENTORY_PAGE_SIZE = 100;
+
+const cursorSchema = z.object({ u: z.boolean(), c: z.string(), n: z.string(), id: z.uuid() });
+type ItemCursor = z.infer<typeof cursorSchema>;
+
+const encodeItemCursor = (row: InventoryItemRow) =>
+  Buffer.from(
+    JSON.stringify({
+      u: row.categoryName === null,
+      c: row.categoryName ?? '',
+      n: row.name,
+      id: row.id,
+    } satisfies ItemCursor),
+  ).toString('base64url');
+
+function decodeItemCursor(raw: string | undefined): ItemCursor | null {
+  if (!raw) return null;
+  try {
+    const parsed = cursorSchema.safeParse(JSON.parse(Buffer.from(raw, 'base64url').toString()));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Items by category, then name, a page at a time: a shop with thousands of lines is never
+ * loaded whole onto a phone. Uncategorised items come last.
+ */
 export async function listItems(
   ctx: TenantContext,
   filters: InventoryFilters,
-): Promise<InventoryItemRow[]> {
+): Promise<{ items: InventoryItemRow[]; nextCursor: string | null }> {
   requirePermission(ctx, 'inventory.view');
   const view = filters.view ?? 'all';
   const where: (SQL | undefined)[] = [live(ctx), eq(inventoryItems.isActive, view !== 'archived')];
@@ -64,15 +94,36 @@ export async function listItems(
   if (filters.category) where.push(eq(inventoryItems.categoryId, filters.category));
   if (view === 'low') where.push(sql`${level} = 'low'`);
   if (view === 'out') where.push(sql`${level} = 'out'`);
+  const uncategorised = sql`(${inventoryCategories.name} is null)`;
+  const categoryName = sql`coalesce(${inventoryCategories.name}, '')`;
+  const cursor = decodeItemCursor(filters.cursor);
+  if (cursor) {
+    where.push(
+      sql`(${uncategorised}, ${categoryName}, ${inventoryItems.name}, ${inventoryItems.id})
+        > (${cursor.u}, ${cursor.c}, ${cursor.n}, ${cursor.id}::uuid)`,
+    );
+  }
 
-  return withRls(ctx, (tx) =>
+  const rows = await withRls(ctx, (tx) =>
     tx
       .select(columns)
       .from(inventoryItems)
       .leftJoin(inventoryCategories, categoryJoin)
       .where(and(...where))
-      .orderBy(asc(inventoryCategories.name), asc(inventoryItems.name)),
+      .orderBy(
+        asc(uncategorised),
+        asc(categoryName),
+        asc(inventoryItems.name),
+        asc(inventoryItems.id),
+      )
+      .limit(INVENTORY_PAGE_SIZE + 1),
   );
+  const items = rows.slice(0, INVENTORY_PAGE_SIZE);
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor: rows.length > INVENTORY_PAGE_SIZE && last ? encodeItemCursor(last) : null,
+  };
 }
 
 export async function getInventorySummary(ctx: TenantContext): Promise<InventorySummary> {

@@ -38,7 +38,7 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
   const stamp = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
+    <div className="flex w-full max-w-7xl flex-col gap-5">
       <PageHeader
         title="Reports"
         description={`Who is following up, where things stall, what's coming. ${scope === 'own' ? 'Showing your own records.' : scope === 'team' ? "Showing your team's records." : 'Showing the whole workspace.'}`}

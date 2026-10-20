@@ -189,6 +189,18 @@ describe('customer reviews', () => {
       sql`update tenants set features = array_append(features, 'reviews') where id = ${alphaTenant}`,
     );
   });
+
+  it('a business that is not open, such as a cancelled one, takes no reviews', async () => {
+    for (const status of ['cancelled', 'awaiting_agreement', 'suspended']) {
+      await adminDb().execute(
+        sql`update tenants set status = ${status}::tenant_status where id = ${alphaTenant}`,
+      );
+      expect(await getPublicReviewLink(token)).toBeNull();
+      expect(await code(submitReview(token, review(4), SENDER))).toBe('NOT_FOUND');
+    }
+    await adminDb().execute(sql`update tenants set status = 'trialing' where id = ${alphaTenant}`);
+    expect(await getPublicReviewLink(token)).not.toBeNull();
+  });
 });
 
 describe('helpdesk', () => {
@@ -256,7 +268,7 @@ describe('helpdesk', () => {
       member,
       replySchema.parse({ ticketId, body: 'Sorry! Replacing it now.' }),
     );
-    expect(result.emailed).toBe(false);
+    expect(result.email).toBe('not_configured');
     const saved = await getTicket(owner, ticketId);
     expect(saved).toMatchObject({ status: 'pending', assigneeUserId: member.userId });
     expect(saved?.firstResponseAt).not.toBeNull();
@@ -327,6 +339,40 @@ describe('helpdesk', () => {
     expect((await getTicket(owner, ticketId))?.assigneeUserId).toBeNull();
   });
 
+  it('a ticket goes only to someone whose role can work the helpdesk', async () => {
+    const viewerId = await addMember(alphaTenant, mail('voice-viewer'), 'Val Viewer', 'member');
+    alphaUsers.push(viewerId);
+    // A role of the business's own that has no helpdesk access at all.
+    await adminDb().execute(sql`
+      insert into roles (tenant_id, key, name) values (${alphaTenant}, 'viewer', 'Viewer')`);
+    await adminDb().execute(sql`
+      update tenant_memberships set role_id =
+        (select id from roles where tenant_id = ${alphaTenant} and key = 'viewer')
+      where tenant_id = ${alphaTenant} and user_id = ${viewerId}`);
+    expect(await code(updateTicket(owner, { id: ticketId, assigneeUserId: viewerId }))).toBe(
+      'VALIDATION',
+    );
+    // Someone who works tickets can still be given one.
+    await updateTicket(owner, { id: ticketId, assigneeUserId: member.userId });
+    await updateTicket(owner, { id: ticketId, assigneeUserId: null });
+  });
+
+  it('records who a ticket moved from and to', async () => {
+    await updateTicket(owner, { id: ticketId, assigneeUserId: member.userId });
+    const [moved] = (await adminDb().execute(sql`
+      select action, changes from audit_logs
+      where tenant_id = ${alphaTenant} and entity_type = 'ticket' and entity_id = ${ticketId}
+      order by created_at desc limit 1`)) as unknown as {
+      action: string;
+      changes: Record<string, unknown>;
+    }[];
+    expect(moved).toEqual({
+      action: 'owner_change',
+      changes: { assigneeUserId: [null, member.userId] },
+    });
+    await updateTicket(owner, { id: ticketId, assigneeUserId: null });
+  });
+
   it('the public form is off until a manager switches it on', async () => {
     expect(await getHelpdeskForm(owner)).toBeNull();
     expect(await code(setFormOpen(member, true))).toBe('FORBIDDEN');
@@ -374,6 +420,36 @@ describe('helpdesk', () => {
     await setFormOpen(owner, false);
     expect(await getPublicForm(formToken)).toBeNull();
     expect(await code(submitPublicTicket(formToken, input, SENDER))).toBe('NOT_FOUND');
+  });
+
+  it('a customer’s ticket page closes with the helpdesk feature or the business', async () => {
+    // The form was closed above; reopen it for one more ticket.
+    await setFormOpen(owner, true);
+    const created = await submitPublicTicket(
+      formToken,
+      publicTicketSchema.parse({
+        requesterName: 'Ola Open',
+        requesterEmail: mail('ola'),
+        subject: 'Opening hours',
+        description: 'Are you open on public holidays?',
+      }),
+      '192.0.2.11',
+    );
+    await setFormOpen(owner, false);
+
+    await adminDb().execute(
+      sql`update tenants set features = array_remove(features, 'helpdesk') where id = ${alphaTenant}`,
+    );
+    expect(await getPublicTicket(created.ticketToken)).toBeNull();
+    expect(await code(replyAsCustomer(created.ticketToken, 'Hello?'))).toBe('NOT_FOUND');
+    await adminDb().execute(
+      sql`update tenants set features = array_append(features, 'helpdesk') where id = ${alphaTenant}`,
+    );
+
+    await adminDb().execute(sql`update tenants set status = 'cancelled' where id = ${alphaTenant}`);
+    expect(await getPublicTicket(created.ticketToken)).toBeNull();
+    await adminDb().execute(sql`update tenants set status = 'trialing' where id = ${alphaTenant}`);
+    expect(await getPublicTicket(created.ticketToken)).not.toBeNull();
   });
 
   it('only a manager deletes a ticket', async () => {

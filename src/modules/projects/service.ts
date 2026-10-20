@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { projects, projectTasks, taskTimeLogs, tenantMemberships } from '@/db/schema';
-import { zonedDateTimeToInstant, zonedToday } from '@/lib/dates';
+import { addDaysToDate, zonedDateTimeToInstant, zonedToday } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
@@ -210,6 +210,9 @@ function assertMayLogOn(ctx: TenantContext, task: { assigneeUserId: string | nul
   }
 }
 
+/** How many days back staff may log time; older corrections are a manager's. */
+const BACKDATE_DAYS = 31;
+
 async function stopRunning(tx: Tx, ctx: TenantContext): Promise<string | null> {
   const [running] = await tx
     .select({ id: taskTimeLogs.id, startedAt: taskTimeLogs.startedAt })
@@ -225,10 +228,17 @@ async function stopRunning(tx: Tx, ctx: TenantContext): Promise<string | null> {
   if (!running) return null;
   const now = new Date();
   const elapsed = Math.round((now.getTime() - running.startedAt.getTime()) / 60_000);
+  const minutes = Math.min(MAX_LOG_MINUTES, Math.max(1, elapsed));
   await tx
     .update(taskTimeLogs)
-    .set({ endedAt: now, minutes: Math.min(MAX_LOG_MINUTES, Math.max(1, elapsed)) })
+    .set({ endedAt: now, minutes })
     .where(and(eq(taskTimeLogs.tenantId, ctx.tenantId), eq(taskTimeLogs.id, running.id)));
+  await audit(tx, ctx, {
+    action: 'update',
+    entityType: 'task_time_log',
+    entityId: running.id,
+    changes: { minutes: [null, minutes] },
+  });
   return running.id;
 }
 
@@ -249,6 +259,12 @@ export async function startTimer(ctx: TenantContext, taskId: string): Promise<{ 
       })
       .returning({ id: taskTimeLogs.id });
     if (!created) throw new AppError('INTERNAL', 'The timer could not be started.');
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'task_time_log',
+      entityId: created.id,
+      context: { taskId: task.id, timer: true },
+    });
     // Starting work on something that was waiting moves it along.
     if (task.status === 'todo') {
       await tx
@@ -278,6 +294,16 @@ export async function logTime(ctx: TenantContext, input: LogTimeInput): Promise<
       date: ['This is in the future'],
     });
   }
+  // Time feeds the productivity report, so how far back it can be added is limited for
+  // everyone but those who manage projects (who may correct older records).
+  if (
+    !hasPermission(ctx, 'projects.manage') &&
+    input.date < addDaysToDate(zonedToday(timezone), -BACKDATE_DAYS)
+  ) {
+    throw new AppError('VALIDATION', `Time can be logged for the last ${BACKDATE_DAYS} days.`, {
+      date: ['Ask a manager to add time this old'],
+    });
+  }
   const startedAt = zonedDateTimeToInstant(timezone, input.date, '09:00');
   return withRls(ctx, async (tx) => {
     const task = await findTask(tx, ctx, input.taskId);
@@ -295,6 +321,42 @@ export async function logTime(ctx: TenantContext, input: LogTimeInput): Promise<
       })
       .returning({ id: taskTimeLogs.id });
     if (!created) throw new AppError('INTERNAL', 'The time could not be saved.');
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'task_time_log',
+      entityId: created.id,
+      context: { taskId: task.id, date: input.date, minutes: input.hours },
+    });
     return created;
+  });
+}
+
+/** Removes time logged by mistake: by the person who logged it, or someone who manages projects. */
+export async function deleteTimeLog(ctx: TenantContext, id: string): Promise<{ id: string }> {
+  requirePermission(ctx, 'projects.view');
+  return withRls(ctx, async (tx) => {
+    const [removed] = await tx
+      .delete(taskTimeLogs)
+      .where(
+        and(
+          eq(taskTimeLogs.tenantId, ctx.tenantId),
+          eq(taskTimeLogs.id, id),
+          hasPermission(ctx, 'projects.manage') ? undefined : eq(taskTimeLogs.userId, ctx.userId),
+        ),
+      )
+      .returning({
+        id: taskTimeLogs.id,
+        taskId: taskTimeLogs.projectTaskId,
+        userId: taskTimeLogs.userId,
+        minutes: taskTimeLogs.minutes,
+      });
+    if (!removed) throw new AppError('NOT_FOUND', 'That time entry was not found.');
+    await audit(tx, ctx, {
+      action: 'delete',
+      entityType: 'task_time_log',
+      entityId: removed.id,
+      context: { taskId: removed.taskId, userId: removed.userId, minutes: removed.minutes },
+    });
+    return { id: removed.id };
   });
 }

@@ -30,7 +30,13 @@ import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 
-import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
+import {
+  addMember,
+  contextFor,
+  createWorkspace,
+  destroyWorkspace,
+  handedOver,
+} from '../support/workspaces';
 
 const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
@@ -120,6 +126,15 @@ describe('adding time by hand', () => {
     expect(rows.every((row) => row.status === 'pending' && row.source === 'manual')).toBe(true);
   });
 
+  it('refuses time that overlaps time already recorded, which would be paid twice', async () => {
+    expect(await code(saveManualEntry(casey, manual('2024-06-03', '12:00', '14:00')))).toBe(
+      'CONFLICT',
+    );
+    expect(await code(saveManualEntry(casey, manual('2024-06-03', '09:00', '17:00', 30)))).toBe(
+      'CONFLICT',
+    );
+  });
+
   it('refuses the future, and a break longer than the shift', async () => {
     expect(await code(saveManualEntry(casey, manual('2099-01-01', '09:00', '10:00')))).toBe(
       'VALIDATION',
@@ -205,7 +220,7 @@ describe('paying from timesheets', () => {
         payRate: '30.00',
       }),
     );
-    const { link } = await sendContract(owner, hired.contractId);
+    const link = handedOver(await sendContract(owner, hired.contractId));
     await acceptOffer(
       acceptOfferSchema.parse({
         token: link.split('/offer/')[1],

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { BUSINESS_TYPES, FEATURES, type FeatureKey } from '@/lib/features';
 import { cn } from '@/lib/utils';
+import type { AgreementLinkDelivery } from '@/modules/platform/service';
 import {
   createBusinessAction,
   endSupportAccessAction,
@@ -75,17 +76,9 @@ type NewBusiness = {
 };
 
 /** Hands over a one-time link: says it was emailed, or shows it once to pass on. */
-export function LinkHandover({
-  emailed,
-  link,
-  to,
-}: {
-  emailed: boolean;
-  link: string;
-  to: string;
-}) {
+export function LinkHandover({ delivery, to }: { delivery: AgreementLinkDelivery; to: string }) {
   const [copied, setCopied] = useState(false);
-  if (emailed) {
+  if (delivery.emailed) {
     return (
       <p className="text-sm text-muted-foreground">
         The link to accept the service agreement was emailed to {to}.
@@ -99,13 +92,13 @@ export function LinkHandover({
         and expires in 14 days.
       </p>
       <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-sm" data-sensitive>
-        {link}
+        {delivery.link}
       </pre>
       <Button
         variant="outline"
         className="self-start"
         onClick={async () => {
-          await navigator.clipboard.writeText(link);
+          await navigator.clipboard.writeText(delivery.link);
           setCopied(true);
         }}
       >
@@ -134,12 +127,9 @@ export function NewBusinessForm() {
   const [features, setFeatures] = useState<FeatureKey[]>([...BUSINESS_TYPES[0].features]);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{
-    tenantId: string;
-    adminEmail: string;
-    emailed: boolean;
-    link: string;
-  } | null>(null);
+  const [created, setCreated] = useState<
+    ({ tenantId: string; adminEmail: string } & AgreementLinkDelivery) | null
+  >(null);
   const [isPending, startTransition] = useTransition();
 
   const set = (key: keyof NewBusiness, value: string) => setValues({ ...values, [key]: value });
@@ -182,7 +172,7 @@ export function NewBusinessForm() {
             their own password; nobody else ever knows it.
           </p>
         </div>
-        <LinkHandover emailed={created.emailed} link={created.link} to={created.adminEmail} />
+        <LinkHandover delivery={created} to={created.adminEmail} />
         <Button className="self-start" onClick={() => router.push(`/platform/${created.tenantId}`)}>
           Open the business
         </Button>
@@ -276,6 +266,15 @@ export function NewBusinessForm() {
   );
 }
 
+/** What happened when features were saved, so a failed email is never mistaken for a sent one. */
+function featuresSavedNote({ notified, emailed }: { notified: number; emailed: boolean }) {
+  if (notified === 0) return 'Features saved.';
+  const who = notified === 1 ? 'Their Admin has' : `Their ${notified} Admins have`;
+  return emailed
+    ? `Features saved. ${who} been told in their workspace and by email.`
+    : `Features saved. ${who} been told in their workspace, but the email could not be sent (is email set up?), so let them know yourself.`;
+}
+
 export function BusinessControls({
   tenantId,
   initialFeatures,
@@ -292,14 +291,20 @@ export function BusinessControls({
   const changed = [...features].sort().join() !== [...initialFeatures].sort().join();
   const suspended = status === 'suspended';
 
-  const run = (
-    action: () => Promise<{ ok: boolean; error?: { message: string } }>,
-    done: string,
+  const run = <T,>(
+    action: () => Promise<{ ok: true; data: T } | { ok: false; error: { message: string } }>,
+    done: string | ((data: T) => string),
     then?: () => void,
   ) =>
     startTransition(async () => {
       const result = await action();
-      setNote(result.ok ? done : (result.error?.message ?? 'Something went wrong.'));
+      setNote(
+        result.ok
+          ? typeof done === 'string'
+            ? done
+            : done(result.data)
+          : (result.error.message ?? 'Something went wrong.'),
+      );
       if (result.ok) {
         then?.();
         router.refresh();
@@ -311,15 +316,16 @@ export function BusinessControls({
       <section className="rounded-xl border bg-card p-5">
         <h2 className="font-medium">Features</h2>
         <p className="mt-1 mb-3 text-sm text-muted-foreground">
-          Switching a feature off hides it from everyone in the business. Their records are kept and
-          come back if it is switched on again.
+          Switching a feature on tells the business’s Admins, in their workspace and by email.
+          Switching one off hides it from everyone in the business. Their records are kept and come
+          back if it is switched on again.
         </p>
         <FeaturePicker value={features} onChange={setFeatures} />
         <Button
           className="mt-4"
           disabled={isPending || !changed}
           onClick={() =>
-            run(() => setBusinessFeaturesAction({ tenantId, features }), 'Features saved.')
+            run(() => setBusinessFeaturesAction({ tenantId, features }), featuresSavedNote)
           }
         >
           Save features
@@ -521,19 +527,30 @@ export function SupportBanner({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   return (
     <div className="no-print flex flex-wrap items-center justify-center gap-3 bg-primary px-4 py-2 text-sm text-primary-foreground">
       <span>
         Support access: you are inside <span className="font-semibold">{businessName}</span> with
         full access.
       </span>
+      {error && (
+        <span role="alert" className="font-medium">
+          Could not leave: {error}
+        </span>
+      )}
       <Button
         size="sm"
         variant="secondary"
         disabled={isPending}
         onClick={() =>
           startTransition(async () => {
-            await endSupportAccessAction({ tenantId });
+            // Only once access has really ended: a failure must never look like leaving.
+            const result = await endSupportAccessAction({ tenantId });
+            if (!result.ok) {
+              setError(result.error.message);
+              return;
+            }
             router.push('/platform');
             router.refresh();
           })

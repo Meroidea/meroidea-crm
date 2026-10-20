@@ -15,7 +15,7 @@ import {
 } from '@/modules/access/actions';
 
 type Role = { id: string; name: string; key: string };
-type Delivery = { emailed: boolean; link: string; name: string };
+export type Delivery = ({ emailed: true } | { emailed: false; link: string }) & { name: string };
 
 /**
  * What happened to a password link. When email is not set up the link is shown once, for the
@@ -129,7 +129,7 @@ export function InviteMember({
               Object.values(result.error.fieldErrors ?? {})[0]?.[0] ?? result.error.message,
             );
           }
-          setDelivery({ emailed: result.data.emailed, link: result.data.link, name: fullName });
+          setDelivery({ ...result.data, name: fullName });
           if (!employee) {
             setFullName('');
             setEmail('');

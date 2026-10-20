@@ -1,9 +1,9 @@
 import 'server-only';
 
-import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 
 import { projects, projectTasks, taskTimeLogs, users } from '@/db/schema';
-import { requirePermission, type TenantContext } from '@/server/context';
+import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
 import type { TaskStatus } from './schemas';
@@ -144,6 +144,61 @@ export async function listMyOpenTasks(ctx: TenantContext): Promise<TaskRow[]> {
       .limit(100),
   );
   return rows as TaskRow[];
+}
+
+export type TimeLogRow = {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  userId: string;
+  personName: string;
+  startedAt: Date;
+  minutes: number;
+  note: string | null;
+};
+
+/**
+ * Recent finished time on a project's tasks, newest first, so a mistake can be seen and removed:
+ * the viewer's own entries, or everyone's for someone who manages projects.
+ */
+export async function listRecentTimeLogs(
+  ctx: TenantContext,
+  projectId: string,
+): Promise<TimeLogRow[]> {
+  requirePermission(ctx, 'projects.view');
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: taskTimeLogs.id,
+        taskId: taskTimeLogs.projectTaskId,
+        taskTitle: projectTasks.title,
+        userId: taskTimeLogs.userId,
+        personName: sql<string>`coalesce(${users.fullName}, 'Former member')`,
+        startedAt: taskTimeLogs.startedAt,
+        minutes: taskTimeLogs.minutes,
+        note: taskTimeLogs.note,
+      })
+      .from(taskTimeLogs)
+      .innerJoin(
+        projectTasks,
+        and(
+          eq(projectTasks.tenantId, taskTimeLogs.tenantId),
+          eq(projectTasks.id, taskTimeLogs.projectTaskId),
+        ),
+      )
+      .leftJoin(users, eq(users.id, taskTimeLogs.userId))
+      .where(
+        and(
+          eq(taskTimeLogs.tenantId, ctx.tenantId),
+          eq(projectTasks.projectId, projectId),
+          isNotNull(taskTimeLogs.endedAt),
+          hasPermission(ctx, 'projects.manage') ? undefined : eq(taskTimeLogs.userId, ctx.userId),
+        ),
+      )
+      .orderBy(desc(taskTimeLogs.startedAt))
+      .limit(20),
+  );
+  return rows as TimeLogRow[];
 }
 
 /** The task the signed-in person's timer is running on, if any. */

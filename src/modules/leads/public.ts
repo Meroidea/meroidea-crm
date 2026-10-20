@@ -13,6 +13,7 @@ import {
   users,
   webForms,
 } from '@/db/schema';
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 import { AppError } from '@/lib/errors';
 import { choicesOf, type CustomFieldDefinition } from '@/modules/custom-fields/validation';
 import { normalizeEmail, normalizePhone } from '@/lib/normalize';
@@ -38,8 +39,6 @@ const KEY = /^[A-Za-z0-9_-]{16,64}$/;
 /** Enquiries one sender may make through a form per hour, and one form accepts from everyone. */
 const SENDER_HOURLY_LIMIT = 5;
 const FORM_HOURLY_LIMIT = 300;
-/** Businesses whose people can work leads; a suspended or not-yet-agreed one takes none. */
-const OPEN_STATUSES = ['trialing', 'active', 'past_due'] as const;
 
 async function formByKey(key: string) {
   if (!KEY.test(key)) return null;
@@ -66,7 +65,7 @@ async function formByKey(key: string) {
       and(
         eq(webForms.publicKey, key),
         eq(webForms.isActive, true),
-        inArray(tenants.status, [...OPEN_STATUSES]),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
         sql`'crm' = any(${tenants.features})`,
       ),
     )

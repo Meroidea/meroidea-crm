@@ -3,7 +3,7 @@ import 'server-only';
 import { formatDateTime } from '@/lib/format';
 import { canAccess, scopeDecision } from '@/lib/permissions/scope';
 import type { ContactDetail } from '@/modules/contacts/types';
-import { listActiveMembers } from '@/modules/members/queries';
+import { listActiveMembers, listMemberIdsWithPermission } from '@/modules/members/queries';
 import { getPipelineSummaries } from '@/modules/pipelines/queries';
 import { hasPermission, type TenantContext } from '@/server/context';
 
@@ -18,10 +18,11 @@ export async function leadPanelData(
 ): Promise<LeadPanelProps | null> {
   const lead = contact.lead;
   if (!lead) return null;
-  const [config, members, pipelines] = await Promise.all([
+  const [config, members, pipelines, approvers] = await Promise.all([
     getLeadConfig(ctx),
     listActiveMembers(ctx),
     hasPermission(ctx, 'opportunities.create') ? getPipelineSummaries(ctx) : Promise.resolve([]),
+    listMemberIdsWithPermission(ctx, 'opportunities.approve'),
   ]);
   const settings = config.settings;
   const type = lead.type ?? 'b2c';
@@ -106,6 +107,15 @@ export async function leadPanelData(
       value: member.userId,
       label: member.userId === ctx.userId ? `${member.fullName} (you)` : member.fullName,
     })),
+    // Who a lead can go to: never yourself, and for an approval only someone who can approve
+    // (handoverLead refuses anyone else).
+    handoverPeople: members
+      .filter(
+        (member) =>
+          member.userId !== ctx.userId &&
+          (path !== 'approval' || approvers.includes(member.userId)),
+      )
+      .map((member) => ({ value: member.userId, label: member.fullName })),
     pipelines: pipelines
       .filter((pipeline) => pipeline.isActive)
       .map((pipeline) => ({ value: pipeline.id, label: pipeline.name })),

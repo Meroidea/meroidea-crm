@@ -59,8 +59,9 @@ function customFromRow(definitions: CustomFieldDefinition[], raw: Record<string,
     const choice = (text: string) =>
       field.choices.find(
         (option) =>
-          option.value.toLowerCase() === text.toLowerCase() ||
-          option.label.toLowerCase() === text.toLowerCase(),
+          !option.retired &&
+          (option.value.toLowerCase() === text.toLowerCase() ||
+            option.label.toLowerCase() === text.toLowerCase()),
       )?.value ?? text;
     if (field.fieldType === 'select') submitted[field.key] = choice(cell);
     else if (field.fieldType === 'multi_select') {
@@ -240,6 +241,8 @@ export async function importContactsChunk(
     };
     const report: ImportReportRow[] = [];
     const values: (typeof contacts.$inferInsert)[] = [];
+    // Leads this batch has given out but not saved yet, so least-loaded routing spreads them.
+    const batchLoad = new Map<string, number>();
     const seenEmails = new Map<string, string>();
     const seenPhones = new Map<string, string>();
     const now = new Date();
@@ -313,7 +316,14 @@ export async function importContactsChunk(
             phone,
             companyName: fields.companyName,
           });
-      const duplicate = Boolean(inFileMatch) || matches.length > 0;
+      // Only the same email or phone is the same person for certain. A similar name at the same
+      // company is created anyway and flagged for someone to check: skipping it, or merging it
+      // into the other record, would lose or overwrite a different person.
+      const strong = matches.filter(
+        (match) => match.matchKind === 'email' || match.matchKind === 'phone',
+      );
+      const duplicate = Boolean(inFileMatch) || strong.length > 0;
+      const possible = !duplicate && matches.length > 0;
 
       if (duplicate && settings.duplicates === 'skip') {
         result.skippedDuplicates += 1;
@@ -322,8 +332,8 @@ export async function importContactsChunk(
           outcome: 'skipped',
           reason: inFileMatch
             ? 'Repeats an earlier row of this file'
-            : `Matches an existing record (${matches[0]?.matchKind.replace('_', ' ')})`,
-          ...(matches[0]?.contact ? { contactId: matches[0].contact.id } : {}),
+            : `Matches an existing record (${strong[0]?.matchKind})`,
+          ...(strong[0]?.contact ? { contactId: strong[0].contact.id } : {}),
         });
         continue;
       }
@@ -338,7 +348,7 @@ export async function importContactsChunk(
           });
           continue;
         }
-        const target = matches.find((match) => match.contact)?.contact;
+        const target = strong.find((match) => match.contact)?.contact;
         if (!target) {
           result.skippedDuplicates += 1;
           report.push({
@@ -393,8 +403,10 @@ export async function importContactsChunk(
             interest: fields.interest,
           },
           'intake',
+          batchLoad,
         );
         ownerUserId = chosen ?? ctx.userId;
+        if (chosen) batchLoad.set(chosen, (batchLoad.get(chosen) ?? 0) + 1);
       }
 
       const id = randomUUID();
@@ -435,14 +447,16 @@ export async function importContactsChunk(
         createdBy: ctx.userId,
         updatedBy: ctx.userId,
       });
-      if (duplicate) {
+      if (duplicate || possible) {
         result.duplicatesCreated += 1;
         report.push({
           row: rowNumber,
           outcome: 'duplicate_created',
           reason: inFileMatch
             ? 'Repeats an earlier row of this file'
-            : 'Matches an existing record',
+            : possible
+              ? 'Possibly the same person as an existing record (similar name, same company): check it'
+              : 'Matches an existing record',
           contactId: id,
         });
       } else report.push({ row: rowNumber, outcome: 'created', contactId: id });

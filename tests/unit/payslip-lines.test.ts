@@ -60,6 +60,20 @@ describe('payslip lines for someone with no award rules', () => {
     expect(result).toMatchObject({ grossCents: 36108, superableCents: 36108 });
   });
 
+  it('never rounds a loaded rate down through floating point', () => {
+    // 24.33 × 1.5 is exactly 36.495, which in floating point is 36.4949…: the rate must still
+    // come to 36.50, never 36.49, or every Sunday hour is underpaid.
+    const result = payslipLinesFor({
+      userId: 'a',
+      shifts: [shift('2026-10-18', '09:00', '17:00', 0, 480)],
+      rates: { a: { hourly: '24.33', loadings: {} } },
+      rules,
+      holidays: none,
+      weeks: 1,
+    });
+    expect(summary(result.lines)).toEqual([['Sunday', 480, '36.50', '1.50', '292.00']]);
+  });
+
   it('gives weekend hours their own line at the workspace’s loading', () => {
     const result = payslipLinesFor({
       userId: 'a',

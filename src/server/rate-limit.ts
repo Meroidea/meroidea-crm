@@ -72,3 +72,20 @@ export async function consumeRateLimit(limit: RateLimit): Promise<boolean> {
 export async function enforceRateLimit(limit: RateLimit, message: string): Promise<void> {
   if (!(await consumeRateLimit(limit))) throw new AppError('RATE_LIMITED', message);
 }
+
+/**
+ * Whether the current window has already reached the limit, without counting this request: for
+ * limits that count only failures, such as wrong passwords, checked before trying and consumed
+ * after a failure.
+ */
+export async function rateLimitReached(limit: RateLimit): Promise<boolean> {
+  const rows = (await adminDb().execute(sql`
+    select hits from public_rate_limits
+    where bucket = ${limit.bucket}
+      and subject_hash = ${hashSubject(limit.subject)}
+      and window_start = to_timestamp(
+        floor(extract(epoch from now()) / ${limit.windowSeconds}) * ${limit.windowSeconds})`)) as unknown as {
+    hits: number;
+  }[];
+  return (rows[0]?.hits ?? 0) >= limit.limit;
+}

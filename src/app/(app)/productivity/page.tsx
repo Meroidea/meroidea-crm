@@ -45,10 +45,10 @@ export default async function ProductivityPage({ searchParams }: PageProps<'/pro
   ] as const;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Productivity"
-        description={`${formatCalendarDate(range.from)} – ${formatCalendarDate(range.to)}. Hours planned, hours worked, and what got finished.`}
+        description={`${formatCalendarDate(range.from)} – ${formatCalendarDate(range.to)}. Hours rostered on shifts so far, hours worked, and what got finished.`}
       />
       <nav aria-label="Period" className="flex gap-1">
         {(

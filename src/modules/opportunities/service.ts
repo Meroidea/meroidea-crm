@@ -19,7 +19,7 @@ import {
 } from '@/db/schema';
 import { diffChanges } from '@/lib/audit-diff';
 import { AppError } from '@/lib/errors';
-import { assertCanAccess, scopeDecision } from '@/lib/permissions/scope';
+import { assertCanAccess, canAccess, scopeDecision } from '@/lib/permissions/scope';
 import { recordSystemActivity } from '@/modules/activities/service';
 import { contactRecord } from '@/modules/contacts/access';
 import { loadCustomFields } from '@/modules/custom-fields/queries';
@@ -278,10 +278,20 @@ export async function openOpportunity(
     throw new AppError('VALIDATION', 'Choose a stage in this pipeline.', {
       stageId: ['Invalid stage'],
     });
-  if (stage.category === 'lost') {
-    throw new AppError('VALIDATION', 'A new opportunity can’t start as lost.', {
+  // A new opportunity starts in an open stage, by the same rules as moving into one: a closed
+  // stage would skip the checklist and win/loss rules, and a stage that needs a manager's
+  // approval may be started in only by someone who could approve it.
+  if (stage.category !== 'open') {
+    throw new AppError('VALIDATION', 'A new opportunity starts in an open stage.', {
       stageId: ['Choose an open stage'],
     });
+  }
+  if (stage.requiresApproval && !hasPermission(ctx, 'opportunities.approve')) {
+    throw new AppError(
+      'VALIDATION',
+      `Moving into ${stage.name} needs a manager’s approval. Start in an earlier stage and move it there.`,
+      { stageId: ['Needs approval'] },
+    );
   }
   await assertRequiredFields(tx, ctx, stage, { ...input });
 
@@ -309,7 +319,7 @@ export async function openOpportunity(
       nextStep: input.nextStep,
       customFields: input.customFields,
       stageEnteredAt: now,
-      closedAt: stage.category === 'won' ? now : null,
+      closedAt: null,
       createdBy: ctx.userId,
       updatedBy: ctx.userId,
     })
@@ -420,8 +430,9 @@ export async function updateOpportunity(
     if (Object.keys(custom.errors).length > 0) {
       throw new AppError('VALIDATION', 'Check the highlighted fields.', custom.errors);
     }
-    // Without revenue.view the form never showed the amount, so it must not overwrite it.
-    const canEditRevenue = hasPermission(ctx, 'revenue.view');
+    // Where the amount was masked (revenue.view not reaching this record), the form never showed
+    // it, so it must not overwrite it: the same per-record rule as the read.
+    const canEditRevenue = canAccess(ctx, 'revenue.view', existing);
     const next = {
       name: input.name,
       contactId: input.contactId,
@@ -684,6 +695,31 @@ async function performMove(
     context: lostReasonId ? { lostReasonId } : null,
   });
 
+  // A request to move it somewhere else no longer stands once it has been moved: approving it
+  // later would undo this move (and could reopen a lost deal).
+  if (!options.approved) {
+    const stale = await tx
+      .update(stageApprovals)
+      .set({ status: 'withdrawn', decidedBy: ctx.userId, decidedAt: now })
+      .where(
+        and(
+          eq(stageApprovals.tenantId, ctx.tenantId),
+          eq(stageApprovals.opportunityId, existing.id),
+          eq(stageApprovals.status, 'pending'),
+        ),
+      )
+      .returning({ id: stageApprovals.id });
+    for (const request of stale) {
+      await audit(tx, ctx, {
+        action: 'update',
+        entityType: 'stage_approval',
+        entityId: request.id,
+        changes: { status: ['pending', 'withdrawn'] },
+        context: { reason: 'moved' },
+      });
+    }
+  }
+
   const entry = await enterStageOwner(tx, ctx, existing, target);
   if (entry.ownerUserId !== existing.ownerUserId) {
     await tx
@@ -734,6 +770,12 @@ export async function decideApproval(
 
     let emails: PendingEmail[] = [];
     if (input.approve) {
+      if (existing.status !== 'open') {
+        throw new AppError(
+          'CONFLICT',
+          'This opportunity has been closed since the request. Decline the request instead.',
+        );
+      }
       const pipeline = await loadPipelineConfig(tx, ctx, existing.pipelineId);
       const moved = await performMove(
         tx,

@@ -2,7 +2,8 @@ import 'server-only';
 
 import { and, asc, eq, sql } from 'drizzle-orm';
 
-import { tenantMemberships, users } from '@/db/schema';
+import { rolePermissions, tenantMemberships, users } from '@/db/schema';
+import type { PermissionKey } from '@/lib/permissions/catalog';
 import type { TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
@@ -16,7 +17,12 @@ export async function listActiveMembers(ctx: TenantContext): Promise<MemberOptio
       .from(tenantMemberships)
       .innerJoin(users, eq(users.id, tenantMemberships.userId))
       .where(
-        and(eq(tenantMemberships.tenantId, ctx.tenantId), eq(tenantMemberships.status, 'active')),
+        and(
+          eq(tenantMemberships.tenantId, ctx.tenantId),
+          eq(tenantMemberships.status, 'active'),
+          // A platform owner on support is visiting, not someone to give work to.
+          eq(tenantMemberships.isSupport, false),
+        ),
       )
       .orderBy(asc(users.fullName)),
   );
@@ -40,4 +46,32 @@ export async function getWorkspaceCounts(ctx: TenantContext) {
         (select count(*)::int from tenant_memberships where tenant_id = ${ctx.tenantId} and status = 'active') as members`),
   )) as unknown as { contacts: number; opportunities: number; tasks: number; members: number }[];
   return rows[0] ?? { contacts: 0, opportunities: 0, tasks: 0, members: 1 };
+}
+
+/** Active colleagues whose role grants a permission, for pickers such as an approver. */
+export async function listMemberIdsWithPermission(
+  ctx: TenantContext,
+  permission: PermissionKey,
+): Promise<string[]> {
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({ userId: tenantMemberships.userId })
+      .from(tenantMemberships)
+      .innerJoin(
+        rolePermissions,
+        and(
+          eq(rolePermissions.tenantId, tenantMemberships.tenantId),
+          eq(rolePermissions.roleId, tenantMemberships.roleId),
+          eq(rolePermissions.permission, permission),
+        ),
+      )
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, ctx.tenantId),
+          eq(tenantMemberships.status, 'active'),
+          eq(tenantMemberships.isSupport, false),
+        ),
+      ),
+  );
+  return rows.map((row) => row.userId);
 }

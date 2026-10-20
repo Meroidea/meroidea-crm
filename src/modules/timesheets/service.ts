@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { and, eq, gte, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 
 import { rosterShifts, rosters, tenantMemberships, timeEntries } from '@/db/schema';
+import { maySignOffFor } from '@/lib/permissions/sign-off';
 import { addDaysToDate, instantToZoned, zonedDateTimeToInstant } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { distanceMetres } from '@/lib/geo';
@@ -75,6 +76,44 @@ async function assertPayPeriodOpen(tx: Tx, ctx: TenantContext, instants: Date[])
   }
 }
 
+/**
+ * Refuses time that overlaps time already recorded for the same person: approved together, the
+ * overlap would be paid twice. Saves for one person are taken one at a time (a lock held to the
+ * end of the transaction), so two at once cannot both pass the check.
+ */
+async function assertNoOverlap(
+  tx: Tx,
+  ctx: TenantContext,
+  userId: string,
+  start: Date,
+  end: Date | null,
+  exceptId?: string,
+) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`time:${ctx.tenantId}:${userId}`}, 0))`,
+  );
+  const [clash] = await tx
+    .select({ id: timeEntries.id })
+    .from(timeEntries)
+    .where(
+      and(
+        eq(timeEntries.tenantId, ctx.tenantId),
+        eq(timeEntries.userId, userId),
+        isNull(timeEntries.deletedAt),
+        exceptId ? ne(timeEntries.id, exceptId) : undefined,
+        end ? lt(timeEntries.clockIn, end) : undefined,
+        sql`coalesce(${timeEntries.clockOut}, now()) > ${start.toISOString()}::timestamptz`,
+      ),
+    )
+    .limit(1);
+  if (clash) {
+    throw new AppError(
+      'CONFLICT',
+      'This overlaps time already recorded for that day. Change or remove the other entry first.',
+    );
+  }
+}
+
 async function findEntry(tx: Tx, ctx: TenantContext, id: string) {
   const [entry] = await tx
     .select()
@@ -112,12 +151,27 @@ export async function clockIn(
       )
       .limit(1);
     if (open) throw new AppError('CONFLICT', 'You are already clocked in.');
+    // Clocking out records at least a minute, so straight after one the new entry starts where
+    // the last one ended rather than inside it.
+    const [latest] = await tx
+      .select({ clockOut: sql<Date | null>`max(${timeEntries.clockOut})` })
+      .from(timeEntries)
+      .where(
+        and(
+          eq(timeEntries.tenantId, ctx.tenantId),
+          eq(timeEntries.userId, ctx.userId),
+          isNull(timeEntries.deletedAt),
+        ),
+      );
+    const lastEnd = latest?.clockOut ? new Date(latest.clockOut).getTime() : 0;
+    const now = new Date(Math.max(Date.now(), lastEnd));
+    await assertNoOverlap(tx, ctx, ctx.userId, now, null);
     const [created] = await tx
       .insert(timeEntries)
       .values({
         tenantId: ctx.tenantId,
         userId: ctx.userId,
-        clockIn: new Date(),
+        clockIn: now,
         note,
         clockInDistanceM: distance,
         source: 'clock',
@@ -215,6 +269,7 @@ export async function saveManualEntry(
         throw new AppError('CONFLICT', 'Only a manager can change this entry now.');
       }
       await assertPayPeriodOpen(tx, ctx, [entry.clockIn, start]);
+      await assertNoOverlap(tx, ctx, entry.userId, start, end, entry.id);
       await tx
         .update(timeEntries)
         .set({
@@ -255,6 +310,7 @@ export async function saveManualEntry(
       if (!person) throw new AppError('NOT_FOUND', 'That person was not found.');
     }
     await assertPayPeriodOpen(tx, ctx, [start]);
+    await assertNoOverlap(tx, ctx, userId, start, end);
     const [created] = await tx
       .insert(timeEntries)
       .values({
@@ -283,7 +339,12 @@ export async function decideEntries(
   requirePermission(ctx, 'timesheets.manage');
   return withRls(ctx, async (tx) => {
     const entries = await tx
-      .select({ id: timeEntries.id, clockIn: timeEntries.clockIn, clockOut: timeEntries.clockOut })
+      .select({
+        id: timeEntries.id,
+        userId: timeEntries.userId,
+        clockIn: timeEntries.clockIn,
+        clockOut: timeEntries.clockOut,
+      })
       .from(timeEntries)
       .where(
         and(
@@ -297,6 +358,12 @@ export async function decideEntries(
     }
     if (entries.some((entry) => !entry.clockOut)) {
       throw new AppError('CONFLICT', 'Someone is still clocked in on one of those entries.');
+    }
+    if (
+      input.decision === 'approved' &&
+      entries.some((entry) => !maySignOffFor(ctx, entry.userId))
+    ) {
+      throw new AppError('CONFLICT', 'Someone else has to approve your own time.');
     }
     await assertPayPeriodOpen(
       tx,
@@ -375,6 +442,9 @@ export async function saveDayEntry(
       end: ['This is in the future'],
     });
   }
+  if (input.approve && !maySignOffFor(ctx, input.userId)) {
+    throw new AppError('CONFLICT', 'Someone else has to approve your own time.');
+  }
   const status = input.approve ? ('approved' as const) : ('pending' as const);
   const decision = {
     status,
@@ -407,6 +477,7 @@ export async function saveDayEntry(
         throw new AppError('VALIDATION', 'That entry belongs to someone else.');
       }
       await assertPayPeriodOpen(tx, ctx, [entry.clockIn, start]);
+      await assertNoOverlap(tx, ctx, entry.userId, start, end, entry.id);
       await tx
         .update(timeEntries)
         .set({
@@ -439,6 +510,7 @@ export async function saveDayEntry(
       .limit(1);
     if (!person) throw new AppError('NOT_FOUND', 'That person was not found.');
     await assertPayPeriodOpen(tx, ctx, [start]);
+    await assertNoOverlap(tx, ctx, input.userId, start, end);
     const [created] = await tx
       .insert(timeEntries)
       .values({

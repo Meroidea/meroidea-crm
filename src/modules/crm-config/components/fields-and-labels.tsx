@@ -39,7 +39,11 @@ function FieldEdit({
   const [description, setDescription] = useState(field?.description ?? '');
   const [fieldType, setFieldType] = useState<CustomFieldType>(field?.fieldType ?? 'text');
   const [choices, setChoices] = useState(
-    field?.choices.map((choice) => choice.label).join('\n') ?? '',
+    // Retired options are no longer on the list, so they are not edited here.
+    field?.choices
+      .filter((choice) => !choice.retired)
+      .map((choice) => choice.label)
+      .join('\n') ?? '',
   );
   const [isRequired, setRequired] = useState(field?.isRequired ?? false);
   const [showInList, setShowInList] = useState(field?.showInList ?? false);

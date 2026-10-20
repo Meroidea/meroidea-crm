@@ -32,6 +32,7 @@ import {
   STATUS_LABELS,
   STATUSES,
   type Priority,
+  type ReplyEmail,
   type TicketStatus,
 } from '@/modules/helpdesk/schemas';
 
@@ -254,21 +255,13 @@ export function PublicFormCard({
 }
 
 /** The reply box: answer the customer, or keep a private note for the team. */
-export function ReplyBox({
-  ticketId,
-  hasEmail,
-  customerLink,
-}: {
-  ticketId: string;
-  hasEmail: boolean;
-  customerLink: string;
-}) {
+export function ReplyBox({ ticketId, customerLink }: { ticketId: string; customerLink: string }) {
   const router = useRouter();
   const [mode, setMode] = useState<'reply' | 'note'>('reply');
   const [body, setBody] = useState('');
   const [status, setStatus] = useState<TicketStatus>('pending');
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<'emailed' | 'link' | null>(null);
+  const [sent, setSent] = useState<ReplyEmail | null>(null);
   const [isPending, startTransition] = useTransition();
 
   return (
@@ -290,7 +283,7 @@ export function ReplyBox({
           });
           if (!result.ok) return setError(firstError(result));
           setBody('');
-          if (mode === 'reply') setSent(result.data.emailed ? 'emailed' : 'link');
+          if (mode === 'reply') setSent(result.data.email);
           router.refresh();
         });
       }}
@@ -349,18 +342,20 @@ export function ReplyBox({
         )}
       </div>
       <ErrorNote error={error} />
-      {sent === 'emailed' && (
+      {sent === 'sent' && (
         <p role="status" className="text-sm text-muted-foreground">
           Sent, and emailed to the customer.
         </p>
       )}
-      {sent === 'link' && (
+      {sent && sent !== 'sent' && (
         <div role="status" className="flex flex-col gap-1.5 text-sm text-muted-foreground">
           <p>
             Saved.{' '}
-            {hasEmail
-              ? 'Email is not set up, so nothing was sent.'
-              : 'This customer has no email on the ticket.'}{' '}
+            {sent === 'failed'
+              ? 'The email could not be sent, so the customer has not been told.'
+              : sent === 'not_configured'
+                ? 'Email is not set up, so nothing was sent.'
+                : 'This customer has no email on the ticket.'}{' '}
             They can read it on their ticket page:
           </p>
           <CopyField value={customerLink} label="Customer's ticket page" />

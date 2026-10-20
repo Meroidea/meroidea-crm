@@ -1,8 +1,10 @@
 import { Banknote } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { z } from 'zod';
 
 import { EmptyState } from '@/components/data/empty-state';
+import { ListPagination } from '@/components/data/list-pagination';
 import { PageHeader } from '@/components/data/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,20 +14,25 @@ import { requirePermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'Payroll' };
 
-export default async function PayrollPage() {
+const paramsSchema = z.object({ cursor: z.iso.date().optional().catch(undefined) });
+
+export default async function PayrollPage({ searchParams }: PageProps<'/payroll'>) {
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'payroll.manage');
-  const runs = await listPayRuns(ctx);
+  const { cursor } = paramsSchema.parse(await searchParams);
+  const { items: runs, nextBefore } = await listPayRuns(ctx, { before: cursor });
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Payroll"
         description="Authorise each roster’s worked hours, add tax, and release payslips to staff."
       />
       <p className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text">
-        Payslips here are hours × the contract’s hourly rate, plus super. Tax is not calculated: you
-        enter the amount withheld. Penalty rates, overtime, allowances and leave are not applied.
+        Gross pay is the sum of each person’s pay lines: under an award with written-down rules, its
+        penalty rates, overtime and allowances; otherwise the agreed rate with your weekend and
+        public-holiday loadings. Super is on ordinary time. Tax is not calculated: you enter the
+        amount withheld. Leave is not applied.
       </p>
       <Card>
         <CardContent>
@@ -65,6 +72,12 @@ export default async function PayrollPage() {
               ))}
             </ul>
           )}
+          <ListPagination
+            pathname="/payroll"
+            filters={{ cursor }}
+            nextCursor={nextBefore}
+            shown={runs.length}
+          />
         </CardContent>
       </Card>
     </div>

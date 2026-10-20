@@ -14,8 +14,11 @@ import type { DocumentDetail } from './types';
  * are not open to anyone else.
  */
 
-/** How long the editor has to fetch a file after the page is opened. */
-const CONTENT_LINK_SECONDS = 10 * 60;
+/**
+ * How long the editor has to fetch a file after the page is opened. It fetches at once; the link
+ * also sits in the page, so it is kept short, like any download link (rules/security.md).
+ */
+const CONTENT_LINK_SECONDS = 2 * 60;
 
 export type EditorSettings = {
   publicUrl: string;
@@ -85,8 +88,9 @@ export function buildEditorConfig(
       url: contentUrl(settings, document.id, document.version),
       permissions: {
         edit: canEdit,
-        download: true,
-        print: true,
+        // Downloads go through the audited Download button beside the editor instead.
+        download: false,
+        print: false,
         comment: canEdit,
         fillForms: canEdit,
       },

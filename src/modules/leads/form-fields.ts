@@ -171,7 +171,7 @@ export function renderFields(
   custom: {
     key: string;
     fieldType: CustomFieldType;
-    choices: { value: string; label: string }[];
+    choices: { value: string; label: string; retired?: boolean }[];
     isActive: boolean;
   }[],
 ): RenderedField[] {
@@ -184,7 +184,8 @@ export function renderFields(
           ...field,
           kind: CUSTOM_KIND[definition.fieldType],
           max: definition.fieldType === 'textarea' ? 5000 : 200,
-          choices: definition.choices,
+          // A website form offers only the options still on the list.
+          choices: definition.choices.filter((choice) => !choice.retired),
         },
       ];
     }

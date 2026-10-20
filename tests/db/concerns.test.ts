@@ -342,3 +342,27 @@ describe('the feature switch', () => {
     expect((await listConcerns(on, 'raised')).map((row) => row.id)).toContain(toAdmin);
   });
 });
+
+describe('someone who has left', () => {
+  it('leaves their question behind for the business to answer', async () => {
+    const id = (await raiseConcern(drew, ask({ subject: 'Last week of shifts' }))).id;
+    await adminDb().execute(
+      sql`update tenant_memberships set status = 'deactivated'
+          where tenant_id = ${alphaTenant} and user_id = ${drew.userId}`,
+    );
+    try {
+      // A manager can no longer read Drew as a colleague, but the question is still theirs.
+      const listed = (await listConcerns(manager, 'raised')).find((row) => row.id === id);
+      expect(listed?.raisedByName).toBe('Former member');
+      const detail = await getConcern(manager, id);
+      expect(detail?.messages[0]?.authorName).toBe('Former member');
+      // The admin, who manages logins, still sees who it was.
+      expect((await getConcern(admin, id))?.raisedByName).toBe('Drew Crew');
+    } finally {
+      await adminDb().execute(
+        sql`update tenant_memberships set status = 'active'
+            where tenant_id = ${alphaTenant} and user_id = ${drew.userId}`,
+      );
+    }
+  });
+});

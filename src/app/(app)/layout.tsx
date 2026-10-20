@@ -9,6 +9,7 @@ import { PrivacyBlurToggle } from '@/components/layout/privacy-blur-toggle';
 import { UserMenu } from '@/components/layout/user-menu';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { getMyName } from '@/modules/members/queries';
 import { sweepIfDue } from '@/modules/notifications/alerts';
 import { countUnread } from '@/modules/notifications/queries';
 import { SupportBanner } from '@/modules/platform/components/platform-tools';
@@ -17,7 +18,11 @@ import { getPlatformAdmin } from '@/server/platform';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const ctx = await requireTenantContext();
-  const [platformAdmin, unread] = await Promise.all([getPlatformAdmin(), countUnread(ctx)]);
+  const [platformAdmin, unread, name] = await Promise.all([
+    getPlatformAdmin(),
+    countUnread(ctx),
+    getMyName(ctx),
+  ]);
   // Keeps SLA alerts current between the scheduler's daily runs; never slows the page.
   if (ctx.tenant.features.includes('crm')) {
     after(() => sweepIfDue(ctx.tenantId).catch(() => undefined));
@@ -51,7 +56,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               )}
               <NotificationBell unread={unread} />
               <PrivacyBlurToggle />
-              <UserMenu email={ctx.email} roleName={ctx.roleName} />
+              <UserMenu name={name} email={ctx.email} roleName={ctx.roleName} />
             </div>
           </header>
           <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>

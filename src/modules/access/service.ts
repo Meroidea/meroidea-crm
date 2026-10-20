@@ -13,6 +13,7 @@ import { withRls } from '@/server/db/with-rls';
 import { isEmailConfigured, sendEmail } from '@/server/email';
 import { serverEnv } from '@/server/env';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
+import { isPlatformOwnerEmail } from '@/server/platform';
 
 import type { InviteMemberInput } from './schemas';
 
@@ -74,12 +75,15 @@ export async function businessTeamId(
   return team?.id ?? null;
 }
 
-export type LinkDelivery = {
-  /** True when the link was emailed. */
-  emailed: boolean;
-  /** Returned only to the admin who asked, so it can be passed on when email is not set up. */
-  link: string;
-};
+/**
+ * What happened to a password link. The link itself comes back only when it could not be
+ * emailed, so the admin can pass it on (ADR-031). Once it has gone to the person's inbox, handing
+ * it to the admin too would let them sign in as that person.
+ */
+export type LinkDelivery = { emailed: true } | { emailed: false; link: string };
+
+const delivery = (emailed: boolean, link: string): LinkDelivery =>
+  emailed ? { emailed: true } : { emailed: false, link };
 
 /**
  * Adds someone to the business with a login and a role, and gives them a link to set their own
@@ -94,14 +98,24 @@ export async function inviteMember(
     throw new AppError('FORBIDDEN', 'You do not have access to that.');
   }
   const email = input.email.toLowerCase();
+  if (isPlatformOwnerEmail(email)) {
+    throw new AppError('CONFLICT', 'That email address can’t be given a login here.', {
+      email: ['Use a different address'],
+    });
+  }
   const [role] = await withRls(ctx, (tx) =>
     tx
-      .select({ id: roles.id })
+      .select({ id: roles.id, key: roles.key })
       .from(roles)
       .where(and(eq(roles.tenantId, ctx.tenantId), eq(roles.id, input.roleId)))
       .limit(1),
   );
   if (!role) throw new AppError('VALIDATION', 'Choose a role.', { roleId: ['Choose a role'] });
+  if (role.key === 'owner' && ctx.roleKey !== 'owner') {
+    throw new AppError('FORBIDDEN', 'Only an Admin can add another Admin.', {
+      roleId: ['Choose another role'],
+    });
+  }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.auth.admin.createUser({
@@ -160,7 +174,7 @@ export async function inviteMember(
     heading: `You have been added to ${ctx.tenant.name}`,
     intro: `Hi ${input.fullName}, ${ctx.tenant.name} has given you a login.`,
   });
-  return { userId, emailed, link };
+  return { userId, ...delivery(emailed, link) };
 }
 
 async function memberEmail(ctx: TenantContext, userId: string) {
@@ -206,7 +220,7 @@ export async function sendPasswordLink(ctx: TenantContext, userId: string): Prom
       context: { passwordLinkSent: true },
     }),
   );
-  return { emailed, link };
+  return delivery(emailed, link);
 }
 
 /** Deactivating keeps the person's records and history but stops them signing in to this business. */
@@ -228,6 +242,9 @@ export async function setMemberStatus(
         .from(roles)
         .where(and(eq(roles.tenantId, ctx.tenantId), eq(roles.key, 'owner')))
         .limit(1);
+      if (ownerRole && member.roleId === ownerRole.id && ctx.roleKey !== 'owner') {
+        throw new AppError('FORBIDDEN', 'Only an Admin can switch off an Admin’s login.');
+      }
       if (ownerRole && member.roleId === ownerRole.id) {
         const [owners] = await tx
           .select({ total: count() })

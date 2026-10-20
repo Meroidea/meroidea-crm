@@ -41,7 +41,7 @@ export default async function NewHirePage({ searchParams }: PageProps<'/hiring/n
     : undefined;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
         title="Hire someone"
         description="Nothing is sent from this page. You review the contract and any warnings next."

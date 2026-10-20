@@ -33,7 +33,8 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
   const canManage = hasPermission(ctx, 'rosters.manage');
   const canPay = hasPermission(ctx, 'payroll.manage');
   const today = zonedToday(ctx.tenant.timezone);
-  const date = rosterPageParamsSchema.parse(await searchParams).date ?? today;
+  const params = rosterPageParamsSchema.parse(await searchParams);
+  const date = params.date ?? today;
   const roster = await getRosterForDate(ctx, date);
 
   const header = (
@@ -68,6 +69,15 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
     return (
       <div className="flex w-full flex-col gap-5">
         {header}
+        {params.skipped && editable && (
+          <p
+            role="status"
+            className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text"
+          >
+            {params.skipped === 1 ? '1 shift was' : `${params.skipped} shifts were`} not copied
+            because the person already has a shift at that time.
+          </p>
+        )}
         {roster.authorisedAt ? (
           <p className="rounded-lg border bg-card px-4 py-3 text-sm">
             This roster has been authorised for pay and is locked.

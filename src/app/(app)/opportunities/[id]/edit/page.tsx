@@ -34,7 +34,7 @@ export default async function EditOpportunityPage({
     canAccess(ctx, 'opportunities.assign', opportunity);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader title={`Edit ${opportunity.name}`} />
       <Card>
         <CardContent>
@@ -42,6 +42,8 @@ export default async function EditOpportunityPage({
             opportunityId={opportunity.id}
             labels={ctx.tenant.labels}
             {...options}
+            contactLabel={opportunity.contactName}
+            organizationLabel={opportunity.organizationName}
             canAssign={mayReassign && options.canAssign}
             canViewRevenue={opportunity.canViewRevenue}
             currency={opportunity.currency ?? ctx.tenant.currency}

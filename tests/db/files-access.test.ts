@@ -26,10 +26,12 @@ import {
   deleteDocument,
   finishUpload,
   getDownloadUrl,
+  recordEditorOpen,
   renameDocument,
   startUpload,
 } from '@/modules/files/service';
 import type { TenantContext } from '@/server/context';
+import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 import { signJwt, verifyJwt } from '@/server/jwt';
 import { readObject, removeObject, writeObject } from '@/server/storage';
@@ -122,7 +124,9 @@ describe('the document library', () => {
   });
 
   it('lets a member read and download, but not add, rename or delete', async () => {
-    expect((await listDocuments(member, {})).map((row) => row.name)).toEqual(['Staff Handbook']);
+    expect((await listDocuments(member, {})).items.map((row) => row.name)).toEqual([
+      'Staff Handbook',
+    ]);
     expect((await getDownloadUrl(member, { id: documentId })).url).toContain(
       '/storage/v1/object/sign/documents/',
     );
@@ -143,7 +147,7 @@ describe('the document library', () => {
 
   it('never shows another business’s documents, or lets it claim their upload', async () => {
     expect(await getDocument(outsider, documentId)).toBeNull();
-    expect(await listDocuments(outsider, {})).toEqual([]);
+    expect((await listDocuments(outsider, {})).items).toEqual([]);
     await expectCode(() => getDownloadUrl(outsider, { id: documentId }), 'NOT_FOUND');
     await expectCode(
       () =>
@@ -182,17 +186,19 @@ describe('the document library', () => {
   it('renames, filters by search, type and folder, and hides a deleted document', async () => {
     const second = await upload(owner, 'Budget 2031.xlsx', office('numbers'));
     await renameDocument(owner, { id: second.id, name: 'Budget', folder: 'Finance' });
-    expect((await listDocuments(owner, { type: 'xlsx' })).map((row) => row.name)).toEqual([
+    expect((await listDocuments(owner, { type: 'xlsx' })).items.map((row) => row.name)).toEqual([
       'Budget',
     ]);
-    expect((await listDocuments(owner, { folder: 'Policies' })).map((row) => row.name)).toEqual([
-      'Staff Handbook',
-    ]);
-    expect((await listDocuments(owner, { q: 'hand' })).map((row) => row.name)).toEqual([
+    expect(
+      (await listDocuments(owner, { folder: 'Policies' })).items.map((row) => row.name),
+    ).toEqual(['Staff Handbook']);
+    expect((await listDocuments(owner, { q: 'hand' })).items.map((row) => row.name)).toEqual([
       'Staff Handbook',
     ]);
     await deleteDocument(owner, second.id);
-    expect((await listDocuments(owner, {})).map((row) => row.name)).toEqual(['Staff Handbook']);
+    expect((await listDocuments(owner, {})).items.map((row) => row.name)).toEqual([
+      'Staff Handbook',
+    ]);
     expect(await getDocument(owner, second.id)).toBeNull();
   });
 });
@@ -271,6 +277,18 @@ describe('the link to the editing server', () => {
     };
     const readOnly = buildEditorConfig(viewer, document, 'Vera Viewer', settings()).config;
     expect((readOnly.editorConfig as { mode: string }).mode).toBe('view');
+    // Downloads go through the audited button, never the editor's own menu.
+    expect(claims.document?.permissions).toMatchObject({ download: false, print: false });
+  });
+
+  it('audits opening a document in the editor as a download of that version', async () => {
+    await recordEditorOpen(member, { id: documentId, version: 3 });
+    const rows = (await withRls(owner, (tx) =>
+      tx.execute(sql`select action, context from audit_logs
+        where tenant_id = ${owner.tenantId} and entity_id = ${documentId}
+          and context ->> 'via' = 'editor'`),
+    )) as unknown as { action: string; context: Record<string, unknown> }[];
+    expect(rows).toEqual([{ action: 'download', context: { version: 3, via: 'editor' } }]);
   });
 
   it('serves the file only for a correctly signed, unexpired link', async () => {
@@ -395,5 +413,27 @@ describe('small helpers', () => {
     expect(matchesFormat('pdf', office('x'))).toBe(false);
     expect(matchesFormat('xlsx', office('x'))).toBe(true);
     expect(formatBytes(2_621_440)).toBe('2.5 MB');
+  });
+});
+
+describe('a large library', () => {
+  it('comes a page at a time, every document once, unfiled ones last', async () => {
+    await adminDb().execute(sql`
+      insert into library_documents (tenant_id, name, extension, mime_type, size_bytes, storage_path, folder)
+      select ${betaTenant}, 'Doc ' || lpad(n::text, 3, '0'), 'pdf', 'application/pdf', 10,
+        ${betaTenant} || '/library/' || n || '.pdf', case when n % 2 = 0 then 'Policies' end
+      from generate_series(1, 130) as n`);
+    const seen: { name: string; folder: string | null }[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await listDocuments(outsider, { cursor });
+      expect(page.items.length).toBeLessThanOrEqual(100);
+      seen.push(...page.items.map((row) => ({ name: row.name, folder: row.folder })));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    expect(new Set(seen.map((row) => row.name)).size).toBe(130);
+    expect(seen.slice(0, 65).every((row) => row.folder === 'Policies')).toBe(true);
+    expect(seen.slice(65).every((row) => row.folder === null)).toBe(true);
+    await adminDb().execute(sql`delete from library_documents where tenant_id = ${betaTenant}`);
   });
 });

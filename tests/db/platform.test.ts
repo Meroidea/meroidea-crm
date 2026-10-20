@@ -6,6 +6,8 @@ import { BUSINESS_TYPES, featureForPermission } from '@/lib/features';
 import { createItemSchema } from '@/modules/inventory/schemas';
 import { createItem } from '@/modules/inventory/service';
 import { listItems } from '@/modules/inventory/queries';
+import { listUnreadFeatureNotices } from '@/modules/notifications/queries';
+import { markRead } from '@/modules/notifications/service';
 import { acceptAgreement, getAgreementByToken } from '@/modules/platform/agreement-public';
 import {
   acceptAgreementSchema,
@@ -40,10 +42,12 @@ import { withRls } from '@/server/db/with-rls';
 import type { PlatformAdmin } from '@/server/platform';
 
 import {
+  addMember,
   contextFor,
   createAuthUser,
   createWorkspace,
   destroyWorkspace,
+  handedOver,
 } from '../support/workspaces';
 
 const stamp = Date.now();
@@ -118,7 +122,7 @@ beforeAll(async () => {
   cafeOwnerId = await ownerOf(cafeTenant);
   await acceptAgreement(
     acceptAgreementSchema.parse({
-      token: tokenOf(created.link),
+      token: tokenOf(handedOver(created)),
       fullName: 'Cara Cafe',
       agree: true,
     }),
@@ -129,7 +133,6 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await adminDb().execute(sql`delete from tenant_memberships where is_support`);
   for (const { tenantId, userIds } of cleanup) await destroyWorkspace(tenantId, userIds);
   await adminDb().execute(sql`delete from service_agreements where id = ${agreementId}`);
 }, 60_000);
@@ -224,7 +227,7 @@ describe('the service agreement', () => {
     );
     pendingTenant = created.tenantId;
     pendingOwnerId = await ownerOf(pendingTenant);
-    link = created.link;
+    link = handedOver(created);
     cleanup.push({ tenantId: pendingTenant, userIds: [pendingOwnerId] });
   }, 60_000);
 
@@ -234,6 +237,16 @@ describe('the service agreement', () => {
     expect(workspaceClosedReason(ctx)).toBe('awaiting_agreement');
     // A platform owner on a support seat can still get in to help.
     expect(workspaceClosedReason({ ...ctx, isSupport: true })).toBeNull();
+  });
+
+  it('treats a cancelled business, or any status it does not know, as closed', async () => {
+    const ctx = await contextFor(pendingOwnerId, pendingTenant);
+    const as = (status: string) => ({ ...ctx, tenant: { ...ctx.tenant, status } });
+    expect(workspaceClosedReason(as('cancelled'))).toBe('suspended');
+    expect(workspaceClosedReason(as('something_new'))).toBe('suspended');
+    for (const open of ['trialing', 'active', 'past_due']) {
+      expect(workspaceClosedReason(as(open))).toBeNull();
+    }
   });
 
   it('shows the link’s holder the exact version they are asked to accept', async () => {
@@ -266,7 +279,7 @@ describe('the service agreement', () => {
   it('stops an old link working once a new one is sent', async () => {
     const fresh = await resendAgreementLink(admin, pendingTenant);
     expect(await getAgreementByToken(tokenOf(link))).toBeNull();
-    link = fresh.link;
+    link = handedOver(fresh);
     expect(await getAgreementByToken(tokenOf(link))).not.toBeNull();
   });
 
@@ -410,7 +423,7 @@ describe('feature switches', () => {
     // Switching it back on brings the records back: nothing was deleted.
     await setBusinessFeatures(admin, { tenantId: cafeTenant, features: ['roster', 'inventory'] });
     const again = await contextFor(cafeOwnerId, cafeTenant);
-    expect((await listItems(again, {})).map((row) => row.name)).toEqual(['Coffee beans']);
+    expect((await listItems(again, {})).items.map((row) => row.name)).toEqual(['Coffee beans']);
   });
 
   it('records feature changes in the business’s own audit log as a platform action', async () => {
@@ -456,6 +469,28 @@ describe('support access', () => {
     expect(rows.map((row) => row.step)).toEqual(['started', 'ended']);
   });
 
+  it('ends support access even when the platform owner left records behind, and can start it again', async () => {
+    await startSupportAccess(admin, cafeTenant);
+    const inside = await contextFor(admin.userId, cafeTenant);
+    // Something now points at the support seat, which a delete of the seat would trip over.
+    await createItem(inside, createItemSchema.parse({ name: 'Support test item', unit: 'each' }));
+
+    await endSupportAccess(admin, cafeTenant);
+    expect(
+      await loadTenantContext({ sub: admin.userId, role: 'authenticated' }, cafeTenant),
+    ).toBeNull();
+
+    await startSupportAccess(admin, cafeTenant);
+    expect((await contextFor(admin.userId, cafeTenant)).isSupport).toBe(true);
+    await endSupportAccess(admin, cafeTenant);
+    expect(
+      await loadTenantContext({ sub: admin.userId, role: 'authenticated' }, cafeTenant),
+    ).toBeNull();
+    await adminDb().execute(
+      sql`update inventory_items set deleted_at = now() where name = 'Support test item'`,
+    );
+  });
+
   it('never removes someone’s genuine seat when support access ends', async () => {
     await startSupportAccess(admin, homeTenant);
     await endSupportAccess(admin, homeTenant);
@@ -470,7 +505,7 @@ describe('suspending a business', () => {
     await setBusinessStatus(admin, { tenantId: cafeTenant, status: 'active' });
     const back = await contextFor(cafeOwnerId, cafeTenant);
     expect(back.tenant.status).toBe('active');
-    expect(await listItems(back, {})).toHaveLength(1);
+    expect((await listItems(back, {})).items).toHaveLength(1);
   });
 
   it('reports an unknown business as not found', async () => {
@@ -481,6 +516,116 @@ describe('suspending a business', () => {
     );
     await expectCode(() => startSupportAccess(admin, unknown), 'NOT_FOUND');
     expect(await getBusiness(admin, unknown)).toBeNull();
+  });
+});
+
+describe('switching features on for a business already running', () => {
+  const lastPlatformChange = async (ctx: TenantContext) => {
+    const rows = (await withRls(ctx, (tx) =>
+      tx.execute(sql`select changes, context from audit_logs
+                     where tenant_id = ${ctx.tenantId} and actor_type = 'platform'
+                     order by created_at desc limit 1`),
+    )) as unknown as {
+      changes: Record<string, [unknown, unknown]> | null;
+      context: Record<string, unknown>;
+    }[];
+    return rows[0];
+  };
+  let staff: TenantContext;
+
+  beforeAll(async () => {
+    const staffId = await addMember(cafeTenant, mail('cafe-staff'), 'Sam Staff', 'member');
+    cleanup.find((entry) => entry.tenantId === cafeTenant)?.userIds.push(staffId);
+    staff = await contextFor(staffId, cafeTenant);
+    await setBusinessFeatures(admin, { tenantId: cafeTenant, features: ['roster', 'inventory'] });
+    // Earlier tests switched features on too; start from nothing unread.
+    await markRead(await contextFor(cafeOwnerId, cafeTenant), 'all');
+  });
+
+  it('tells the business’s Admin in their workspace, and not its staff or another business', async () => {
+    const result = await setBusinessFeatures(admin, {
+      tenantId: cafeTenant,
+      features: ['roster', 'inventory', 'timesheets', 'payroll'],
+    });
+    expect(result.notified).toBe(1);
+    // No email provider in tests: the console must hear that the email did not go.
+    expect(result.emailed).toBe(false);
+
+    const owner = await contextFor(cafeOwnerId, cafeTenant);
+    expect(await listUnreadFeatureNotices(owner)).toEqual([
+      expect.objectContaining({
+        title: 'Now switched on: Timesheets, Payroll and payslips',
+        url: '/settings?tab=roles',
+      }),
+    ]);
+    expect(await listUnreadFeatureNotices(staff)).toEqual([]);
+    expect(await listUnreadFeatureNotices(await contextFor(admin.userId, homeTenant))).toEqual([]);
+  });
+
+  it('records what was switched on in the business’s audit log', async () => {
+    const entry = await lastPlatformChange(cafeOwner);
+    expect(entry?.context).toMatchObject({
+      featuresAdded: ['timesheets', 'payroll'],
+      featuresRemoved: [],
+    });
+    expect(entry?.changes?.features).toEqual([
+      ['roster', 'inventory'],
+      ['roster', 'inventory', 'timesheets', 'payroll'],
+    ]);
+  });
+
+  it('stops showing the notice once the Admin dismisses it', async () => {
+    const owner = await contextFor(cafeOwnerId, cafeTenant);
+    const [notice] = await listUnreadFeatureNotices(owner);
+    await markRead(owner, notice?.id ?? '');
+    expect(await listUnreadFeatureNotices(owner)).toEqual([]);
+  });
+
+  it('records what was switched off, without telling anyone', async () => {
+    const result = await setBusinessFeatures(admin, {
+      tenantId: cafeTenant,
+      features: ['roster', 'inventory'],
+    });
+    expect(result.notified).toBe(0);
+    expect(await listUnreadFeatureNotices(await contextFor(cafeOwnerId, cafeTenant))).toEqual([]);
+    expect((await lastPlatformChange(cafeOwner))?.context).toMatchObject({
+      featuresAdded: [],
+      featuresRemoved: ['timesheets', 'payroll'],
+    });
+  });
+
+  it('writes nothing when the features have not changed', async () => {
+    const count = async () => {
+      const rows = (await adminDb().execute(
+        sql`select count(*)::int as n from audit_logs where tenant_id = ${cafeTenant}`,
+      )) as unknown as { n: number }[];
+      return rows[0]?.n;
+    };
+    const before = await count();
+    await setBusinessFeatures(admin, { tenantId: cafeTenant, features: ['inventory', 'roster'] });
+    expect(await count()).toBe(before);
+  });
+
+  it('does not announce features to a business still waiting to accept its agreement', async () => {
+    const waiting = await createBusiness(
+      admin,
+      business({
+        companyName: 'Waiting Cafe',
+        adminEmail: mail('waiting-admin'),
+        primaryContactEmail: mail('waiting-contact'),
+      }),
+    );
+    cleanup.push({ tenantId: waiting.tenantId, userIds: [await ownerOf(waiting.tenantId)] });
+
+    const result = await setBusinessFeatures(admin, {
+      tenantId: waiting.tenantId,
+      features: ['roster', 'inventory', 'payroll'],
+    });
+    expect(result.notified).toBe(0);
+    const rows = (await adminDb().execute(
+      sql`select count(*)::int as n from notifications where tenant_id = ${waiting.tenantId}`,
+    )) as unknown as { n: number }[];
+    expect(rows[0]?.n).toBe(0);
   });
 });
 

@@ -119,6 +119,21 @@ export async function logActivity(
   requirePermission(ctx, 'activities.create');
 
   return withRls(ctx, async (tx) => {
+    const assertContactInScope = async (id: string) => {
+      const [contact] = await tx
+        .select({
+          ownerUserId: contacts.ownerUserId,
+          originatorUserId: contacts.originatorUserId,
+          handoverToUserId: contacts.handoverToUserId,
+        })
+        .from(contacts)
+        .where(
+          and(eq(contacts.tenantId, ctx.tenantId), eq(contacts.id, id), isNull(contacts.deletedAt)),
+        )
+        .limit(1);
+      if (!contact) throw new AppError('NOT_FOUND', 'That record was not found.');
+      assertCanAccess(ctx, 'contacts.view', contactRecord(contact));
+    };
     let contactId = input.contactId ?? null;
     const opportunityId = input.opportunityId ?? null;
 
@@ -136,25 +151,12 @@ export async function logActivity(
         .limit(1);
       if (!opportunity) throw new AppError('NOT_FOUND', 'That record was not found.');
       assertCanAccess(ctx, 'opportunities.view', opportunity);
+      // A contact other than the opportunity's own is checked in its own right: seeing the
+      // opportunity says nothing about a colleague's lead named alongside it.
+      if (contactId && contactId !== opportunity.contactId) await assertContactInScope(contactId);
       contactId = contactId ?? opportunity.contactId;
     } else if (contactId) {
-      const [contact] = await tx
-        .select({
-          ownerUserId: contacts.ownerUserId,
-          originatorUserId: contacts.originatorUserId,
-          handoverToUserId: contacts.handoverToUserId,
-        })
-        .from(contacts)
-        .where(
-          and(
-            eq(contacts.tenantId, ctx.tenantId),
-            eq(contacts.id, contactId),
-            isNull(contacts.deletedAt),
-          ),
-        )
-        .limit(1);
-      if (!contact) throw new AppError('NOT_FOUND', 'That record was not found.');
-      assertCanAccess(ctx, 'contacts.view', contactRecord(contact));
+      await assertContactInScope(contactId);
     }
 
     let outcome: string | null = null;

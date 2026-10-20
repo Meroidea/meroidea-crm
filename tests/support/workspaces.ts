@@ -144,3 +144,12 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
   await db.execute(sql`delete from tenants where id = ${tenantId}`);
   for (const userId of userIds) await supabase.auth.admin.deleteUser(userId);
 }
+
+/**
+ * The one-time link from a delivery that could not be emailed. Tests have no email service, so
+ * links are always handed over; with email set up they never are.
+ */
+export function handedOver(delivery: { emailed: true } | { emailed: false; link: string }): string {
+  if (delivery.emailed) throw new Error('expected the link to be handed over');
+  return delivery.link;
+}

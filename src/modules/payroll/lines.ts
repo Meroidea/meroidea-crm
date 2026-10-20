@@ -40,7 +40,19 @@ export type WorkedShift = {
   paidMinutes: number;
 };
 
-const toCents = (amount: string) => Math.round(Number(amount) * 100);
+/**
+ * A decimal amount such as "36.495" in ten-thousandths of a dollar, read from its digits so no
+ * floating-point error creeps in: Number("36.495") * 100 is 3649.4999…, which would round a rate
+ * down a cent and underpay every hour at it.
+ */
+const toUnits = (amount: string) => {
+  const [whole = '0', fraction = ''] = amount.trim().split('.');
+  return Number(whole) * 10_000 + Math.round(Number(fraction.padEnd(5, '0').slice(0, 5)) / 10);
+};
+/** To the nearest cent, half up. */
+const toCents = (amount: string) => Math.round(toUnits(amount) / 100);
+const unitsToAmount = (units: number) =>
+  `${Math.trunc(units / 10_000)}.${String(units % 10_000).padStart(4, '0')}`;
 
 const KIND: Record<AwardPayLine['kind'], PayslipLineKind> = {
   ordinary: 'ordinary',
@@ -126,7 +138,9 @@ export function payslipLinesFor(input: {
         minutes: shift.paidMinutes,
         units: null,
         // Two loadings for the same kind of day would be two lines.
-        listedRate: (Number(person.hourly) * cost.loading).toFixed(4),
+        listedRate: unitsToAmount(
+          Math.round((toUnits(person.hourly) * Math.round(cost.loading * 10_000)) / 10_000),
+        ),
         cents: cost.cents,
         aboveListed: false,
         superable: true,
@@ -141,7 +155,7 @@ export function payslipLinesFor(input: {
     if (!line.minutes) return { line, rateCents: toCents(line.listedRate), cents: line.cents };
     const rateCents = line.aboveListed
       ? Math.round((line.cents * 60) / line.minutes)
-      : Math.round(Number(line.listedRate) * 100);
+      : toCents(line.listedRate);
     return { line, rateCents, cents: Math.round((line.minutes * rateCents) / 60) };
   });
 

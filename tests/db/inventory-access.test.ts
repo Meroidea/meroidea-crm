@@ -18,6 +18,7 @@ import {
 } from '@/modules/inventory/schemas';
 import { createItem, recordMovement, setItemActive, updateItem } from '@/modules/inventory/service';
 import type { TenantContext } from '@/server/context';
+import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
 
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
@@ -136,7 +137,7 @@ describe('who can use inventory', () => {
 
   it('never shows or changes another workspace’s stock', async () => {
     expect(await getItem(outsider, flour)).toBeNull();
-    expect(await listItems(outsider, filters())).toEqual([]);
+    expect((await listItems(outsider, filters())).items).toEqual([]);
     expect(await listMovements(outsider, flour)).toEqual([]);
     await expectCode(() => recordMovement(outsider, movement('received', '5')), 'NOT_FOUND');
     await expectCode(() => setItemActive(outsider, { id: flour, isActive: false }), 'NOT_FOUND');
@@ -218,7 +219,7 @@ describe('stock arithmetic', () => {
 describe('lists and levels', () => {
   it('flags an item at or under its reorder level as low, and at zero as out', async () => {
     expect((await getItem(owner, flour))?.level).toBe('low');
-    expect((await listItems(owner, filters({ view: 'low' }))).map((row) => row.id)).toEqual([
+    expect((await listItems(owner, filters({ view: 'low' }))).items.map((row) => row.id)).toEqual([
       flour,
     ]);
 
@@ -233,11 +234,10 @@ describe('lists and levels', () => {
     const categories = await listCategories(owner);
     expect(categories.map((category) => category.name)).toEqual(['Dry goods']);
     const dry = categories[0]?.id ?? '';
-    expect((await listItems(owner, filters({ category: dry }))).map((row) => row.name)).toEqual([
-      'Flour',
-      'Rice',
-    ]);
-    expect((await listItems(owner, filters({ q: 'ric-' }))).map((row) => row.name)).toEqual([
+    expect(
+      (await listItems(owner, filters({ category: dry }))).items.map((row) => row.name),
+    ).toEqual(['Flour', 'Rice']);
+    expect((await listItems(owner, filters({ q: 'ric-' }))).items.map((row) => row.name)).toEqual([
       'Rice',
     ]);
   });
@@ -251,12 +251,39 @@ describe('lists and levels', () => {
 
   it('moves an archived item out of the working list but keeps its history', async () => {
     await setItemActive(owner, { id: flour, isActive: false });
-    expect((await listItems(owner, filters())).map((row) => row.id)).not.toContain(flour);
-    expect((await listItems(owner, filters({ view: 'archived' }))).map((row) => row.id)).toEqual([
-      flour,
-    ]);
+    expect((await listItems(owner, filters())).items.map((row) => row.id)).not.toContain(flour);
+    expect(
+      (await listItems(owner, filters({ view: 'archived' }))).items.map((row) => row.id),
+    ).toEqual([flour]);
     expect((await listMovements(owner, flour)).length).toBeGreaterThan(5);
     await setItemActive(owner, { id: flour, isActive: true });
+  });
+});
+
+describe('a long stock list', () => {
+  it('comes a page at a time, every item once, uncategorised last', async () => {
+    // Another business with more lines than one page, half of them in a category.
+    const [category] = (await adminDb().execute(sql`
+      insert into inventory_categories (tenant_id, name) values (${betaTenant}, 'Dry goods')
+      returning id`)) as unknown as { id: string }[];
+    await adminDb().execute(sql`
+      insert into inventory_items (tenant_id, name, currency, category_id)
+      select ${betaTenant}, 'Line ' || lpad(n::text, 3, '0'), 'AUD',
+        case when n % 2 = 0 then ${category!.id}::uuid end
+      from generate_series(1, 130) as n`);
+
+    const seen: { name: string; category: string | null }[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await listItems(outsider, filters(cursor ? { cursor } : {}));
+      expect(page.items.length).toBeLessThanOrEqual(100);
+      seen.push(...page.items.map((row) => ({ name: row.name, category: row.categoryName })));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    expect(seen).toHaveLength(130);
+    expect(new Set(seen.map((row) => row.name)).size).toBe(130);
+    expect(seen.slice(0, 65).every((row) => row.category === 'Dry goods')).toBe(true);
+    expect(seen.slice(65).every((row) => row.category === null)).toBe(true);
   });
 });
 

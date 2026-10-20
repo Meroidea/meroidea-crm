@@ -20,7 +20,7 @@ export default async function MyPayslipsPage() {
   const payslips = await listMyPayslips(ctx);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full max-w-3xl flex-col gap-5">
       <PageHeader
         title="My payslips"
         description="Your pay for each period, once it has been released."

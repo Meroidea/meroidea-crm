@@ -2,8 +2,9 @@ import 'server-only';
 
 import { randomBytes } from 'node:crypto';
 
-import { and, asc, eq, gte, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 import { auditLogs, contacts, helpdeskForms, tenants, ticketMessages, tickets } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { adminDb } from '@/server/db/admin';
@@ -39,7 +40,7 @@ async function formByToken(token: string) {
       and(
         eq(helpdeskForms.publicToken, token),
         eq(helpdeskForms.isOpen, true),
-        ne(tenants.status, 'suspended'),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
         sql`'helpdesk' = any(${tenants.features})`,
       ),
     )
@@ -151,6 +152,7 @@ async function ticketByToken(token: string) {
       status: tickets.status,
       requesterName: tickets.requesterName,
       businessName: tenants.name,
+      timezone: tenants.timezone,
     })
     .from(tickets)
     .innerJoin(tenants, eq(tenants.id, tickets.tenantId))
@@ -158,7 +160,9 @@ async function ticketByToken(token: string) {
       and(
         eq(tickets.publicToken, token),
         isNull(tickets.deletedAt),
-        ne(tenants.status, 'suspended'),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
+        // With the helpdesk switched off nobody in the business would see a reply.
+        sql`'helpdesk' = any(${tenants.features})`,
       ),
     )
     .limit(1);
@@ -170,6 +174,8 @@ export type PublicTicket = {
   subject: string;
   status: string;
   businessName: string;
+  /** The business's own timezone, so times read as they do in the workspace. */
+  timezone: string;
   messages: { id: string; fromStaff: boolean; authorName: string; body: string; createdAt: Date }[];
 };
 
@@ -199,6 +205,7 @@ export async function getPublicTicket(token: string): Promise<PublicTicket | nul
     subject: ticket.subject,
     status: ticket.status,
     businessName: ticket.businessName,
+    timezone: ticket.timezone,
     messages: messages.map((message, index) => ({
       id: message.id,
       // The opening message is the customer's own words even when staff logged it for them.

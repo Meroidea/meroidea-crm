@@ -15,7 +15,7 @@ export default async function NewOrganizationPage() {
   const label = ctx.tenant.labels.organization;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader title={`New ${label.singular.toLowerCase()}`} />
       <Card>
         <CardContent>

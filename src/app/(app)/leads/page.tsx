@@ -69,7 +69,7 @@ export default async function LeadsPage({ searchParams }: PageProps<'/leads'>) {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
+    <div className="flex w-full max-w-7xl flex-col gap-5">
       <PageHeader
         title="Leads"
         description="New enquiries and the people your team is qualifying, from first contact to handover."

@@ -219,6 +219,36 @@ describe('stage gates', () => {
     expect((await row(id)).stage_id).toBe(stage('Negotiation').id);
   });
 
+  it('drops a waiting request once the opportunity is moved, so approving cannot reopen a lost deal', async () => {
+    const { id } = await newOpportunity({ stageId: stage('Proposal').id });
+    await moveStage(rep, {
+      id,
+      stageId: stage('Negotiation').id,
+      lostReasonId: null,
+      lostReasonNote: null,
+    });
+    const [request] = (await adminDb().execute(
+      sql`select id from stage_approvals where opportunity_id = ${id} and status = 'pending'`,
+    )) as unknown as { id: string }[];
+    const [reason] = (await adminDb().execute(
+      sql`select id from lost_reasons where tenant_id = ${tenantId} limit 1`,
+    )) as unknown as { id: string }[];
+    const lost = stages.find((candidate) => candidate.category === 'lost')!;
+    await moveStage(rep, { id, stageId: lost.id, lostReasonId: reason!.id, lostReasonNote: null });
+
+    await expectCode(
+      () => decideApproval(manager, { approvalId: request!.id, approve: true, note: null }),
+      'NOT_FOUND',
+    );
+    expect((await row(id)).stage_id).toBe(lost.id);
+  });
+
+  it('applies the same rules to a new opportunity as to a move: no starting past an approval or closed', async () => {
+    await expectCode(() => newOpportunity({ stageId: stage('Negotiation').id }), 'VALIDATION');
+    const won = stages.find((candidate) => candidate.category === 'won')!;
+    await expectCode(() => newOpportunity({ stageId: won.id }), 'VALIDATION');
+  });
+
   it('gives the stage owner a task when an opportunity is won', async () => {
     const { id } = await newOpportunity({ stageId: stage('Proposal').id });
     await moveStage(admin, {

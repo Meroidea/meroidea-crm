@@ -80,7 +80,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps<'/op
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
+    <div className="flex w-full max-w-7xl flex-col gap-5">
       <PageHeader
         title={label.plural}
         description="Every deal, case and journey — in one list."

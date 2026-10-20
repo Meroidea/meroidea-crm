@@ -40,7 +40,7 @@ export default async function EditContactPage({ params }: PageProps<'/contacts/[
   if (contact.ownerUserId === null) owners.unshift({ value: '', label: 'Unassigned' });
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader title={`Edit ${contact.fullName}`} />
       <Card>
         <CardContent>

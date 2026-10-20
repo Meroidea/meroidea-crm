@@ -3,15 +3,17 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 
-import { Field, fieldA11y } from '@/components/forms/field';
+import { Field, fieldA11y, searchA11y } from '@/components/forms/field';
 import { FormSection } from '@/components/forms/form-section';
 import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { createPartnerAction } from '@/modules/partners/actions';
+import { SearchSelect, type SearchOption } from '@/components/forms/search-select';
+import { searchOrganizationOptionsAction } from '@/modules/organizations/actions';
 import {
   PARTNER_STATUS_LABELS,
   PARTNER_STATUSES,
@@ -19,13 +21,19 @@ import {
   type PartnerFormValues,
 } from '@/modules/partners/schemas';
 
+async function searchOrganizations(q: string): Promise<SearchOption[]> {
+  const result = await searchOrganizationOptionsAction({ q });
+  return result.ok ? result.data : [];
+}
+
 export function PartnerForm({
-  organizations,
+  canPickOrganization,
   organizationLabel,
   partnerLabel,
   currency,
 }: {
-  organizations: { value: string; label: string }[];
+  /** Whether the viewer may look existing organizations up (organizations.view). */
+  canPickOrganization: boolean;
   organizationLabel: string;
   partnerLabel: string;
   currency: string;
@@ -74,17 +82,21 @@ export function PartnerForm({
           label={`Existing ${organizationLabel.toLowerCase()}`}
           error={errors.organizationId?.message}
         >
-          <NativeSelect
-            {...fieldA11y('organizationId', errors.organizationId?.message)}
-            {...register('organizationId')}
-          >
-            <option value="">— Create a new one —</option>
-            {organizations.map((org) => (
-              <option key={org.value} value={org.value}>
-                {org.label}
-              </option>
-            ))}
-          </NativeSelect>
+          <Controller
+            control={control}
+            name="organizationId"
+            render={({ field }) => (
+              <SearchSelect
+                {...searchA11y('organizationId', errors.organizationId?.message)}
+                value={field.value ?? ''}
+                onChange={(value) => field.onChange(value)}
+                search={searchOrganizations}
+                placeholder={`Search, or leave empty to create a new ${organizationLabel.toLowerCase()}`}
+                clearable
+                disabled={!canPickOrganization}
+              />
+            )}
+          />
         </Field>
         {!pickedExisting && (
           <Field name="organizationName" label="New name" error={errors.organizationName?.message}>

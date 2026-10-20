@@ -2,6 +2,7 @@
 
 import { authedAction } from '@/server/action';
 
+import { employeeIdSchema } from './schemas';
 import {
   assignDepartmentSchema,
   createDepartmentSchema,
@@ -44,6 +45,11 @@ export const updateEmployeeProfileAction = authedAction(
 export const endEmploymentAction = authedAction(
   { ...manage, input: endEmploymentSchema },
   (ctx, input) => staffService.endEmployment(ctx, input),
+);
+
+export const removePendingHireAction = authedAction(
+  { ...manage, input: employeeIdSchema },
+  (ctx, input) => staffService.removePendingHire(ctx, input.id),
 );
 
 export const linkEmployeeLoginAction = authedAction(

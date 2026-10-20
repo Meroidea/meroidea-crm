@@ -23,7 +23,7 @@ export default async function OrderPage({ params }: PageProps<'/orders/[id]'>) {
   if (!order) notFound();
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <div>
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
           <Link href="/orders" className="underline-offset-4 hover:underline">

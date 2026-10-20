@@ -37,19 +37,69 @@ export type CustomFieldDefinition = {
   label: string;
   description: string | null;
   fieldType: CustomFieldType;
-  choices: { value: string; label: string }[];
+  choices: FieldChoice[];
   isRequired: boolean;
   isActive: boolean;
   showInList: boolean;
 };
 
-export function choicesOf(options: unknown): { value: string; label: string }[] {
+/**
+ * A picklist's options. A retired one was removed from the list but is kept, so records that
+ * hold it still show and save it; it is no longer offered for new picks.
+ */
+export type FieldChoice = { value: string; label: string; retired?: boolean };
+
+export function choicesOf(options: unknown): FieldChoice[] {
   const raw = (options as { choices?: unknown } | null)?.choices;
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((choice) => {
-    const parsed = z.object({ value: z.string(), label: z.string() }).safeParse(choice);
+    const parsed = z
+      .object({ value: z.string(), label: z.string(), retired: z.boolean().optional() })
+      .safeParse(choice);
     return parsed.success ? [parsed.data] : [];
   });
+}
+
+/**
+ * The options after an edit of the labels, keeping each stored value stable: an option keeps
+ * its value when its label is unchanged or was renamed in place, so records holding it stay
+ * valid; only a new option gets a new value, never one already used. Options taken off the
+ * list are kept as retired.
+ */
+export function reconcileChoices(labels: string[], existing: FieldChoice[]): FieldChoice[] {
+  const norm = (label: string) => label.trim().toLowerCase();
+  const wanted = labels.map(norm);
+  const active = existing.filter((choice) => !choice.retired);
+  const used = new Set<string>();
+  const taken = new Set(existing.map((choice) => choice.value));
+  const result: FieldChoice[] = labels.map((label, index) => {
+    const sameLabel = existing.find(
+      (choice) => norm(choice.label) === norm(label) && !used.has(choice.value),
+    );
+    // A rename: the option in the same place whose old label is gone, or else the only option
+    // whose old label is gone. With several gone and moved around, it is a new option.
+    const gone = (choice: FieldChoice) =>
+      !used.has(choice.value) && !wanted.includes(norm(choice.label));
+    const inPlace = active[index];
+    const orphans = active.filter(gone);
+    const renamed =
+      inPlace && gone(inPlace) ? inPlace : orphans.length === 1 ? orphans[0] : undefined;
+    const match = sameLabel ?? renamed;
+    if (match) {
+      used.add(match.value);
+      return { value: match.value, label };
+    }
+    const base = keyFromLabel(label);
+    let value = base;
+    for (let i = 2; taken.has(value); i += 1) value = `${base.slice(0, 36)}_${i}`;
+    taken.add(value);
+    used.add(value);
+    return { value, label };
+  });
+  for (const choice of existing) {
+    if (!used.has(choice.value)) result.push({ ...choice, retired: true });
+  }
+  return result;
 }
 
 /** A field label becomes an immutable key: "Preferred intake" → "preferred_intake". */

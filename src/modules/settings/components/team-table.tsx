@@ -6,7 +6,12 @@ import { useState, useTransition } from 'react';
 import { Avatar } from '@/components/data/avatar';
 import { NativeSelect } from '@/components/forms/native-select';
 import { Badge } from '@/components/ui/badge';
-import { InviteMember, LinkResult, MemberAccess } from '@/modules/access/components/team-tools';
+import {
+  type Delivery,
+  InviteMember,
+  LinkResult,
+  MemberAccess,
+} from '@/modules/access/components/team-tools';
 import { changeMemberRoleAction } from '@/modules/settings/actions';
 
 type Member = {
@@ -33,9 +38,7 @@ export function TeamTable({
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [delivery, setDelivery] = useState<{ emailed: boolean; link: string; name: string } | null>(
-    null,
-  );
+  const [delivery, setDelivery] = useState<Delivery | null>(null);
 
   return (
     <div className="flex flex-col gap-3">

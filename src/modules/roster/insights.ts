@@ -122,6 +122,7 @@ export function awardPayFor(
         startTime: shift.startTime,
         endTime: shift.endTime,
         unpaidBreakMinutes: shift.breakMinutes,
+        elapsedMinutes: shift.paidMinutes + shift.breakMinutes,
       })),
   });
 }

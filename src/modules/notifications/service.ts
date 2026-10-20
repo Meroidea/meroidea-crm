@@ -28,6 +28,7 @@ export const NOTIFICATION_EMAIL: Record<string, string> = {
   stale_opportunity: 'An opportunity has gone quiet',
   task_overdue: 'You have an overdue task',
   enquiry_received: 'A new enquiry arrived from your website',
+  features_enabled: 'New features have been switched on for your business',
 };
 
 export type NoticeInput = {
@@ -42,7 +43,13 @@ export type NoticeInput = {
   email?: boolean;
 };
 
-export type PendingEmail = { userId: string; type: string; url: string };
+export type PendingEmail = {
+  userId: string;
+  type: string;
+  url: string;
+  /** The notification it is about, when it is one already stored (alerts). */
+  id?: string;
+};
 
 /**
  * Records notices inside the caller's transaction. Returns the emails to send once that
@@ -95,28 +102,44 @@ export async function deliverEmails(ctx: TenantContext, pending: PendingEmail[])
 /**
  * The emails themselves, once the recipients' addresses are known. Public intake (a website
  * form has no session) looks the addresses up its own way and calls this directly.
+ *
+ * Notices of one kind for one person go as a single email ("8 of these are waiting"), not one
+ * each: an upload or a sweep can raise dozens at once. Sent one after another rather than all at
+ * once. Returns the notices whose email could not be sent, so they can be tried again.
  */
 export async function sendNoticeEmails(
   businessName: string,
   pending: PendingEmail[],
   recipients: { id: string; email: string }[],
-): Promise<void> {
+): Promise<{ failed: PendingEmail[] }> {
   const appUrl = serverEnv().APP_URL;
-  await Promise.all(
-    pending.map(async (item) => {
-      const to = recipients.find((recipient) => recipient.id === item.userId)?.email;
-      if (!to) return;
-      const subject = NOTIFICATION_EMAIL[item.type] ?? 'You have a new notification';
-      const link = new URL(item.url, appUrl).toString();
-      const intro = `${subject} in ${businessName} on Meroidea.`;
-      await sendEmail({
-        to,
-        subject,
-        text: `${intro}\n\nOpen it: ${link}`,
-        html: `<p>${escapeHtml(intro)}</p><p><a href="${escapeHtml(link)}">Open it in Meroidea</a></p>`,
-      });
-    }),
-  );
+  const groups = new Map<string, PendingEmail[]>();
+  for (const item of pending) {
+    const key = `${item.userId}|${item.type}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  const failed: PendingEmail[] = [];
+  for (const items of groups.values()) {
+    const first = items[0];
+    if (!first) continue;
+    const to = recipients.find((recipient) => recipient.id === first.userId)?.email;
+    if (!to) continue;
+    const subject = NOTIFICATION_EMAIL[first.type] ?? 'You have a new notification';
+    const many = items.length > 1;
+    const link = new URL(many ? '/notifications' : first.url, appUrl).toString();
+    const intro = many
+      ? `${subject} in ${businessName} on Meroidea, and ${items.length - 1} more like it.`
+      : `${subject} in ${businessName} on Meroidea.`;
+    const result = await sendEmail({
+      to,
+      subject: many ? `${subject} (${items.length})` : subject,
+      text: `${intro}\n\nOpen ${many ? 'them' : 'it'}: ${link}`,
+      html: `<p>${escapeHtml(intro)}</p><p><a href="${escapeHtml(link)}">Open ${many ? 'them' : 'it'} in Meroidea</a></p>`,
+    });
+    // Not set up is not a failure to retry: nothing would change on the next run.
+    if (!result.sent && result.reason === 'failed') failed.push(...items);
+  }
+  return { failed };
 }
 
 export async function markRead(ctx: TenantContext, id: string | 'all'): Promise<{ id: string }> {

@@ -1,11 +1,11 @@
 import 'server-only';
 
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 
-import { departments, employees, tenantMemberships } from '@/db/schema';
+import { departments, employees, employmentContracts, tenantMemberships } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { audit } from '@/server/audit';
-import { requirePermission, type TenantContext } from '@/server/context';
+import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 
 import type { EndEmploymentInput, UpdateProfileInput } from './staff-schemas';
@@ -145,6 +145,20 @@ export async function updateEmployeeProfile(
       (key) => (employee[key] ?? null) !== (next[key] ?? null),
     );
     if (changed.length === 0) return { id };
+    // A login chosen at hire is created for this address when the offer is accepted (ADR-048).
+    // Moving it to another address decides who gets that login, which is for people who manage
+    // logins, not only employee records.
+    if (
+      changed.includes('email') &&
+      employee.loginRoleId &&
+      !employee.userId &&
+      !hasPermission(ctx, 'users.manage')
+    ) {
+      throw new AppError(
+        'FORBIDDEN',
+        'This person gets a login when they accept their offer. Ask someone who manages logins to change their email.',
+      );
+    }
 
     await tx
       .update(employees)
@@ -175,7 +189,7 @@ export async function endEmployment(
         'CONFLICT',
         employee.status === 'ended'
           ? 'This person’s employment has already ended.'
-          : 'This person has not accepted an offer yet. Withdraw the offer instead.',
+          : 'This person has not accepted an offer yet. Withdraw the offer, then remove them instead.',
       );
     }
     await tx
@@ -248,6 +262,65 @@ export async function linkEmployeeLogin(
       entityType: 'employee',
       entityId: employee.id,
       changes: { userId: [employee.userId, input.userId] },
+    });
+    return { id: employee.id };
+  });
+}
+
+/**
+ * Takes someone off the staff list who was hired but never started: their offer was declined,
+ * withdrawn or never sent. They were never employed, so nothing ends; the record and its
+ * contracts are set aside (soft deleted) and the removal is audited. An offer still out for
+ * acceptance must be withdrawn first, so the link stops working before they disappear.
+ */
+export async function removePendingHire(ctx: TenantContext, id: string): Promise<{ id: string }> {
+  requirePermission(ctx, 'employees.manage');
+  return withRls(ctx, async (tx) => {
+    const employee = await loadEmployee(tx, ctx, id);
+    if (employee.status !== 'pending') {
+      throw new AppError(
+        'CONFLICT',
+        'Only someone who has not accepted an offer can be removed. End their employment instead.',
+      );
+    }
+    const contracts = await tx
+      .select({ id: employmentContracts.id, status: employmentContracts.status })
+      .from(employmentContracts)
+      .where(
+        and(
+          eq(employmentContracts.tenantId, ctx.tenantId),
+          eq(employmentContracts.employeeId, employee.id),
+          isNull(employmentContracts.deletedAt),
+        ),
+      )
+      .for('update');
+    if (contracts.some((contract) => contract.status === 'sent')) {
+      throw new AppError('CONFLICT', 'Their offer is still out. Withdraw it first.');
+    }
+    const now = new Date();
+    if (contracts.length > 0) {
+      await tx
+        .update(employmentContracts)
+        .set({ deletedAt: now, updatedBy: ctx.userId })
+        .where(
+          and(
+            eq(employmentContracts.tenantId, ctx.tenantId),
+            inArray(
+              employmentContracts.id,
+              contracts.map((contract) => contract.id),
+            ),
+          ),
+        );
+    }
+    await tx
+      .update(employees)
+      .set({ deletedAt: now, updatedBy: ctx.userId })
+      .where(and(eq(employees.tenantId, ctx.tenantId), eq(employees.id, employee.id)));
+    await audit(tx, ctx, {
+      action: 'delete',
+      entityType: 'employee',
+      entityId: employee.id,
+      context: { neverStarted: true, contracts: contracts.map((contract) => contract.status) },
     });
     return { id: employee.id };
   });

@@ -4,7 +4,14 @@ import { randomBytes } from 'node:crypto';
 
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { contacts, helpdeskForms, tenantMemberships, ticketMessages, tickets } from '@/db/schema';
+import {
+  contacts,
+  helpdeskForms,
+  rolePermissions,
+  tenantMemberships,
+  ticketMessages,
+  tickets,
+} from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { getMyName } from '@/modules/members/queries';
 import { audit } from '@/server/audit';
@@ -17,6 +24,7 @@ import { nextTicketNumber } from './numbering';
 import {
   responseDueAt,
   type CreateTicketInput,
+  type ReplyEmail,
   type ReplyInput,
   type UpdateTicketInput,
 } from './schemas';
@@ -33,16 +41,26 @@ async function findTicket(tx: Tx, ctx: TenantContext, id: string) {
   return ticket;
 }
 
+/** A ticket goes only to one of the business's own people whose role can work tickets. */
 async function assertMember(tx: Tx, ctx: TenantContext, userId: string | null | undefined) {
   if (!userId) return;
   const [member] = await tx
     .select({ id: tenantMemberships.id })
     .from(tenantMemberships)
+    .innerJoin(
+      rolePermissions,
+      and(
+        eq(rolePermissions.tenantId, tenantMemberships.tenantId),
+        eq(rolePermissions.roleId, tenantMemberships.roleId),
+        eq(rolePermissions.permission, 'tickets.work'),
+      ),
+    )
     .where(
       and(
         eq(tenantMemberships.tenantId, ctx.tenantId),
         eq(tenantMemberships.userId, userId),
         eq(tenantMemberships.status, 'active'),
+        eq(tenantMemberships.isSupport, false),
       ),
     )
     .limit(1);
@@ -118,7 +136,7 @@ export async function createTicket(
 export async function replyToTicket(
   ctx: TenantContext,
   input: ReplyInput,
-): Promise<{ id: string; emailed: boolean }> {
+): Promise<{ id: string; email: ReplyEmail }> {
   requirePermission(ctx, 'tickets.work');
   const authorName = await getMyName(ctx);
   const now = new Date();
@@ -135,31 +153,42 @@ export async function replyToTicket(
       body: input.body,
       isInternal: input.isInternal,
     });
+    let changes: Record<string, [unknown, unknown]> | null = null;
     if (!input.isInternal) {
       const status = input.status ?? 'pending';
+      // Replying takes an unassigned ticket, unless it is the platform owner on support.
+      const assigneeUserId = found.assigneeUserId ?? (ctx.isSupport ? null : ctx.userId);
       await tx
         .update(tickets)
         .set({
           status,
           firstResponseAt: found.firstResponseAt ?? now,
           solvedAt: status === 'solved' || status === 'closed' ? (found.solvedAt ?? now) : null,
-          // Whoever answers an unassigned ticket takes it.
-          assigneeUserId: found.assigneeUserId ?? ctx.userId,
+          assigneeUserId,
           lastActivityAt: now,
           updatedBy: ctx.userId,
         })
         .where(and(eq(tickets.tenantId, ctx.tenantId), eq(tickets.id, found.id)));
+      changes = changedFields({
+        status: [found.status, status],
+        assigneeUserId: [found.assigneeUserId, assigneeUserId],
+      });
     }
     await audit(tx, ctx, {
-      action: 'update',
+      action: changes?.assigneeUserId
+        ? 'owner_change'
+        : changes?.status
+          ? 'stage_change'
+          : 'update',
       entityType: 'ticket',
       entityId: found.id,
+      changes,
       context: { kind: input.isInternal ? 'note' : 'reply' },
     });
     return found;
   });
 
-  let emailed = false;
+  let email: ReplyEmail = 'none';
   if (!input.isInternal && ticket.requesterEmail) {
     const link = ticketLink(ticket.publicToken);
     const result = await sendEmail({
@@ -168,9 +197,17 @@ export async function replyToTicket(
       text: `${input.body}\n\n— ${authorName}, ${ctx.tenant.name}\n\nView or reply to your request: ${link}`,
       html: `<p style="white-space:pre-wrap">${input.body.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)}</p><p>— ${authorName.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)}</p><p><a href="${link}">View or reply to your request</a></p>`,
     });
-    emailed = result.sent;
+    email = result.sent ? 'sent' : result.reason;
   }
-  return { id: ticket.id, emailed };
+  return { id: ticket.id, email };
+}
+
+/** Only the fields whose value moved, or null when none did. */
+function changedFields(
+  candidates: Record<string, [unknown, unknown]>,
+): Record<string, [unknown, unknown]> | null {
+  const moved = Object.entries(candidates).filter(([, [before, after]]) => before !== after);
+  return moved.length > 0 ? Object.fromEntries(moved) : null;
 }
 
 /** Changes a ticket's status, priority, category or who is working on it. */
@@ -194,16 +231,23 @@ export async function updateTicket(
         updatedBy: ctx.userId,
       })
       .where(and(eq(tickets.tenantId, ctx.tenantId), eq(tickets.id, ticket.id)));
+    const changes = changedFields({
+      ...(input.status ? { status: [ticket.status, input.status] } : {}),
+      ...(input.priority ? { priority: [ticket.priority, input.priority] } : {}),
+      ...(input.category !== undefined ? { category: [ticket.category, input.category] } : {}),
+      ...(input.assigneeUserId !== undefined
+        ? { assigneeUserId: [ticket.assigneeUserId, input.assigneeUserId] }
+        : {}),
+    });
     await audit(tx, ctx, {
-      action:
-        input.assigneeUserId !== undefined && input.assigneeUserId !== ticket.assigneeUserId
-          ? 'owner_change'
-          : input.status && input.status !== ticket.status
-            ? 'stage_change'
-            : 'update',
+      action: changes?.assigneeUserId
+        ? 'owner_change'
+        : changes?.status
+          ? 'stage_change'
+          : 'update',
       entityType: 'ticket',
       entityId: ticket.id,
-      changes: input.status ? { status: [ticket.status, input.status] } : null,
+      changes,
     });
     return { id: ticket.id };
   });

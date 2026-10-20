@@ -9,6 +9,14 @@
 > choosing their own password. Nobody else ever knows it. The admin then adds staff
 > (ADR-031). Agreement versions are published at `/platform/agreement`. The self-serve flow
 > below is kept as the design for if sign-up reopens.
+>
+> **Features after onboarding.** The platform owner switches features on or off at any time on
+> the business's page in the console (`/platform/[id]` → Features). The business's audit log
+> records which were added and removed. When a business in use (`trialing`, `active`,
+> `past_due`) gets a feature switched on, each of its Admins is told: by a notice that stays on
+> their dashboard until dismissed (a `features_enabled` notification) and by an email. Both
+> point to Settings → Roles, because built-in roles already hold the new permissions but roles
+> the business created itself do not. Switching a feature off is not announced.
 
 How a company becomes a Meroidea workspace, and how its people get in. This is the flow the
 marketing site promises, so it is core product, not a Phase 3 extra (ADR-021).

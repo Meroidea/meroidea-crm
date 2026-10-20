@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
-import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,17 +12,25 @@ import {
   unlinkContactOrganizationAction,
 } from '@/modules/contacts/actions';
 import type { ContactLink } from '@/modules/contacts/types';
+import { SearchSelect, type SearchOption } from '@/components/forms/search-select';
+import { searchOrganizationOptionsAction } from '@/modules/organizations/actions';
+
+async function searchOrganizations(q: string): Promise<SearchOption[]> {
+  const result = await searchOrganizationOptionsAction({ q });
+  return result.ok ? result.data : [];
+}
 
 export function OrganizationLinks({
   contactId,
   links,
-  options,
+  canPick,
   canEdit,
   organizationLabel,
 }: {
   contactId: string;
   links: ContactLink[];
-  options: { id: string; name: string }[];
+  /** Whether the viewer may look organizations up (organizations.view). */
+  canPick: boolean;
   canEdit: boolean;
   organizationLabel: string;
 }) {
@@ -95,19 +102,15 @@ export function OrganizationLinks({
             run(() => linkContactOrganizationAction({ contactId, organizationId, relationship }));
           }}
         >
-          <NativeSelect
-            aria-label={organizationLabel}
+          <SearchSelect
+            ariaLabel={organizationLabel}
             value={organizationId}
-            onChange={(event) => setOrganizationId(event.target.value)}
-            required
-          >
-            <option value="">Choose…</option>
-            {options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </NativeSelect>
+            onChange={(value) => setOrganizationId(value)}
+            search={searchOrganizations}
+            placeholder={`Search for an ${organizationLabel.toLowerCase()}…`}
+            exclude={links.map((link) => link.organizationId)}
+            disabled={!canPick}
+          />
           <Input
             aria-label="Relationship"
             placeholder="Relationship, e.g. employee"
@@ -143,17 +146,18 @@ export function OrganizationLinks({
           size="sm"
           className="self-start"
           onClick={() => setAdding(true)}
-          disabled={options.length === 0}
+          disabled={!canPick}
         >
           <Plus aria-hidden /> Link {organizationLabel.toLowerCase()}
         </Button>
       )}
-      {canEdit && options.length === 0 && (
+      {canEdit && adding && (
         <p className="text-xs text-muted-foreground">
+          Not there yet?{' '}
           <Link href="/organizations/new" className="underline">
-            Create an {organizationLabel.toLowerCase()}
+            Create the {organizationLabel.toLowerCase()}
           </Link>{' '}
-          first to link it here.
+          first.
         </p>
       )}
     </div>

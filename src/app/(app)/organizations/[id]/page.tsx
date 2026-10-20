@@ -39,7 +39,7 @@ export default async function OrganizationPage({ params }: PageProps<'/organizat
   const address = [org.addressLine, org.city, org.region, org.country].filter(Boolean).join(', ');
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <Link
         href="/organizations"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

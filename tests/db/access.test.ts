@@ -8,7 +8,13 @@ import { loadTenantContext, type TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
 
-import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
+import {
+  addMember,
+  contextFor,
+  createWorkspace,
+  destroyWorkspace,
+  handedOver,
+} from '../support/workspaces';
 
 const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
@@ -67,8 +73,7 @@ describe('adding people', () => {
     alphaUsers.push(result.userId);
 
     // No email service in tests, so the link comes back for the admin to pass on.
-    expect(result.emailed).toBe(false);
-    const link = new URL(result.link);
+    const link = new URL(handedOver(result));
     expect(link.pathname).toBe('/auth/confirm');
     expect(link.searchParams.get('type')).toBe('recovery');
 
@@ -77,7 +82,7 @@ describe('adding people', () => {
   });
 
   it('the one-time link signs its owner in exactly once', async () => {
-    const { link } = await sendPasswordLink(owner, member.userId);
+    const link = handedOver(await sendPasswordLink(owner, member.userId));
     const tokenHash = new URL(link).searchParams.get('token_hash')!;
     const client = createSupabaseAdminClient();
     const first = await client.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });

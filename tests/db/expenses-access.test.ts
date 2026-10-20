@@ -90,7 +90,9 @@ describe('claiming an expense', () => {
     // 42.50 + 0.10 + 0.20, added by the database: no floating-point drift.
     expect(totals.submitted).toBe('42.80');
     expect(
-      (await listExpenses(erin, 'mine')).every((row) => row.currency === owner.tenant.currency),
+      (await listExpenses(erin, 'mine')).items.every(
+        (row) => row.currency === owner.tenant.currency,
+      ),
     ).toBe(true);
   });
 });
@@ -154,8 +156,8 @@ describe('receipts', () => {
 
 describe('who can see and decide', () => {
   it("a colleague and another business see none of a person's claims", async () => {
-    expect(await listExpenses(flynn, 'everyone')).toEqual([]);
-    expect(await listExpenses(betaOwner, 'everyone')).toEqual([]);
+    expect((await listExpenses(flynn, 'everyone')).items).toEqual([]);
+    expect((await listExpenses(betaOwner, 'everyone')).items).toEqual([]);
     expect(
       await code(decideExpense(betaOwner, { id: claimId, decision: 'approved', note: null })),
     ).toBe('NOT_FOUND');
@@ -190,6 +192,42 @@ describe('who can see and decide', () => {
     await markReimbursed(manager, claimId);
     const totals = await getExpenseTotals(erin, 'mine');
     expect([totals.reimbursed, totals.submitted]).toEqual(['42.50', '0.30']);
+  });
+});
+
+describe('a long list of claims', () => {
+  it('keeps an old claim that still waits within reach, a page at a time', async () => {
+    // An old claim still waiting, then a page and more of newer ones already paid back.
+    const values = Array.from({ length: 56 }, (_, index) => ({
+      tenantId: alphaTenant,
+      userId: flynn.userId,
+      spentOn: '2031-01-01',
+      category: 'Supplies',
+      amount: '1.00',
+      currency: owner.tenant.currency,
+      status: index === 0 ? 'submitted' : 'reimbursed',
+      createdAt: new Date(Date.UTC(2031, 0, 1, 0, index)),
+    }));
+    const inserted = await adminDb()
+      .insert(expenseClaims)
+      .values(values)
+      .returning({ id: expenseClaims.id });
+    const waitingId = inserted[0]!.id;
+
+    const open = await listExpenses(manager, 'everyone', { filter: 'open' });
+    expect(open.items.map((row) => row.id)).toContain(waitingId);
+    expect(open.items.every((row) => ['submitted', 'approved'].includes(row.status))).toBe(true);
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await listExpenses(flynn, 'mine', { cursor });
+      expect(page.items.length).toBeLessThanOrEqual(50);
+      seen.push(...page.items.map((row) => row.id));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen).toEqual(expect.arrayContaining(inserted.map((row) => row.id)));
   });
 });
 

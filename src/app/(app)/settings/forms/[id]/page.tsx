@@ -32,7 +32,7 @@ export default async function WebFormBuilderPage({ params }: PageProps<'/setting
   if (!isNew && !form) notFound();
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <Link
         href="/settings?tab=forms"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

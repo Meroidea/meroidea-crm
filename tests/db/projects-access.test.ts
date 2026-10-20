@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { projectTasks, taskTimeLogs } from '@/db/schema';
-import { zonedToday } from '@/lib/dates';
+import { addDaysToDate, zonedToday } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { getProductivity } from '@/modules/productivity/queries';
 import {
@@ -11,6 +11,7 @@ import {
   listMyOpenTasks,
   listProjects,
   listProjectTasks,
+  listRecentTimeLogs,
 } from '@/modules/projects/queries';
 import { logTimeSchema, saveProjectSchema, saveTaskSchema } from '@/modules/projects/schemas';
 import {
@@ -21,6 +22,7 @@ import {
   setTaskStatus,
   startTimer,
   stopTimer,
+  deleteTimeLog,
 } from '@/modules/projects/service';
 import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
@@ -201,6 +203,38 @@ describe('timing work', () => {
     const seenByGale = await listProjectTasks(gale, projectId);
     expect(seenByGale.find((row) => row.id === harperTask)?.loggedMinutes).toBe(0);
   });
+
+  it('lets a mistake be removed by whoever logged it, and audits every entry', async () => {
+    const typo = await logTime(
+      gale,
+      logTimeSchema.parse({ taskId: galeTask, date: today, hours: '10' }),
+    );
+    expect((await listRecentTimeLogs(gale, projectId)).map((row) => row.id)).toContain(typo.id);
+    // A colleague's entry is not theirs to remove, nor visible in their list.
+    const harpers = await listRecentTimeLogs(harper, projectId);
+    expect(harpers.map((row) => row.id)).not.toContain(typo.id);
+    expect(await code(deleteTimeLog(harper, typo.id))).toBe('NOT_FOUND');
+    await deleteTimeLog(gale, typo.id);
+    expect((await listRecentTimeLogs(owner, projectId)).map((row) => row.id)).not.toContain(
+      typo.id,
+    );
+    const audited = (await adminDb().execute(sql`
+      select action from audit_logs where entity_type = 'task_time_log' and entity_id = ${typo.id}
+      order by created_at`)) as unknown as { action: string }[];
+    expect(audited.map((row) => row.action)).toEqual(['create', 'delete']);
+  });
+
+  it('keeps staff to the last month when logging time afterwards; a manager may go further', async () => {
+    const old = addDaysToDate(today, -40);
+    expect(
+      await code(logTime(gale, logTimeSchema.parse({ taskId: galeTask, date: old, hours: '1' }))),
+    ).toBe('VALIDATION');
+    const fixed = await logTime(
+      owner,
+      logTimeSchema.parse({ taskId: galeTask, date: old, hours: '1' }),
+    );
+    await deleteTimeLog(owner, fixed.id);
+  });
 });
 
 describe('the productivity report', () => {
@@ -228,6 +262,25 @@ describe('the productivity report', () => {
     const elsewhere = await getProductivity(betaOwner, range);
     expect(elsewhere.every((row) => row.projectMinutes === 0)).toBe(true);
     expect(elsewhere.map((row) => row.userId)).toEqual([betaOwner.userId]);
+  });
+
+  it('counts only shifts that have started, so a week in progress is not shown as short', async () => {
+    const [roster] = (await adminDb().execute(sql`
+      insert into rosters (tenant_id, starts_on, ends_on, status)
+      values (${alphaTenant}, ${addDaysToDate(today, -3)}, ${addDaysToDate(today, 3)}, 'published')
+      returning id`)) as unknown as { id: string }[];
+    await adminDb().execute(sql`
+      insert into roster_shifts (tenant_id, roster_id, user_id, starts_at, ends_at, break_minutes)
+      values
+        (${alphaTenant}, ${roster!.id}, ${harper.userId}, now() - interval '3 hours',
+          now() - interval '2 hours', 0),
+        (${alphaTenant}, ${roster!.id}, ${harper.userId}, now() + interval '1 day',
+          now() + interval '1 day 8 hours', 0)`);
+    const rows = await getProductivity(owner, {
+      from: addDaysToDate(today, -1),
+      to: addDaysToDate(today, 2),
+    });
+    expect(rows.find((row) => row.userId === harper.userId)?.rosteredMinutes).toBe(60);
   });
 
   it('counts a task past its due date as overdue until it is done', async () => {

@@ -23,10 +23,8 @@ import { TaskList } from '@/modules/tasks/components/task-list';
 import { TaskQuickAdd } from '@/modules/tasks/components/task-quick-add';
 import { listTasksFor } from '@/modules/tasks/queries';
 import { formatMoney } from '@/lib/format';
-import { listOrganizationOptions } from '@/modules/organizations/queries';
 import { getCustomFields } from '@/modules/custom-fields/queries';
 import { displayCustomValue } from '@/modules/custom-fields/validation';
-import { listContactOptions } from '@/modules/contacts/queries';
 import { HouseholdLinks } from '@/modules/leads/components/household-links';
 import { LeadPanel } from '@/modules/leads/components/lead-panel';
 import { getLeadConfig } from '@/modules/leads/config';
@@ -70,6 +68,7 @@ function Detail({
 
 export default async function ContactPage({ params }: PageProps<'/contacts/[id]'>) {
   const ctx = await requireTenantContext();
+  const canManageTasks = hasPermission(ctx, 'tasks.manage');
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
@@ -79,23 +78,18 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
   const canDelete =
     hasPermission(ctx, 'contacts.delete') && canAccess(ctx, 'contacts.delete', contact);
   const [
-    organizationOptions,
     opportunities,
     timeline,
     tasks,
     leadPanel,
     customFields,
     leadConfig,
-    contactOptions,
     templates,
     sequenceOptions,
     enrollments,
     members,
     duplicates,
   ] = await Promise.all([
-    canEdit && hasPermission(ctx, 'organizations.view')
-      ? listOrganizationOptions(ctx)
-      : Promise.resolve([]),
     hasPermission(ctx, 'opportunities.view')
       ? listOpportunitiesForContact(ctx, contact.id)
       : Promise.resolve([]),
@@ -104,7 +98,6 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     leadPanelData(ctx, contact),
     getCustomFields(ctx, 'contact'),
     getLeadConfig(ctx),
-    canEdit ? listContactOptions(ctx) : Promise.resolve([]),
     hasPermission(ctx, 'activities.create') ? getEmailTemplates(ctx, true) : Promise.resolve([]),
     hasPermission(ctx, 'tasks.manage') ? getSequences(ctx, true) : Promise.resolve([]),
     listEnrollments(ctx, contact.id),
@@ -139,7 +132,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     .join(', ');
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <Link
         href="/contacts"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -432,6 +425,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
                   <TaskQuickAdd contactId={contact.id} currentUserId={ctx.userId} />
                 )}
                 <TaskList
+                  canManage={canManageTasks}
                   tasks={tasks}
                   timezone={ctx.tenant.timezone}
                   showRecord={false}
@@ -448,7 +442,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
               <OrganizationLinks
                 contactId={contact.id}
                 links={contact.organizations}
-                options={organizationOptions}
+                canPick={hasPermission(ctx, 'organizations.view')}
                 canEdit={canEdit}
                 organizationLabel={labels.organization.singular}
               />
@@ -485,10 +479,6 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
                 <HouseholdLinks
                   contactId={contact.id}
                   links={contact.household}
-                  options={contactOptions.map((option) => ({
-                    value: option.id,
-                    label: option.name,
-                  }))}
                   relationships={leadConfig.settings.householdRelationships}
                   canEdit={canEdit}
                 />

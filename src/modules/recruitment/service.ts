@@ -234,15 +234,30 @@ export async function getResumeUrl(ctx: TenantContext, id: string): Promise<{ ur
   };
 }
 
-/** Removes an applicant and their résumé, for example when they ask for their details to be deleted. */
+/**
+ * Removes an applicant, for example when they ask for their details to be deleted: their name,
+ * email, phone, cover note, résumé and the notes about them are erased, not only hidden. The row
+ * stays (as "Deleted applicant") so the opening's counts and the audit trail still add up.
+ */
 export async function deleteApplicant(ctx: TenantContext, id: string): Promise<{ id: string }> {
   requirePermission(ctx, 'recruitment.manage');
   const applicant = await withRls(ctx, async (tx) => {
     const found = await findApplicant(tx, ctx, id);
     await tx
       .update(jobApplicants)
-      .set({ deletedAt: new Date(), resumePath: null, resumeName: null, updatedBy: ctx.userId })
+      .set({
+        deletedAt: new Date(),
+        fullName: 'Deleted applicant',
+        email: '',
+        phone: null,
+        coverNote: null,
+        rejectionReason: null,
+        resumePath: null,
+        resumeName: null,
+        updatedBy: ctx.userId,
+      })
       .where(and(eq(jobApplicants.tenantId, ctx.tenantId), eq(jobApplicants.id, found.id)));
+    await tx.execute(sql`select app.erase_applicant_traces(${found.id}::uuid)`);
     await audit(tx, ctx, { action: 'delete', entityType: 'job_applicant', entityId: found.id });
     return found;
   });

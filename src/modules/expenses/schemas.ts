@@ -40,8 +40,13 @@ export const decideExpenseSchema = z.object({
 });
 export const expenseIdSchema = z.object({ id: z.uuid() });
 
+export const EXPENSE_FILTERS = ['open', 'done', 'all'] as const;
+export type ExpenseFilter = (typeof EXPENSE_FILTERS)[number];
+
 export const expenseParamsSchema = z.object({
   view: z.enum(['mine', 'team']).optional().catch(undefined),
+  status: z.enum(EXPENSE_FILTERS).optional().catch(undefined),
+  cursor: z.string().max(200).optional().catch(undefined),
 });
 
 export type SubmitExpenseInput = z.output<typeof submitExpenseSchema>;

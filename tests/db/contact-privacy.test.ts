@@ -10,6 +10,8 @@ import { anonymizeContact, mergeContacts } from '@/modules/contacts/privacy';
 import { createContact, updateContact } from '@/modules/contacts/service';
 import { createOpportunitySchema } from '@/modules/opportunities/schemas';
 import { createOpportunity } from '@/modules/opportunities/service';
+import { createTicketSchema } from '@/modules/helpdesk/schemas';
+import { createTicket } from '@/modules/helpdesk/service';
 import { linkContacts } from '@/modules/leads/service';
 import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
@@ -209,6 +211,50 @@ describe('erasing a person on request', () => {
     expect(JSON.stringify(traces[0]!.changes)).not.toMatch(/Melbourne|Sydney|0400/);
 
     await expectCode(() => anonymizeContact(admin, id), 'CONFLICT');
+  });
+
+  it('also clears what they wrote on support tickets, and any record merged into theirs', async () => {
+    const { id } = await person(admin, {
+      firstName: 'Tia',
+      lastName: 'Ticket',
+      email: mail('tia'),
+    });
+    const duplicate = await person(admin, {
+      firstName: 'Tia',
+      lastName: 'Ticket',
+      phone: '0400 777 888',
+      dateOfBirth: '1990-01-02',
+    });
+    await mergeContacts(admin, { keepId: id, dropId: duplicate.id });
+    const ticket = await createTicket(
+      admin,
+      createTicketSchema.parse({
+        subject: 'Refund please',
+        description: 'Tia Ticket here, my card ends 4242',
+        requesterName: 'Tia Ticket',
+        requesterEmail: mail('tia'),
+      }),
+    );
+    await adminDb().execute(sql`
+      insert into ticket_messages (tenant_id, ticket_id, author_user_id, author_name, body)
+      values (${tenantId}, (select id from tickets where tenant_id = ${tenantId} and number = ${ticket.number}),
+        null, 'Tia Ticket', 'Any update? Tia')`);
+
+    await anonymizeContact(admin, id);
+
+    const messages = (await adminDb().execute(sql`
+      select m.author_name, m.body from ticket_messages m join tickets t on t.id = m.ticket_id
+      where t.tenant_id = ${tenantId} and t.number = ${ticket.number}`)) as unknown as {
+      author_name: string;
+      body: string;
+    }[];
+    expect(JSON.stringify(messages)).not.toMatch(/Tia|4242/);
+    // The duplicate folded into them was erased too, not left holding their details.
+    expect(await row(duplicate.id)).toMatchObject({
+      first_name: 'Erased',
+      phone: null,
+      date_of_birth: null,
+    });
   });
 
   it('is refused without the permission, and across businesses', async () => {

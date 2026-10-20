@@ -12,6 +12,8 @@ import { inviteMember } from '@/modules/access/service';
 import { acceptOffer, getOfferByToken } from '@/modules/hiring/public';
 import { acceptOfferSchema, createHireSchema } from '@/modules/hiring/schemas';
 import { createHire, sendContract } from '@/modules/hiring/service';
+import { updateProfileSchema } from '@/modules/hiring/staff-schemas';
+import { updateEmployeeProfile } from '@/modules/hiring/staff-service';
 import { listTasks } from '@/modules/tasks/queries';
 import { createTaskSchema } from '@/modules/tasks/schemas';
 import { createTask } from '@/modules/tasks/service';
@@ -23,6 +25,7 @@ import {
   createAuthUser,
   createWorkspace,
   destroyWorkspace,
+  handedOver,
 } from '../support/workspaces';
 
 /*
@@ -109,7 +112,7 @@ const hire = (name: string, overrides: Record<string, unknown> = {}) =>
 async function hireAndAccept(name: string, overrides: Record<string, unknown> = {}) {
   const created = await createHire(admin, hire(name, overrides));
   const sent = await sendContract(admin, created.contractId);
-  const token = sent.link.split('/offer/')[1] ?? '';
+  const token = handedOver(sent).split('/offer/')[1] ?? '';
   await acceptOffer(
     acceptOfferSchema.parse({
       token,
@@ -291,6 +294,30 @@ describe('a login when a hire accepts their offer', () => {
     );
     // Hiring itself is still theirs to do, without a login.
     await expect(createHire(hiringOnly, hire('Pia'))).resolves.toBeTruthy();
+  });
+
+  it('lets only someone who may give logins move a pending login to another address', async () => {
+    const hiringOnly: TenantContext = {
+      ...admin,
+      grants: new Map([...admin.grants].filter(([key]) => key !== 'users.manage')),
+    };
+    const created = await createHire(admin, hire('Quin', { loginRoleId: staffRoleId }));
+    const profile = (email: string) =>
+      updateProfileSchema.parse({
+        id: created.employeeId,
+        firstName: 'Quin',
+        lastName: 'Newstart',
+        email,
+      });
+    await expectCode(
+      () => updateEmployeeProfile(hiringOnly, profile(mail('someone-else'))),
+      'FORBIDDEN',
+    );
+    // Other details are still theirs to keep up to date.
+    await expect(
+      updateEmployeeProfile(hiringOnly, { ...profile(mail('quin')), phone: '0400 000 000' }),
+    ).resolves.toBeTruthy();
+    await expect(updateEmployeeProfile(admin, profile(mail('quin-new')))).resolves.toBeTruthy();
   });
 
   it('links the staff record to the login of someone already in the business', async () => {

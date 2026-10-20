@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { UserX } from 'lucide-react';
+import { UserMinus, UserX } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
@@ -22,7 +22,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { endEmploymentAction, updateEmployeeProfileAction } from '@/modules/hiring/staff-actions';
+import {
+  endEmploymentAction,
+  removePendingHireAction,
+  updateEmployeeProfileAction,
+} from '@/modules/hiring/staff-actions';
 import { updateProfileSchema, type ProfileFormValues } from '@/modules/hiring/staff-schemas';
 import type { DepartmentRow, EmployeeDetail } from '@/modules/hiring/types';
 
@@ -261,6 +265,54 @@ export function EndEmployment({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <Button variant="destructive" disabled={isPending || !endedOn} onClick={confirm}>
               End employment
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+/** Someone hired who never started (offer declined, withdrawn or never sent) leaves the list. */
+export function RemovePendingHire({ employeeId, name }: { employeeId: string; name: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const confirm = () =>
+    startTransition(async () => {
+      setError(null);
+      const result = await removePendingHireAction({ id: employeeId });
+      if (!result.ok) return setError(result.error.message);
+      setOpen(false);
+      router.push('/staff');
+      router.refresh();
+    });
+
+  return (
+    <>
+      <Button variant="outline" className="text-destructive-text" onClick={() => setOpen(true)}>
+        <UserMinus aria-hidden /> Remove this hire
+      </Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {name} from your staff?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They never accepted an offer, so they never started. They leave the staff list and
+              headcount; the removal is kept in the audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {error && (
+            <p role="alert" className="text-sm text-destructive-text">
+              {error}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="destructive" disabled={isPending} onClick={confirm}>
+              Remove
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

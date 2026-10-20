@@ -282,7 +282,8 @@ function DayRow({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={isPending || running || !complete}
+                  disabled={isPending || running || !complete || !row.canApprove}
+                  title={row.canApprove ? undefined : 'Someone else has to approve your own time'}
                   onClick={() => save(true)}
                 >
                   <Check aria-hidden /> Approve

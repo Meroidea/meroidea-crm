@@ -131,7 +131,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   const business = readBusinessDetails(ctx.tenant.settings);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <PageHeader
         title="Settings"
         description="Shape the workspace around how your business works — no developer needed."

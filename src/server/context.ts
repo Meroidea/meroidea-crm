@@ -7,6 +7,7 @@ import { cache } from 'react';
 
 import { AppError } from '@/lib/errors';
 import { featureForPermission, isFeatureKey, type FeatureKey } from '@/lib/features';
+import { isTenantOpen } from '@/lib/tenant/status';
 import type { Grant, PermissionKey } from '@/lib/permissions/catalog';
 import { resolveLabels, type Labels } from '@/lib/tenant/labels';
 import { withAuthedSession, type SessionClaims } from '@/server/db/with-rls';
@@ -164,10 +165,10 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
 export function workspaceClosedReason(
   ctx: Pick<TenantContext, 'isSupport' | 'tenant'>,
 ): 'suspended' | 'awaiting_agreement' | null {
-  if (ctx.isSupport) return null;
-  if (ctx.tenant.status === 'suspended') return 'suspended';
+  if (ctx.isSupport || isTenantOpen(ctx.tenant.status)) return null;
   if (ctx.tenant.status === 'awaiting_agreement') return 'awaiting_agreement';
-  return null;
+  // Suspended, cancelled, or any status added later: closed until someone decides otherwise.
+  return 'suspended';
 }
 
 /**

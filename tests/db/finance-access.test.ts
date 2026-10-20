@@ -20,7 +20,13 @@ import {
   sendInvoice,
   voidInvoice,
 } from '@/modules/invoices/service';
-import { getPayslip, listMyPayslips, listPayslipsForRoster } from '@/modules/payroll/queries';
+import {
+  getPayRun,
+  getPayslip,
+  listMyPayslips,
+  listPayRuns,
+  listPayslipsForRoster,
+} from '@/modules/payroll/queries';
 import { authoriseRosterSchema } from '@/modules/payroll/schemas';
 import { authoriseRoster, releasePayslips, setTaxWithheld } from '@/modules/payroll/service';
 import { createRosterSchema, publishRosterSchema, saveShiftSchema } from '@/modules/roster/schemas';
@@ -32,7 +38,13 @@ import { updateBusinessDetails } from '@/modules/settings/workspace';
 import type { TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
-import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
+import {
+  addMember,
+  contextFor,
+  createWorkspace,
+  destroyWorkspace,
+  handedOver,
+} from '../support/workspaces';
 
 const stamp = Date.now();
 const mail = (name: string) => `${name}-${stamp}@example.com`;
@@ -118,7 +130,7 @@ describe('invoices', () => {
 
   it('never shows or changes another workspace’s invoice', async () => {
     expect(await getInvoice(outsider, id)).toBeNull();
-    expect(await listInvoices(outsider)).toEqual([]);
+    expect((await listInvoices(outsider)).items).toEqual([]);
     await expectCode(() => markInvoiceSent(outsider, id), 'NOT_FOUND');
     await expectCode(() => saveInvoice(outsider, invoice({ id })), 'NOT_FOUND');
   });
@@ -166,11 +178,21 @@ describe('invoices', () => {
     );
     expect(second.number).toBe(2);
     await markInvoiceSent(owner, second.id);
-    expect((await listInvoices(owner))[0]).toMatchObject({ number: 2, overdue: true });
+    expect((await listInvoices(owner)).items[0]).toMatchObject({ number: 2, overdue: true });
+  });
+
+  it('finds invoices by what is owed on them, and pages by number', async () => {
+    const numbers = async (options: Parameters<typeof listInvoices>[1]) =>
+      (await listInvoices(owner, options)).items.map((row) => row.number);
+    expect(await numbers({ filter: 'overdue' })).toEqual([2]);
+    expect(await numbers({ filter: 'outstanding' })).toEqual([2]);
+    expect(await numbers({ filter: 'closed' })).toEqual([1]);
+    expect(await numbers({ before: 2 })).toEqual([1]);
+    expect((await listInvoices(owner)).nextBefore).toBeNull();
   });
 
   it('writes an email that calls a taxed invoice a tax invoice and shows the seller details', async () => {
-    const detail = await getInvoice(owner, (await listInvoices(owner))[0]?.id ?? '');
+    const detail = await getInvoice(owner, (await listInvoices(owner)).items[0]?.id ?? '');
     if (!detail) throw new Error('no invoice');
     const email = renderInvoiceEmail(detail, 'Finance Alpha');
     expect(email.subject).toBe('Tax invoice INV-0002 from Finance Alpha');
@@ -216,7 +238,7 @@ describe('payslips from an authorised roster', () => {
       }),
     );
     memberEmployee = hired.employeeId;
-    const { link } = await sendContract(owner, hired.contractId);
+    const link = handedOver(await sendContract(owner, hired.contractId));
     await acceptOffer(
       acceptOfferSchema.parse({
         token: link.split('/offer/')[1],
@@ -314,6 +336,17 @@ describe('payslips from an authorised roster', () => {
       { date: '2031-06-02', start: '09:00', end: '17:00', minutes: 450 },
       { date: '2031-06-03', start: '09:00', end: '12:20', minutes: 200 },
     ]);
+  });
+
+  it('opens any pay run by its roster, however many newer ones there are', async () => {
+    const run = await getPayRun(owner, rosterId);
+    expect(run).toMatchObject({ id: rosterId, payslips: 1 });
+    await expectCode(() => getPayRun(manager, rosterId), 'FORBIDDEN');
+    expect(await getPayRun(outsider, rosterId)).toBeNull();
+    // Paging past it leaves it out; the first page has it.
+    expect((await listPayRuns(owner)).items.map((row) => row.id)).toContain(rosterId);
+    const older = await listPayRuns(owner, { before: run!.startsOn });
+    expect(older.items.map((row) => row.id)).not.toContain(rosterId);
   });
 
   it('locks the roster once authorised', async () => {

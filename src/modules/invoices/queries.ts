@@ -1,12 +1,13 @@
 import 'server-only';
 
-import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, lt, sql, type SQL } from 'drizzle-orm';
 
 import { invoiceLines, invoices } from '@/db/schema';
 import { zonedToday } from '@/lib/dates';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
+import type { InvoiceFilter } from './schemas';
 import type { InvoiceDetail, InvoiceRow } from './types';
 
 const row = (today: string) => ({
@@ -21,16 +22,41 @@ const row = (today: string) => ({
   overdue: sql<boolean>`${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}::date`,
 });
 
-export async function listInvoices(ctx: TenantContext): Promise<InvoiceRow[]> {
+export const INVOICE_PAGE_SIZE = 50;
+
+/** Newest first, a page at a time, so an old unpaid invoice is never out of reach. */
+export async function listInvoices(
+  ctx: TenantContext,
+  options: { filter?: InvoiceFilter; before?: number } = {},
+): Promise<{ items: InvoiceRow[]; nextBefore: number | null }> {
   requirePermission(ctx, 'invoices.manage');
-  return withRls(ctx, (tx) =>
+  const today = zonedToday(ctx.tenant.timezone);
+  const filters: Record<InvoiceFilter, SQL | undefined> = {
+    all: undefined,
+    outstanding: eq(invoices.status, 'sent'),
+    overdue: and(eq(invoices.status, 'sent'), sql`${invoices.dueDate} < ${today}::date`),
+    draft: eq(invoices.status, 'draft'),
+    closed: inArray(invoices.status, ['paid', 'void']),
+  };
+  const rows = await withRls(ctx, (tx) =>
     tx
-      .select(row(zonedToday(ctx.tenant.timezone)))
+      .select(row(today))
       .from(invoices)
-      .where(eq(invoices.tenantId, ctx.tenantId))
+      .where(
+        and(
+          eq(invoices.tenantId, ctx.tenantId),
+          filters[options.filter ?? 'all'],
+          options.before ? lt(invoices.number, options.before) : undefined,
+        ),
+      )
       .orderBy(desc(invoices.number))
-      .limit(200),
+      .limit(INVOICE_PAGE_SIZE + 1),
   );
+  const items = rows.slice(0, INVOICE_PAGE_SIZE);
+  return {
+    items,
+    nextBefore: rows.length > INVOICE_PAGE_SIZE ? (items.at(-1)?.number ?? null) : null,
+  };
 }
 
 /** Money still owed on sent invoices, and how much of it is overdue. Summed by the database. */

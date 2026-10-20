@@ -26,7 +26,7 @@ export default async function EditOrganizationPage({
   ]);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader title={`Edit ${org.name}`} />
       <Card>
         <CardContent>

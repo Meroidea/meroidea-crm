@@ -307,9 +307,11 @@ already read or older than 48 hours are not sent.
   name (shown as "Erased"), email, phone, address, date of birth, job title, LinkedIn, language,
   interest, the business's own fields and notes; redacts the text of calls, emails, meetings,
   messages, notes and enquiries and the wording of tasks; erases the stored website submissions,
-  the support-ticket requester's name and email and the review's name and email; and masks the
-  values (not the fact) of past changes in the audit log. The record stays, marked do-not-contact,
-  so opportunities and reports still add up. It cannot be undone and is audited.
+  the support-ticket requester's name and email, what they wrote on their tickets (and the first
+  message when staff logged a request for them; staff replies are kept) and the review's name and
+  email; and masks the values (not the fact) of past changes in the audit log. Any record merged
+  into theirs is erased the same way, since a merge keeps it. The record stays, marked
+  do-not-contact, so opportunities and reports still add up. It cannot be undone and is audited.
 - Multi-tenant isolation as everywhere (ADR-001): every table has `tenant_id` and row-level
   security; the lead tables also switch off with the CRM feature.
 

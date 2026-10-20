@@ -428,6 +428,27 @@
       "when": 1792023540433,
       "tag": "0060_web_form_builder_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792096334097,
+      "tag": "0061_support_seat_can_end",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792098188309,
+      "tag": "0062_erase_ticket_messages",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1792099496617,
+      "tag": "0063_erase_applicant",
+      "breakpoints": true
     }
   ]
 }

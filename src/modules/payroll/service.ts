@@ -39,10 +39,11 @@ import type { PayslipShift, SkippedPerson } from './types';
  * published roster's shifts or, when the business clocks in and out, the approved timesheet
  * entries that started in the roster's period. The roster's shifts are locked from this point, so a payslip always matches them.
  *
- * Gross pay is hours × the hourly rate on the person's accepted contract, and super is a
- * percentage of gross; both are worked out by the database. This does not apply award penalty
- * rates, overtime, allowances or leave, and it does not calculate tax: the amount withheld is
- * entered by whoever runs payroll before the payslips are released.
+ * Gross pay is the sum of the pay lines (ADR-046): under an award with written-down rules, the
+ * award's penalty, overtime and allowance lines; otherwise hours at the contract's rate with the
+ * workspace's weekend and public-holiday loadings. Super is a percentage of ordinary time
+ * earnings. Leave is not applied, and tax is not calculated: the amount withheld is entered by
+ * whoever runs payroll before the payslips are released.
  */
 export async function authoriseRoster(
   ctx: TenantContext,

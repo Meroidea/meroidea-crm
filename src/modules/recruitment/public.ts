@@ -2,8 +2,9 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 import { auditLogs, jobApplicants, jobOpenings, tenants } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { adminDb } from '@/server/db/admin';
@@ -54,8 +55,8 @@ async function openingByToken(token: string) {
         eq(jobOpenings.publicToken, token),
         eq(jobOpenings.status, 'open'),
         isNull(jobOpenings.deletedAt),
-        // A suspended business takes no applications; a trial or active one does.
-        ne(tenants.status, 'suspended'),
+        // Only an open business takes applications: not a suspended or cancelled one.
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
         // Nor does one whose recruitment feature has been switched off (ADR-029).
         sql`'recruitment' = any(${tenants.features})`,
       ),

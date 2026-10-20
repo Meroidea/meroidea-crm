@@ -192,19 +192,26 @@ export async function getBoard(
       or(eq(opportunities.status, 'open'), gte(opportunities.closedAt, closedSince)) as SQL,
     );
 
-    const [rows, totals] = await Promise.all([
-      tx
-        .select(rowColumns)
-        .from(opportunities)
-        .innerJoin(contacts, contactJoin)
-        .innerJoin(pipelineStages, stageJoin)
-        .leftJoin(ownerUsers, eq(ownerUsers.id, opportunities.ownerUserId))
-        .where(and(...conditions))
-        .orderBy(
-          sql`${opportunities.lastActivityAt} desc nulls last`,
-          desc(opportunities.createdAt),
-        )
-        .limit(BOARD_COLUMN_LIMIT * pipeline.stages.length),
+    const activeStages = pipeline.stages.filter((stage) => stage.isActive);
+    // One capped list per column: a single cap across the board let a busy stage crowd every
+    // other column's cards out.
+    const [perStage, totals] = await Promise.all([
+      Promise.all(
+        activeStages.map((stage) =>
+          tx
+            .select(rowColumns)
+            .from(opportunities)
+            .innerJoin(contacts, contactJoin)
+            .innerJoin(pipelineStages, stageJoin)
+            .leftJoin(ownerUsers, eq(ownerUsers.id, opportunities.ownerUserId))
+            .where(and(...conditions, eq(opportunities.stageId, stage.id)))
+            .orderBy(
+              sql`${opportunities.lastActivityAt} desc nulls last`,
+              desc(opportunities.createdAt),
+            )
+            .limit(BOARD_COLUMN_LIMIT),
+        ),
+      ),
       tx
         .select({
           stageId: opportunities.stageId,
@@ -217,37 +224,36 @@ export async function getBoard(
         .groupBy(opportunities.stageId),
     ]);
 
+    const rows = perStage.flat();
     const now = new Date();
     const showTotals = revenueCoversView(ctx);
-    const columns: BoardColumn[] = pipeline.stages
-      .filter((stage) => stage.isActive)
-      .map((stage) => {
-        const aggregate = totals.find((row) => row.stageId === stage.id);
-        const cards = rows
-          .filter((row) => row.stageId === stage.id)
-          .slice(0, BOARD_COLUMN_LIMIT)
-          .map((row) => {
-            const card = present(ctx, row);
-            const lastTouch = row.lastActivityAt ?? row.stageEnteredAt;
-            return {
-              ...card,
-              daysInStage: daysBetween(row.stageEnteredAt, now),
-              isStale:
-                stage.category === 'open' &&
-                stage.staleAfterDays !== null &&
-                daysBetween(lastTouch, now) > stage.staleAfterDays,
-            };
-          });
-        return {
-          stageId: stage.id,
-          name: stage.name,
-          category: stage.category,
-          color: stage.color,
-          count: aggregate?.total ?? 0,
-          total: showTotals ? (aggregate?.amount ?? '0') : '',
-          cards,
-        };
-      });
+    const columns: BoardColumn[] = activeStages.map((stage) => {
+      const aggregate = totals.find((row) => row.stageId === stage.id);
+      const cards = rows
+        .filter((row) => row.stageId === stage.id)
+        .slice(0, BOARD_COLUMN_LIMIT)
+        .map((row) => {
+          const card = present(ctx, row);
+          const lastTouch = row.lastActivityAt ?? row.stageEnteredAt;
+          return {
+            ...card,
+            daysInStage: daysBetween(row.stageEnteredAt, now),
+            isStale:
+              stage.category === 'open' &&
+              stage.staleAfterDays !== null &&
+              daysBetween(lastTouch, now) > stage.staleAfterDays,
+          };
+        });
+      return {
+        stageId: stage.id,
+        name: stage.name,
+        category: stage.category,
+        color: stage.color,
+        count: aggregate?.total ?? 0,
+        total: showTotals ? (aggregate?.amount ?? '0') : '',
+        cards,
+      };
+    });
 
     const [open] = await tx
       .select({ total: sql<string>`coalesce(sum(${opportunities.amount}), 0)::text` })

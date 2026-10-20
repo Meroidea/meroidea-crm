@@ -1,5 +1,7 @@
 'use server';
 
+import { z } from 'zod';
+
 import { authedAction } from '@/server/action';
 
 import {
@@ -12,6 +14,7 @@ import {
   updateContactSchema,
 } from './schemas';
 import { anonymizeContact, mergeContacts } from './privacy';
+import { searchContactOptions } from './queries';
 import * as contactsService from './service';
 
 export const checkContactDuplicatesAction = authedAction(
@@ -64,4 +67,16 @@ export const mergeContactsAction = authedAction(
 export const anonymizeContactAction = authedAction(
   { permission: 'contacts.anonymize', input: contactIdSchema, revalidate: ['/contacts', '/leads'] },
   (ctx, input) => anonymizeContact(ctx, input.id),
+);
+
+/** A picker's search: contacts in scope matching what was typed, or the ones named. */
+export const searchContactOptionsAction = authedAction(
+  {
+    permission: 'contacts.view',
+    input: z.object({
+      q: z.string().trim().max(100).default(''),
+      ids: z.array(z.uuid()).max(20).optional(),
+    }),
+  },
+  (ctx, input) => searchContactOptions(ctx, input),
 );

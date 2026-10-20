@@ -24,7 +24,7 @@ export default async function TeamTrainingPage({ searchParams }: PageProps<'/tra
   const team = await getTeamProgress(ctx);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
       <PageHeader
         title="Training"
         description="How much of their training each person has completed. Open someone to see each course and module."

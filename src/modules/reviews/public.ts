@@ -1,7 +1,8 @@
 import 'server-only';
 
-import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 
+import { OPEN_TENANT_STATUSES } from '@/lib/tenant/status';
 import { auditLogs, contacts, customerReviews, reviewLinks, tenants } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { adminDb } from '@/server/db/admin';
@@ -39,7 +40,7 @@ async function linkByToken(token: string) {
         eq(reviewLinks.publicToken, token),
         eq(reviewLinks.isActive, true),
         isNull(reviewLinks.deletedAt),
-        ne(tenants.status, 'suspended'),
+        inArray(tenants.status, [...OPEN_TENANT_STATUSES]),
         sql`'reviews' = any(${tenants.features})`,
       ),
     )

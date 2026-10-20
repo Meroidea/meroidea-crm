@@ -3,17 +3,20 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 
-import { Field, fieldA11y } from '@/components/forms/field';
+import { Field, fieldA11y, searchA11y } from '@/components/forms/field';
 import { FormSection } from '@/components/forms/form-section';
 import { NativeSelect } from '@/components/forms/native-select';
+import { SearchSelect, type SearchOption } from '@/components/forms/search-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Labels } from '@/lib/tenant/labels';
 import { CustomFieldInputs } from '@/modules/custom-fields/components/custom-field-inputs';
 import type { CustomFieldDefinition } from '@/modules/custom-fields/validation';
+import { searchContactOptionsAction } from '@/modules/contacts/actions';
 import { createOpportunityAction, updateOpportunityAction } from '@/modules/opportunities/actions';
+import { searchOrganizationOptionsAction } from '@/modules/organizations/actions';
 import {
   createOpportunitySchema,
   type OpportunityFormValues,
@@ -21,12 +24,23 @@ import {
 
 type Option = { value: string; label: string };
 
+async function searchContacts(q: string): Promise<SearchOption[]> {
+  const result = await searchContactOptionsAction({ q });
+  return result.ok ? result.data : [];
+}
+
+async function searchOrganizations(q: string): Promise<SearchOption[]> {
+  const result = await searchOrganizationOptionsAction({ q });
+  return result.ok ? result.data : [];
+}
+
 export function OpportunityForm({
   opportunityId,
   defaults,
   labels,
-  contacts,
-  organizations,
+  contactLabel,
+  organizationLabel,
+  canPickOrganization,
   stages,
   pipelines = [],
   customFields = [],
@@ -40,8 +54,10 @@ export function OpportunityForm({
   opportunityId?: string;
   defaults: OpportunityFormValues;
   labels: Labels;
-  contacts: Option[];
-  organizations: Option[];
+  /** Names of the contact and organization already chosen, shown before any search. */
+  contactLabel?: string | null;
+  organizationLabel?: string | null;
+  canPickOrganization: boolean;
   stages: Option[];
   /** Pipelines with their open stages; the form offers a choice when there is more than one. */
   pipelines?: (Option & { stages: Option[] })[];
@@ -234,34 +250,42 @@ export function OpportunityForm({
           required
           error={errors.contactId?.message}
         >
-          <NativeSelect
-            {...fieldA11y('contactId', errors.contactId?.message)}
-            {...register('contactId')}
-          >
-            <option value="">Choose…</option>
-            {contacts.map((contact) => (
-              <option key={contact.value} value={contact.value}>
-                {contact.label}
-              </option>
-            ))}
-          </NativeSelect>
+          <Controller
+            control={control}
+            name="contactId"
+            render={({ field }) => (
+              <SearchSelect
+                {...searchA11y('contactId', errors.contactId?.message)}
+                value={field.value ?? ''}
+                selectedLabel={contactLabel}
+                onChange={(value) => field.onChange(value)}
+                search={searchContacts}
+                placeholder={`Search ${labels.contact.plural.toLowerCase()}…`}
+              />
+            )}
+          />
         </Field>
         <Field
           name="organizationId"
           label={labels.organization.singular}
           error={errors.organizationId?.message}
         >
-          <NativeSelect
-            {...fieldA11y('organizationId', errors.organizationId?.message)}
-            {...register('organizationId')}
-          >
-            <option value="">None</option>
-            {organizations.map((org) => (
-              <option key={org.value} value={org.value}>
-                {org.label}
-              </option>
-            ))}
-          </NativeSelect>
+          <Controller
+            control={control}
+            name="organizationId"
+            render={({ field }) => (
+              <SearchSelect
+                {...searchA11y('organizationId', errors.organizationId?.message)}
+                value={field.value ?? ''}
+                selectedLabel={organizationLabel}
+                onChange={(value) => field.onChange(value)}
+                search={searchOrganizations}
+                placeholder="None"
+                clearable
+                disabled={!canPickOrganization}
+              />
+            )}
+          />
         </Field>
       </FormSection>
 

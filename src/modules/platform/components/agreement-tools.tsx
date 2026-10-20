@@ -8,6 +8,7 @@ import { Field, fieldA11y } from '@/components/forms/field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import type { AgreementLinkDelivery } from '@/modules/platform/service';
 import {
   publishAgreementAction,
   resendAgreementLinkAction,
@@ -104,7 +105,7 @@ export function AgreementStatus({
   recipientEmail: string | null;
 }) {
   const router = useRouter();
-  const [sent, setSent] = useState<{ emailed: boolean; link: string } | null>(null);
+  const [sent, setSent] = useState<AgreementLinkDelivery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -134,7 +135,7 @@ export function AgreementStatus({
           <Send aria-hidden /> Send a new link
         </Button>
       )}
-      {sent && <LinkHandover emailed={sent.emailed} link={sent.link} to={recipientEmail ?? ''} />}
+      {sent && <LinkHandover delivery={sent} to={recipientEmail ?? ''} />}
       {error && (
         <p role="alert" className="text-sm text-destructive-text">
           {error}

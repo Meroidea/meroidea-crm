@@ -34,7 +34,7 @@ export default async function ConcernsPage({ searchParams }: PageProps<'/concern
   const rows = await listConcerns(ctx, view);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="flex w-full max-w-4xl flex-col gap-5">
       <PageHeader
         title="Questions & concerns"
         description="Ask a manager or the admin about your pay, hours, shifts, leave or anything else, and keep the conversation in one place."

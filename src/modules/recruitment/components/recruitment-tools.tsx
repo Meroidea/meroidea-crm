@@ -461,7 +461,7 @@ export function DeleteApplicantButton({ id, backTo }: { id: string; backTo: stri
   }
   return (
     <div className="flex flex-col gap-1">
-      <p className="text-sm">This removes their details and résumé. It cannot be undone.</p>
+      <p className="text-sm">This erases their details, résumé and notes. It cannot be undone.</p>
       <div className="flex gap-1.5">
         <Button
           variant="destructive"

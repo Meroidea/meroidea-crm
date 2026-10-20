@@ -21,7 +21,7 @@ export default async function ImportsPage() {
   const label = ctx.tenant.labels.contact;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Imports"
         description={`Upload leads or existing ${label.plural.toLowerCase()} from Excel or CSV.`}

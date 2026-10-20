@@ -41,6 +41,7 @@ export const documentFiltersSchema = z.object({
   q: z.string().trim().max(100).optional().catch(undefined),
   type: z.enum(['docx', 'xlsx', 'pptx', 'pdf']).optional().catch(undefined),
   folder: z.string().trim().max(80).optional().catch(undefined),
+  cursor: z.string().max(500).optional().catch(undefined),
 });
 
 export type DocumentFilters = z.output<typeof documentFiltersSchema>;

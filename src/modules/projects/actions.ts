@@ -44,3 +44,6 @@ export const stopTimerAction = authedAction({ ...view, input: z.object({}) }, (c
 export const logTimeAction = authedAction({ ...view, input: logTimeSchema }, (ctx, input) =>
   projectService.logTime(ctx, input),
 );
+export const deleteTimeLogAction = authedAction({ ...view, input: idSchema }, (ctx, input) =>
+  projectService.deleteTimeLog(ctx, input.id),
+);

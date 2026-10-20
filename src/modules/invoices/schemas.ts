@@ -53,5 +53,13 @@ export const saveInvoiceSchema = z
 
 export const invoiceIdSchema = z.object({ id: z.uuid() });
 
+export const INVOICE_FILTERS = ['all', 'outstanding', 'overdue', 'draft', 'closed'] as const;
+export type InvoiceFilter = (typeof INVOICE_FILTERS)[number];
+
+export const invoiceParamsSchema = z.object({
+  status: z.enum(INVOICE_FILTERS).optional().catch(undefined),
+  cursor: z.coerce.number().int().positive().optional().catch(undefined),
+});
+
 export type InvoiceFormValues = z.input<typeof saveInvoiceSchema>;
 export type SaveInvoiceInput = z.output<typeof saveInvoiceSchema>;

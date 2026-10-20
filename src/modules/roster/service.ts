@@ -115,12 +115,15 @@ function shiftInstants(timezone: string, date: string, startTime: string, endTim
  * Copies the shifts of the roster before `target` onto it, day for day. A shorter source repeats
  * to fill a longer target (a week copied into a fortnight fills both weeks); a longer one is cut
  * off. People who are no longer active are left out; vacant shifts come across as they are.
+ * The rules for a single shift still hold: a copy that would overlap the person's other shifts
+ * (one running in from the roster before, say) is left out and counted, and a person keeps a
+ * team only while they still belong to it.
  */
 async function copyFromPrevious(
   tx: Tx,
   ctx: TenantContext,
   target: { id: string; startsOn: string; endsOn: string },
-): Promise<number> {
+): Promise<{ copied: number; skipped: number }> {
   const [source] = await tx
     .select({ id: rosters.id, startsOn: rosters.startsOn, endsOn: rosters.endsOn })
     .from(rosters)
@@ -133,7 +136,7 @@ async function copyFromPrevious(
     )
     .orderBy(desc(rosters.startsOn))
     .limit(1);
-  if (!source) return 0;
+  if (!source) return { copied: 0, skipped: 0 };
 
   const sourceShifts = await tx
     .select()
@@ -147,6 +150,14 @@ async function copyFromPrevious(
     );
   const active = await activeMemberIds(tx, ctx);
   const teams = await liveTeamIds(tx, ctx);
+  const memberships = new Set(
+    (
+      await tx
+        .select({ teamId: rosterTeamMembers.teamId, userId: rosterTeamMembers.userId })
+        .from(rosterTeamMembers)
+        .where(eq(rosterTeamMembers.tenantId, ctx.tenantId))
+    ).map((row) => `${row.teamId}:${row.userId}`),
+  );
   const timezone = ctx.tenant.timezone;
   const sourceDays = daysBetweenDates(source.startsOn, source.endsOn) + 1;
   const targetDays = daysBetweenDates(target.startsOn, target.endsOn) + 1;
@@ -164,7 +175,12 @@ async function copyFromPrevious(
         rosterId: target.id,
         userId: shift.userId,
         ...shiftInstants(timezone, date, start.time, end.time),
-        teamId: shift.teamId && teams.has(shift.teamId) ? shift.teamId : null,
+        teamId:
+          shift.teamId &&
+          teams.has(shift.teamId) &&
+          (!shift.userId || memberships.has(`${shift.teamId}:${shift.userId}`))
+            ? shift.teamId
+            : null,
         breakMinutes: shift.breakMinutes,
         breaks: shift.breaks,
         autoBreaks: shift.autoBreaks,
@@ -176,14 +192,52 @@ async function copyFromPrevious(
     return placed;
   });
 
-  if (copies.length > 0) await tx.insert(rosterShifts).values(copies);
-  return copies.length;
+  // Each person's live shifts around the new roster, which the copies must not overlap; every
+  // copy kept joins them, so two copies cannot overlap each other either.
+  const people = [...new Set(copies.flatMap((copy) => (copy.userId ? [copy.userId] : [])))];
+  const taken = new Map<string, { startsAt: Date; endsAt: Date }[]>();
+  if (people.length > 0) {
+    const earliest = new Date(Math.min(...copies.map((copy) => copy.startsAt.getTime())));
+    const latest = new Date(Math.max(...copies.map((copy) => copy.endsAt.getTime())));
+    const existing = await tx
+      .select({
+        userId: rosterShifts.userId,
+        startsAt: rosterShifts.startsAt,
+        endsAt: rosterShifts.endsAt,
+      })
+      .from(rosterShifts)
+      .where(
+        and(
+          eq(rosterShifts.tenantId, ctx.tenantId),
+          inArray(rosterShifts.userId, people),
+          isNull(rosterShifts.deletedAt),
+          lt(rosterShifts.startsAt, latest),
+          gt(rosterShifts.endsAt, earliest),
+        ),
+      );
+    for (const shift of existing) {
+      if (!shift.userId) continue;
+      taken.set(shift.userId, [...(taken.get(shift.userId) ?? []), shift]);
+    }
+  }
+  const kept = copies.filter((copy) => {
+    if (!copy.userId) return true;
+    const theirs = taken.get(copy.userId) ?? [];
+    if (theirs.some((other) => other.startsAt < copy.endsAt && other.endsAt > copy.startsAt)) {
+      return false;
+    }
+    taken.set(copy.userId, [...theirs, copy]);
+    return true;
+  });
+
+  if (kept.length > 0) await tx.insert(rosterShifts).values(kept);
+  return { copied: kept.length, skipped: copies.length - kept.length };
 }
 
 export async function createRoster(
   ctx: TenantContext,
   input: CreateRosterInput,
-): Promise<{ id: string; copiedShifts: number }> {
+): Promise<{ id: string; copiedShifts: number; skippedShifts: number }> {
   requirePermission(ctx, 'rosters.manage');
   const endsOn = addDaysToDate(input.startsOn, ROSTER_SPAN_DAYS[input.span] - 1);
 
@@ -218,14 +272,21 @@ export async function createRoster(
       .returning({ id: rosters.id, startsOn: rosters.startsOn, endsOn: rosters.endsOn });
     if (!created) throw new AppError('INTERNAL', 'Could not create the roster.');
 
-    const copiedShifts = input.copyPrevious ? await copyFromPrevious(tx, ctx, created) : 0;
+    const copy = input.copyPrevious
+      ? await copyFromPrevious(tx, ctx, created)
+      : { copied: 0, skipped: 0 };
     await audit(tx, ctx, {
       action: 'create',
       entityType: 'roster',
       entityId: created.id,
-      context: { startsOn: created.startsOn, endsOn: created.endsOn, copiedShifts },
+      context: {
+        startsOn: created.startsOn,
+        endsOn: created.endsOn,
+        copiedShifts: copy.copied,
+        skippedShifts: copy.skipped,
+      },
     });
-    return { id: created.id, copiedShifts };
+    return { id: created.id, copiedShifts: copy.copied, skippedShifts: copy.skipped };
   });
 }
 
@@ -493,6 +554,40 @@ export async function saveShift(
     };
 
     if (input.id) {
+      const [before] = await tx
+        .select({ userId: rosterShifts.userId, publishedAt: rosterShifts.publishedAt })
+        .from(rosterShifts)
+        .where(
+          and(
+            eq(rosterShifts.tenantId, ctx.tenantId),
+            eq(rosterShifts.id, input.id),
+            eq(rosterShifts.rosterId, roster.id),
+            isNull(rosterShifts.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (!before) throw new AppError('NOT_FOUND', 'That shift was not found.');
+      // A shift someone has already been told about, moved to someone else: it is taken off
+      // them like a removed shift (so publishing tells them) and given anew to the other person.
+      if (before.publishedAt && before.userId && before.userId !== input.userId) {
+        await tx
+          .update(rosterShifts)
+          .set({ deletedAt: new Date(), unpublishedChanges: true, updatedBy: ctx.userId })
+          .where(and(eq(rosterShifts.tenantId, ctx.tenantId), eq(rosterShifts.id, input.id)));
+        const [moved] = await tx
+          .insert(rosterShifts)
+          .values({ ...values, tenantId: ctx.tenantId, rosterId: roster.id, createdBy: ctx.userId })
+          .returning({ id: rosterShifts.id });
+        if (!moved) throw new AppError('INTERNAL', 'Could not save the shift.');
+        await audit(tx, ctx, {
+          action: 'update',
+          entityType: 'roster_shift',
+          entityId: moved.id,
+          changes: { userId: [before.userId, input.userId] },
+          context: { replacesShift: input.id },
+        });
+        return moved;
+      }
       const [updated] = await tx
         .update(rosterShifts)
         .set(values)

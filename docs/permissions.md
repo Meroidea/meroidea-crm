@@ -40,6 +40,11 @@ canViewField(ctx, 'contacts.view_sensitive');            // mask sensitive field
 Every one of these lives in `src/lib/permissions/` and has unit tests. Modules never
 re-implement scope logic.
 
+**Nobody signs off their own pay.** Approving hours, leave or an expense claim needs someone
+other than the person it pays, whatever their permissions: a manager cannot approve their own.
+Only the Admin (`owner`) may approve their own. The rule is `maySignOffFor()` in
+`src/lib/permissions/sign-off.ts`, applied in the services and used to hide the controls.
+
 ## Features come first (ADR-029)
 
 Each permission family belongs to a feature the platform owner switches on per business

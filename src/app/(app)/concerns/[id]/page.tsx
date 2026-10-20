@@ -25,7 +25,7 @@ export default async function ConcernPage({ params }: PageProps<'/concerns/[id]'
   const mine = concern.raisedBy === ctx.userId;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full max-w-3xl flex-col gap-5">
       <Link
         href={mine ? '/concerns?view=mine' : '/concerns'}
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

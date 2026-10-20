@@ -22,7 +22,7 @@ export default async function ModulePage({ params }: PageProps<'/training/module
   const manager = hasPermission(ctx, 'training.manage');
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full max-w-3xl flex-col gap-5">
       <Link
         href={lesson.canComplete || !manager ? courseHref : `/training/manage/${lesson.course.id}`}
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

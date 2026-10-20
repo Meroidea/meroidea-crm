@@ -80,6 +80,11 @@ export async function routeLead(
   tenantId: string,
   lead: RoutableLead,
   stage: 'intake' | 'handover',
+  /**
+   * Leads already given out but not yet saved, by person (an upload routes a batch of rows
+   * before inserting them). Counted as load, so "least loaded" spreads the batch.
+   */
+  pending?: Map<string, number>,
 ): Promise<string | null> {
   const rules = await tx
     .select()
@@ -129,7 +134,7 @@ export async function routeLead(
 
     const chosen =
       rule.method === 'least_loaded'
-        ? await leastLoaded(tx, tenantId, pool, stage)
+        ? await leastLoaded(tx, tenantId, pool, stage, pending)
         : nextInTurn(pool, rule.lastAssignedUserId);
     if (!chosen) continue;
 
@@ -148,6 +153,7 @@ async function leastLoaded(
   tenantId: string,
   pool: string[],
   stage: 'intake' | 'handover',
+  pending?: Map<string, number>,
 ): Promise<string | null> {
   const load = new Map(pool.map((id) => [id, 0]));
   if (stage === 'intake') {
@@ -185,6 +191,9 @@ async function leastLoaded(
       )
       .groupBy(opportunities.ownerUserId);
     for (const row of rows) if (row.userId) load.set(row.userId, row.total);
+  }
+  for (const [id, extra] of pending ?? []) {
+    if (load.has(id)) load.set(id, (load.get(id) ?? 0) + extra);
   }
   let best: string | null = null;
   for (const id of pool) {
