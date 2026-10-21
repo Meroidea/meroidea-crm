@@ -895,3 +895,32 @@ timeline events, which are kept. Alerts can be up to a day late for a business n
 (Gmail, Microsoft 365) and open tracking, automatic call logging from a phone system, enrichment
 from a data provider, and WhatsApp/SMS. Email is sent from the CRM under the person's name with
 replies to their own inbox; calls and enrichment are entered by hand.
+
+## ADR-053 — One email layout, in three looks, for everything Meroidea sends
+
+**Context.** Each of the 13 kinds of email built its own one-line HTML, with three copies of an
+escaping helper. They looked unfinished, and nothing said who sent them or why.
+
+**Decision.** Every email is built by `renderEmail()` (`src/server/email-template.ts`) from plain
+text blocks (paragraph, list, details, table, message, button, note). It returns HTML and a text
+part from the same blocks and does all the escaping. Three looks:
+
+- **platform**: from Meroidea itself (service agreement, features switched on, logins and
+  password links, notifications, staff questions), signed "The Meroidea team";
+- **business**: from a business to its customers, suppliers or staff (invoice, purchase order,
+  roster, offer, helpdesk reply, hire login), in the business's name and its own colour when that
+  is a plain `#rrggbb` value, signed by the business, with "Sent by … with Meroidea" below;
+- **personal**: an email a person writes to a contact from the CRM, with no banner and no added
+  signature, because it should read like their own email.
+
+Every email ends with why the reader got it.
+
+**Why.** Built for inboxes: tables and inline styles, no web fonts and no images (the mark is drawn
+in HTML, so nothing is blocked and no email is "image only"), every link also written out, and a
+text part that says the same as the HTML. These are the parts of deliverability the app controls.
+
+**Consequences.** Landing in the inbox also needs the sending domain authenticated: SPF, DKIM and
+DMARC for the `EMAIL_FROM` domain, verified in the email provider. A new email must use
+`renderEmail()`; what an email may say is unchanged (no lead details or question content in
+inboxes, rules/security.md).
+

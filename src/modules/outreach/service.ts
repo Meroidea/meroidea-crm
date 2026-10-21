@@ -14,7 +14,6 @@ import {
 } from '@/db/schema';
 import { startOfZonedDay } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
-import { escapeHtml } from '@/lib/html';
 import { assertCanAccess } from '@/lib/permissions/scope';
 import { recordSystemActivity } from '@/modules/activities/service';
 import { assertCanAssignContact, contactRecord } from '@/modules/contacts/access';
@@ -24,6 +23,7 @@ import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 import { sendEmail } from '@/server/email';
 import { enforceRateLimit } from '@/server/rate-limit';
+import { renderEmail } from '@/server/email-template';
 
 /** Emails one person may send from the CRM in a day: generous for real work, a brake on misuse. */
 export const DAILY_EMAIL_LIMIT = 200;
@@ -154,8 +154,22 @@ export async function sendContactEmail(
   const result = await sendEmail({
     to: prepared.contact.email!,
     subject,
-    text: body,
-    html: `<div style="white-space:pre-wrap;font-family:sans-serif">${escapeHtml(body)}</div>`,
+    // Written by a person to one contact, so it reads like their own email: no banner, and their
+    // template already signs it.
+    ...renderEmail({
+      sender: {
+        kind: 'personal',
+        name: values.userName || ctx.tenant.name,
+        business: ctx.tenant.name,
+      },
+      preheader: body.replace(/\s+/g, ' ').slice(0, 120),
+      blocks: body
+        .split(/\n{2,}/)
+        .filter((paragraph) => paragraph.trim())
+        .map((paragraph) => ({ type: 'paragraph' as const, text: paragraph })),
+      signature: [],
+      reason: `You received this from ${values.userName || 'someone'} at ${ctx.tenant.name}. Reply to this email to answer them directly.`,
+    }),
     replyTo: prepared.me?.email ?? ctx.email,
     fromName: `${values.userName || 'Your contact'} at ${ctx.tenant.name}`,
   });

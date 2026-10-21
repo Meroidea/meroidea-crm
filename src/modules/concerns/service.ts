@@ -11,7 +11,6 @@ import {
   users,
 } from '@/db/schema';
 import { AppError } from '@/lib/errors';
-import { escapeHtml } from '@/modules/access/service';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
@@ -20,6 +19,7 @@ import { serverEnv } from '@/server/env';
 
 import { canHandleConcern } from './queries';
 import type { ConcernStatus, RaiseConcernInput } from './schemas';
+import { renderEmail } from '@/server/email-template';
 
 /*
  * Questions and concerns (ADR-049): how staff ask the business something, such as the hours on a
@@ -77,14 +77,22 @@ async function notifyHandlers(ctx: TenantContext, input: { id: string; raisedWit
       ),
   );
   const link = new URL(`/concerns/${input.id}`, serverEnv().APP_URL).toString();
-  const text = `Someone in ${ctx.tenant.name} has asked a question or raised a concern. Sign in to read and answer it: ${link}`;
-  for (const { email } of recipients) {
-    await sendEmail({
-      to: email,
-      subject: `A question is waiting in ${ctx.tenant.name}`,
-      text,
-      html: `<p>Someone in ${escapeHtml(ctx.tenant.name)} has asked a question or raised a concern.</p><p><a href="${link}">Sign in to read and answer it</a></p>`,
-    });
+  // Says only that a question is waiting: what it is about can concern someone's pay (ADR-049).
+  const email = renderEmail({
+    sender: { kind: 'platform' },
+    preheader: `A question is waiting for an answer in ${ctx.tenant.name}.`,
+    heading: 'A question is waiting for you',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: `Someone in ${ctx.tenant.name} has asked a question or raised a concern. Sign in to read and answer it.`,
+      },
+      { type: 'button', label: 'Read and answer it', url: link },
+    ],
+    reason: `You received this because you answer staff questions in ${ctx.tenant.name}.`,
+  });
+  for (const { email: to } of recipients) {
+    await sendEmail({ to, subject: `A question is waiting in ${ctx.tenant.name}`, ...email });
   }
 }
 

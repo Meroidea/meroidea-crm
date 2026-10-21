@@ -1,3 +1,4 @@
+import { renderEmail } from '@/server/email-template';
 import { dayParts } from './hours';
 
 export type NotifiedShift = {
@@ -6,12 +7,6 @@ export type NotifiedShift = {
   endTime: string;
   team: string | null;
 };
-
-const escapeHtml = (value: string) =>
-  value.replace(
-    /[&<>"']/g,
-    (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? '',
-  );
 
 const period = (startsOn: string, endsOn: string) =>
   `${dayParts(startsOn).day} to ${dayParts(endsOn).day}`;
@@ -24,6 +19,8 @@ export function rosterEmail(input: {
   endsOn: string;
   shifts: NotifiedShift[];
   message: string | null;
+  /** The business's own colour, when it has one. */
+  color?: string | null;
 }): { subject: string; text: string; html: string } {
   const days = period(input.startsOn, input.endsOn);
   const lines = input.shifts.map((shift) => {
@@ -35,15 +32,19 @@ export function rosterEmail(input: {
     : `You have no shifts at ${input.workspace} for ${days}.`;
   const greeting = `Hi ${input.fullName.split(' ')[0] ?? input.fullName},`;
 
-  const text = [greeting, '', intro, ...lines, ...(input.message ? ['', input.message] : [])].join(
-    '\n',
-  );
-  const html = [
-    `<p>${escapeHtml(greeting)}</p>`,
-    `<p>${escapeHtml(intro)}</p>`,
-    lines.length ? `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : '',
-    input.message ? `<p>${escapeHtml(input.message)}</p>` : '',
-  ].join('');
-
-  return { subject: `Your roster for ${days}`, text, html };
+  const email = renderEmail({
+    sender: { kind: 'business', name: input.workspace, color: input.color },
+    preheader: lines.length
+      ? `${lines.length} ${lines.length === 1 ? 'shift' : 'shifts'} for ${days}.`
+      : `No shifts for ${days}.`,
+    heading: `Your roster for ${days}`,
+    blocks: [
+      { type: 'paragraph', text: greeting },
+      { type: 'paragraph', text: intro },
+      ...(lines.length ? [{ type: 'list' as const, items: lines }] : []),
+      ...(input.message ? [{ type: 'message' as const, text: input.message }] : []),
+    ],
+    reason: `You received this because ${input.workspace} published a roster that includes you.`,
+  });
+  return { subject: `Your roster for ${days}`, ...email };
 }

@@ -28,6 +28,7 @@ import {
   type ReplyInput,
   type UpdateTicketInput,
 } from './schemas';
+import { renderEmail } from '@/server/email-template';
 
 export const ticketLink = (token: string) => `${serverEnv().APP_URL}/support/ticket/${token}`;
 
@@ -194,8 +195,21 @@ export async function replyToTicket(
     const result = await sendEmail({
       to: ticket.requesterEmail,
       subject: `Re: ${ticket.subject} [#${ticket.number}]`,
-      text: `${input.body}\n\n— ${authorName}, ${ctx.tenant.name}\n\nView or reply to your request: ${link}`,
-      html: `<p style="white-space:pre-wrap">${input.body.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)}</p><p>— ${authorName.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)}</p><p><a href="${link}">View or reply to your request</a></p>`,
+      ...renderEmail({
+        sender: {
+          kind: 'business',
+          name: ctx.tenant.name,
+          color: ctx.tenant.primaryColor,
+        },
+        preheader: input.body.replace(/\s+/g, ' ').slice(0, 120),
+        heading: `Re: ${ticket.subject}`,
+        blocks: [
+          { type: 'message', text: input.body },
+          { type: 'button', label: 'View or reply to your request', url: link },
+        ],
+        signature: [authorName, ctx.tenant.name],
+        reason: `You received this because you contacted ${ctx.tenant.name} (request #${ticket.number}).`,
+      }),
     });
     email = result.sent ? 'sent' : result.reason;
   }
