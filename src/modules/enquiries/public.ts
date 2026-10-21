@@ -5,9 +5,9 @@ import type { z } from 'zod';
 
 import { websiteEnquiries } from '@/db/schema';
 import { AppError } from '@/lib/errors';
-import { escapeHtml } from '@/lib/html';
 import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
+import { renderEmail } from '@/server/email-template';
 import { serverEnv } from '@/server/env';
 import { platformOwnerEmails } from '@/server/platform';
 import { enforceRateLimit } from '@/server/rate-limit';
@@ -75,32 +75,32 @@ async function notifyOwners(id: string, input: z.output<typeof submitEnquirySche
     ['Email', input.email],
     ['Phone', input.phone],
   ];
-  const text = [
-    `New enquiry from ${input.company} on the Meroidea website.`,
-    '',
-    ...rows.filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`),
-    '',
-    input.message,
-    '',
-    `Reply to this email to answer ${input.name} directly, or open it in the console: ${link}`,
-  ].join('\n');
-  const html = `<p>New enquiry from <strong>${escapeHtml(input.company)}</strong> on the Meroidea website.</p>
-<table role="presentation" cellpadding="4">${rows
-    .filter(([, value]) => value)
-    .map(
-      ([label, value]) =>
-        `<tr><td style="color:#6b7280">${label}</td><td>${escapeHtml(value ?? '')}</td></tr>`,
-    )
-    .join('')}</table>
-<p style="white-space:pre-wrap">${escapeHtml(input.message)}</p>
-<p>Reply to this email to answer ${escapeHtml(input.name)} directly, or <a href="${link}">open it in the console</a>.</p>`;
+  const email = renderEmail({
+    sender: { kind: 'platform' },
+    preheader: `${input.name} from ${input.company} sent a message through the website.`,
+    heading: `New enquiry from ${input.company}`,
+    blocks: [
+      {
+        type: 'details',
+        rows: rows
+          .filter((row): row is [string, string] => Boolean(row[1]))
+          .map(([label, value]) => ({ label, value })),
+      },
+      { type: 'message', text: input.message },
+      {
+        type: 'paragraph',
+        text: `Reply to this email to answer ${input.name} directly, or open it in the console.`,
+      },
+      { type: 'button', label: 'Open in the console', url: link },
+    ],
+    reason: 'You received this because you are a Meroidea platform owner.',
+  });
 
   for (const to of owners) {
     await sendEmail({
       to,
       subject: `New enquiry: ${input.company}`,
-      text,
-      html,
+      ...email,
       replyTo: input.email,
     });
   }
