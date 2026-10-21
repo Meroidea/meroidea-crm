@@ -13,6 +13,7 @@ import { isEmailConfigured, sendEmail } from '@/server/email';
 import { getInvoice } from './queries';
 import type { SaveInvoiceInput } from './schemas';
 import { invoiceNumber, type InvoiceDetail, type InvoiceStatus } from './types';
+import { renderEmail } from '@/server/email-template';
 
 async function loadStatus(tx: Tx, ctx: TenantContext, id: string): Promise<InvoiceStatus> {
   const [row] = await tx
@@ -114,53 +115,69 @@ export async function saveInvoice(
   });
 }
 
-const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-
 /** The invoice as an email the customer can read without opening anything. */
 export function renderInvoiceEmail(
   invoice: InvoiceDetail,
   sellerName: string,
+  sellerColor: string | null = null,
 ): { subject: string; text: string; html: string } {
   const reference = invoiceNumber(invoice.number);
   const money = (value: string) => formatMoney(value, invoice.currency);
   const taxed = Number(invoice.taxRate) > 0;
-  const subject = `${taxed ? 'Tax invoice' : 'Invoice'} ${reference} from ${sellerName}`;
-  const totals = [
-    `Subtotal: ${money(invoice.subtotal)}`,
-    taxed ? `Tax (${Number(invoice.taxRate)}%): ${money(invoice.taxTotal)}` : null,
-    `Total due: ${money(invoice.total)}`,
-  ].filter(Boolean);
+  const kind = taxed ? 'Tax invoice' : 'Invoice';
+  const subject = `${kind} ${reference} from ${sellerName}`;
+  const issued = formatCalendarDate(invoice.issueDate);
+  const due = formatCalendarDate(invoice.dueDate);
 
-  const text = [
-    `Hello ${invoice.customerName},`,
-    `Please find ${taxed ? 'tax invoice' : 'invoice'} ${reference}, dated ${formatCalendarDate(invoice.issueDate)} and due ${formatCalendarDate(invoice.dueDate)}.`,
-    invoice.lines
-      .map(
-        (line) =>
-          `${Number(line.quantity)} x ${line.description} @ ${money(line.unitPrice)} = ${money(line.lineTotal)}`,
-      )
-      .join('\n'),
-    totals.join('\n'),
-    invoice.notes,
-    invoice.fromDetails ? `From:\n${invoice.fromDetails}` : `From: ${sellerName}`,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-
-  const cell = 'padding:6px 12px 6px 0;border-bottom:1px solid #e5e7eb;text-align:left';
-  const html = `<p>Hello ${escapeHtml(invoice.customerName)},</p>
-<p>Please find ${taxed ? 'tax invoice' : 'invoice'} <strong>${reference}</strong>, dated ${escapeHtml(formatCalendarDate(invoice.issueDate))} and due <strong>${escapeHtml(formatCalendarDate(invoice.dueDate))}</strong>.</p>
-<table style="border-collapse:collapse;font-size:14px"><thead><tr><th style="${cell}">Description</th><th style="${cell}">Qty</th><th style="${cell}">Price</th><th style="${cell}">Amount</th></tr></thead><tbody>${invoice.lines
-    .map(
-      (line) =>
-        `<tr><td style="${cell}">${escapeHtml(line.description)}</td><td style="${cell}">${Number(line.quantity)}</td><td style="${cell}">${escapeHtml(money(line.unitPrice))}</td><td style="${cell}">${escapeHtml(money(line.lineTotal))}</td></tr>`,
-    )
-    .join('')}</tbody></table>
-<p>${totals.map((line) => escapeHtml(line ?? '')).join('<br>')}</p>
-${invoice.notes ? `<p>${escapeHtml(invoice.notes)}</p>` : ''}
-<p style="white-space:pre-line">${escapeHtml(invoice.fromDetails ?? sellerName)}</p>`;
-  return { subject, text, html };
+  const email = renderEmail({
+    sender: { kind: 'business', name: sellerName, color: sellerColor },
+    preheader: `${money(invoice.total)} due ${due}.`,
+    heading: `${kind} ${reference}`,
+    blocks: [
+      { type: 'paragraph', text: `Hello ${invoice.customerName},` },
+      {
+        type: 'paragraph',
+        text: `Please find ${kind.toLowerCase()} ${reference}, dated ${issued} and due ${due}.`,
+      },
+      {
+        type: 'details',
+        rows: [
+          { label: 'Amount due', value: money(invoice.total) },
+          { label: 'Due date', value: due },
+          { label: 'Reference', value: reference },
+        ],
+      },
+      {
+        type: 'table',
+        columns: ['Description', 'Qty', 'Price', 'Amount'],
+        numericFrom: 1,
+        rows: invoice.lines.map((line) => [
+          line.description,
+          String(Number(line.quantity)),
+          money(line.unitPrice),
+          money(line.lineTotal),
+        ]),
+        textRows: invoice.lines.map(
+          (line) =>
+            `${Number(line.quantity)} x ${line.description} @ ${money(line.unitPrice)} = ${money(line.lineTotal)}`,
+        ),
+        totals: [
+          { label: 'Subtotal', value: money(invoice.subtotal) },
+          ...(taxed
+            ? [{ label: `Tax (${Number(invoice.taxRate)}%)`, value: money(invoice.taxTotal) }]
+            : []),
+          { label: 'Total due', value: money(invoice.total), strong: true },
+        ],
+      },
+      ...(invoice.notes ? [{ type: 'message' as const, text: invoice.notes }] : []),
+    ],
+    // The seller's own details (name, ABN, address, payment details) sign the invoice.
+    signature: invoice.fromDetails
+      ? invoice.fromDetails.split('\n').filter((line) => line.trim())
+      : [sellerName],
+    reason: `You received this invoice from ${sellerName}. Reply to this email with any questions about it.`,
+  });
+  return { subject, ...email };
 }
 
 async function setStatus(
@@ -211,7 +228,7 @@ export async function sendInvoice(
   const result = await sendEmail({
     to: invoice.customerEmail,
     replyTo: ctx.email || undefined,
-    ...renderInvoiceEmail(invoice, ctx.tenant.name),
+    ...renderInvoiceEmail(invoice, ctx.tenant.name, ctx.tenant.primaryColor),
   });
   if (!result.sent) return { sent: false, reason: 'The email could not be sent. Try again.' };
   await setStatus(ctx, id, 'sent', ['draft', 'sent'], {

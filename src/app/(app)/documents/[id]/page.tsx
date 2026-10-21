@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/lib/format';
 import { DownloadButton, ManageDocument } from '@/modules/files/components/files-tools';
+import { editorSettings } from '@/modules/files/editor';
 import { DOCUMENT_FORMATS, formatBytes } from '@/modules/files/formats';
 import { getDocument, listFolders } from '@/modules/files/queries';
 import { documentIdSchema } from '@/modules/files/schemas';
@@ -50,11 +51,13 @@ export default async function DocumentPage({ params }: PageProps<'/documents/[id
               />
             )}
             <DownloadButton id={document.id} />
-            <Button asChild>
-              <Link href={`/documents/${document.id}/edit`}>
-                <PenLine aria-hidden /> Open
-              </Link>
-            </Button>
+            {editorSettings() && (
+              <Button asChild>
+                <Link href={`/documents/${document.id}/edit`}>
+                  <PenLine aria-hidden /> Open
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       </div>

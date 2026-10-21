@@ -215,6 +215,7 @@ async function dispatch(ctx: TenantContext, orderId: string): Promise<SendOutcom
   const document: OrderDocument = {
     number: order.number,
     buyerName: ctx.tenant.name,
+    buyerColor: ctx.tenant.primaryColor,
     buyerEmail: ctx.email,
     supplierName: supplier.name,
     accountNumber: supplier.accountNumber,

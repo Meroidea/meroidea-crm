@@ -64,6 +64,10 @@ const eslintConfig = defineConfig([
       'src/modules/hiring/key-rotation.ts',
       // Per-sender counters for the public forms; no tenant data, no session (ADR-039).
       'src/server/rate-limit.ts',
+      // The website's "Let's talk" form: no session; it only ever inserts a new enquiry.
+      'src/modules/enquiries/public.ts',
+      // Website enquiries are platform data, read only by platform owners (ADR-029).
+      'src/modules/enquiries/service.ts',
     ],
     rules: { 'no-restricted-imports': 'off' },
   },

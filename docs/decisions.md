@@ -896,6 +896,54 @@ timeline events, which are kept. Alerts can be up to a day late for a business n
 from a data provider, and WhatsApp/SMS. Email is sent from the CRM under the person's name with
 replies to their own inbox; calls and enrichment are entered by hand.
 
+## ADR-052 — The public site asks businesses to get in touch, not to sign up or pick a plan
+
+**Context.** Businesses are onboarded by the platform owner after a conversation (ADR-029,
+ADR-047), and public sign-up is closed. The home page still showed placeholder prices and "Start
+free / 14-day trial" buttons that led to a closed sign-up page.
+
+**Decision.** The pricing section is removed, and every "Start free" call to action becomes "Talk
+to us", pointing at a "Let's talk" form at the end of the home page. A submission is saved in
+`website_enquiries` (platform data, no tenant), emailed to every address in
+`PLATFORM_ADMIN_EMAILS` with the sender as reply-to, and listed for platform owners in
+`/platform/enquiries`, where each can be marked contacted or closed. The form keeps the rules of
+every public intake: Zod validation, a silent honeypot, at most 3 messages per sender an hour and
+40 across all senders an hour (ADR-039).
+
+**Why.** Saving before emailing means a failed or missing email never loses an enquiry. Platform
+owners already receive platform email and own onboarding, so no new setting is needed.
+
+**Consequences.** Prices are discussed, not published. `/signup` still exists for the first
+platform owner's own account (`ALLOW_PUBLIC_SIGNUP`), but nothing on the site links to it.
+
+## ADR-053 — One email layout, in three looks, for everything Meroidea sends
+
+**Context.** Each of the 13 kinds of email built its own one-line HTML, with three copies of an
+escaping helper. They looked unfinished, and nothing said who sent them or why.
+
+**Decision.** Every email is built by `renderEmail()` (`src/server/email-template.ts`) from plain
+text blocks (paragraph, list, details, table, message, button, note). It returns HTML and a text
+part from the same blocks and does all the escaping. Three looks:
+
+- **platform**: from Meroidea itself (service agreement, features switched on, logins and
+  password links, notifications, staff questions), signed "The Meroidea team";
+- **business**: from a business to its customers, suppliers or staff (invoice, purchase order,
+  roster, offer, helpdesk reply, hire login), in the business's name and its own colour when that
+  is a plain `#rrggbb` value, signed by the business, with "Sent by … with Meroidea" below;
+- **personal**: an email a person writes to a contact from the CRM, with no banner and no added
+  signature, because it should read like their own email.
+
+Every email ends with why the reader got it.
+
+**Why.** Built for inboxes: tables and inline styles, no web fonts and no images (the mark is drawn
+in HTML, so nothing is blocked and no email is "image only"), every link also written out, and a
+text part that says the same as the HTML. These are the parts of deliverability the app controls.
+
+**Consequences.** Landing in the inbox also needs the sending domain authenticated: SPF, DKIM and
+DMARC for the `EMAIL_FROM` domain, verified in the email provider. A new email must use
+`renderEmail()`; what an email may say is unchanged (no lead details or question content in
+inboxes, rules/security.md).
+
 ## ADR-054 — Motion: one easing, quick feedback, and none for those who ask for less
 
 **Context.** The public site already moved (scroll reveals, the hero handing its buttons to the

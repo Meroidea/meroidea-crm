@@ -400,6 +400,7 @@ export async function publishRoster(
           endsOn: roster.endsOn,
           shifts: own,
           message: input.message,
+          color: ctx.tenant.primaryColor,
         }),
       };
     });

@@ -3,6 +3,7 @@ import { after } from 'next/server';
 import type { ReactNode } from 'react';
 
 import { AppSidebar } from '@/components/layout/app-sidebar';
+import { HeaderBackLink } from '@/components/layout/back-link';
 import { DotBackground } from '@/components/layout/dot-background';
 import { NotificationBell } from '@/components/layout/notification-bell';
 import { PrivacyBlurToggle } from '@/components/layout/privacy-blur-toggle';
@@ -45,6 +46,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           )}
           <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
             <SidebarTrigger className="-ml-1" />
+            <HeaderBackLink />
             <div className="ml-auto flex items-center gap-1">
               {platformAdmin && !ctx.isSupport && (
                 <Link
