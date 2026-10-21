@@ -28,13 +28,15 @@ export function HeroCta() {
       <div>
         <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Button asChild size="lg" className="w-32 sm:w-auto">
-            <Link href="/signup">Start free</Link>
+            <Link href="#contact">Talk to us</Link>
           </Button>
           <Button asChild size="lg" variant="outline" className="w-32 sm:w-auto">
             <Link href="/login">Sign in</Link>
           </Button>
         </div>
-        <p className="mt-4 text-sm text-muted-foreground">14-day trial. No card needed to start.</p>
+        <p className="mt-4 text-sm text-muted-foreground">
+          Set up with you, around how your team already works.
+        </p>
       </div>
     </div>
   );

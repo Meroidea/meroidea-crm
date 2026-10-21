@@ -13,17 +13,19 @@ const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
     links: [
       { href: '/#product', label: 'Overview' },
       { href: '/#features', label: 'Features' },
-      { href: '/#pricing', label: 'Pricing' },
     ],
   },
   {
     title: 'Company',
-    links: [{ href: '/#about', label: 'About us' }],
+    links: [
+      { href: '/#about', label: 'About us' },
+      { href: '/#contact', label: 'Contact' },
+    ],
   },
   {
     title: 'Get started',
     links: [
-      { href: '/signup', label: 'Start free trial' },
+      { href: '/#contact', label: 'Talk to us' },
       { href: '/login', label: 'Sign in to your workspace' },
     ],
   },
@@ -68,14 +70,13 @@ export function SiteFooter() {
               Bring your whole business into one workspace
             </h2>
             <p className="mt-3 text-muted-foreground">
-              Set up in minutes, shaped around how your team already works. 14-day trial, no card
-              needed.
+              Shaped around how your team already works, and set up with you by the Meroidea team.
             </p>
           </div>
           <div className="relative flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <Button asChild size="lg" className="group">
-              <Link href="/signup">
-                Start free
+              <Link href="/#contact">
+                Talk to us
                 <ArrowRight
                   aria-hidden
                   className="transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
