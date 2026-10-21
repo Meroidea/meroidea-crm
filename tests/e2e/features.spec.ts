@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
 
-import { PLATFORM_OWNER } from './support/accounts';
-import { onboardBusiness, signIn } from './support/flows';
+import { PLATFORM_OWNER_STATE } from './support/accounts';
+import { onboardBusiness } from './support/flows';
 
 test('switching a feature on for a running business tells its admin on the dashboard', async ({
   page,
   context,
   browser,
 }, testInfo) => {
-  // Onboards a business, then signs the platform owner in separately.
+  // Onboards a business, then opens the console in a second browser as the platform owner.
   test.slow();
   const stamp = `${Date.now()}-${testInfo.project.name}`;
   const { company } = await onboardBusiness(page, context, stamp);
@@ -16,9 +16,9 @@ test('switching a feature on for a running business tells its admin on the dashb
   await expect(notice).toHaveCount(0);
 
   // The platform owner, in their own browser, switches two more features on.
-  const consoleContext = await browser.newContext();
+  const consoleContext = await browser.newContext({ storageState: PLATFORM_OWNER_STATE });
   const consolePage = await consoleContext.newPage();
-  await signIn(consolePage, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
+  await consolePage.goto('/platform');
   await expect(consolePage).toHaveURL(/\/platform$/, { timeout: 30_000 });
   await consolePage.getByRole('link', { name: company }).click();
   await consolePage.waitForLoadState('networkidle');

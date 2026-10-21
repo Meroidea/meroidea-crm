@@ -1,6 +1,8 @@
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
-import { PLATFORM_OWNER } from './accounts';
+import { readFileSync } from 'node:fs';
+
+import { PLATFORM_OWNER_STATE } from './accounts';
 
 export async function signIn(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -9,6 +11,17 @@ export async function signIn(page: Page, email: string, password: string) {
   await page.getByLabel('Work email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
+}
+
+/**
+ * Signs the platform owner into `context` with the session global-setup.ts saved, without
+ * entering the password again (each sign-in counts against the per-sender limit).
+ */
+export async function addOwnerSession(context: BrowserContext) {
+  const { cookies } = JSON.parse(readFileSync(PLATFORM_OWNER_STATE, 'utf8')) as {
+    cookies: Parameters<BrowserContext['addCookies']>[0];
+  };
+  await context.addCookies(cookies);
 }
 
 /** Opens a one-time set-your-password link and chooses a password, ending on the dashboard. */
@@ -35,7 +48,8 @@ export async function onboardBusiness(
   const company = `Harbour Cafe ${stamp}`;
   const adminEmail = `admin-${stamp}@example.com`;
 
-  await signIn(page, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
+  await addOwnerSession(context);
+  await page.goto('/platform');
   await expect(page).toHaveURL(/\/platform$/, { timeout: 30_000 });
   await expect(page.getByRole('heading', { level: 1, name: 'Businesses' })).toBeVisible();
   await expect(page.locator('[data-slot="dot-background"]')).toHaveCount(1);
