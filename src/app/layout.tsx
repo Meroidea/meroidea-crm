@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 
+import { NavigationProgress } from '@/components/motion/navigation-progress';
+
 import './globals.css';
 
 const inter = Inter({ variable: '--font-inter', subsets: ['latin'] });
@@ -36,8 +38,17 @@ export const viewport: Viewport = { themeColor: '#4b49ac' };
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full">{children}</body>
+    // data-scroll-behavior: smooth scrolling for anchor links, but an instant jump to the top
+    // when Next.js moves between pages.
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      className={`${inter.variable} h-full antialiased`}
+    >
+      <body className="min-h-full">
+        <NavigationProgress />
+        {children}
+      </body>
     </html>
   );
 }

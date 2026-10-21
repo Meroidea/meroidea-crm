@@ -944,3 +944,29 @@ DMARC for the `EMAIL_FROM` domain, verified in the email provider. A new email m
 `renderEmail()`; what an email may say is unchanged (no lead details or question content in
 inboxes, rules/security.md).
 
+## ADR-054 — Motion: one easing, quick feedback, and none for those who ask for less
+
+**Context.** The public site already moved (scroll reveals, the hero handing its buttons to the
+header), but inside the workspace clicks gave no feedback until the next page arrived, and pages
+appeared without transition.
+
+**Decision.** Motion is CSS-first and shares one easing (`--ease-out-expo`):
+
+- a thin progress bar in the brand gradient (`NavigationProgress`, in the root layout) runs
+  from a link's click until the next page is on screen;
+- every page plays a short fade-and-rise entrance from a `template.tsx` in the workspace, the
+  sign-in pages and the platform console (`.page-enter`, 420 ms, filled backwards only so no
+  transform is left to re-anchor `position: fixed` elements);
+- buttons sink slightly when pressed, and primary buttons lift on hover;
+- anchor links on the public site scroll smoothly; page-to-page navigation still jumps to the top
+  (`data-scroll-behavior="smooth"`, Next.js 16).
+
+Everything above turns off under `prefers-reduced-motion: reduce`. No animation library was added.
+
+**Why.** Feedback within a tenth of a second is what makes an app feel fast; long or decorative
+motion inside a tool people use all day makes it feel slow, so the workspace stays quick and
+quiet while the public site keeps its richer, scroll-driven movement.
+
+**Consequences.** New pages get their entrance for free. A new animation should use the shared
+easing and add itself to the reduced-motion block in `globals.css`.
+
