@@ -21,3 +21,4 @@ export * from './agreements';
 export * from './concerns';
 export * from './training';
 export * from './leads';
+export * from './enquiries';

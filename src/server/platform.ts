@@ -9,7 +9,7 @@ import { createSupabaseServerClient } from '@/server/supabase/server';
 export type PlatformAdmin = { userId: string; email: string };
 
 /** The platform owners' emails, from the server environment only. */
-function ownerEmails(): string[] {
+export function platformOwnerEmails(): string[] {
   return (serverEnv().PLATFORM_ADMIN_EMAILS ?? '')
     .split(',')
     .map((email) => email.trim().toLowerCase())
@@ -22,7 +22,7 @@ function ownerEmails(): string[] {
  * password would hold the platform console over every business.
  */
 export function isPlatformOwnerEmail(email: string): boolean {
-  return ownerEmails().includes(email.trim().toLowerCase());
+  return platformOwnerEmails().includes(email.trim().toLowerCase());
 }
 
 /**
@@ -37,7 +37,7 @@ export async function getPlatformAdmin(): Promise<PlatformAdmin | null> {
   } = await supabase.auth.getUser();
   const email = user?.email?.toLowerCase();
   if (!user || !email || !user.email_confirmed_at) return null;
-  return ownerEmails().includes(email) ? { userId: user.id, email } : null;
+  return platformOwnerEmails().includes(email) ? { userId: user.id, email } : null;
 }
 
 /** For platform pages: sign-in for strangers, and "not found" for everyone who is not an owner. */

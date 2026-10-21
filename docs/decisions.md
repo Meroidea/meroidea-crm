@@ -896,6 +896,26 @@ timeline events, which are kept. Alerts can be up to a day late for a business n
 from a data provider, and WhatsApp/SMS. Email is sent from the CRM under the person's name with
 replies to their own inbox; calls and enrichment are entered by hand.
 
+## ADR-052 — The public site asks businesses to get in touch, not to sign up or pick a plan
+
+**Context.** Businesses are onboarded by the platform owner after a conversation (ADR-029,
+ADR-047), and public sign-up is closed. The home page still showed placeholder prices and "Start
+free / 14-day trial" buttons that led to a closed sign-up page.
+
+**Decision.** The pricing section is removed, and every "Start free" call to action becomes "Talk
+to us", pointing at a "Let's talk" form at the end of the home page. A submission is saved in
+`website_enquiries` (platform data, no tenant), emailed to every address in
+`PLATFORM_ADMIN_EMAILS` with the sender as reply-to, and listed for platform owners in
+`/platform/enquiries`, where each can be marked contacted or closed. The form keeps the rules of
+every public intake: Zod validation, a silent honeypot, at most 3 messages per sender an hour and
+40 across all senders an hour (ADR-039).
+
+**Why.** Saving before emailing means a failed or missing email never loses an enquiry. Platform
+owners already receive platform email and own onboarding, so no new setting is needed.
+
+**Consequences.** Prices are discussed, not published. `/signup` still exists for the first
+platform owner's own account (`ALLOW_PUBLIC_SIGNUP`), but nothing on the site links to it.
+
 ## ADR-053 — One email layout, in three looks, for everything Meroidea sends
 
 **Context.** Each of the 13 kinds of email built its own one-line HTML, with three copies of an

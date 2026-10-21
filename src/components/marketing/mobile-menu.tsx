@@ -6,7 +6,7 @@ import {
   LayoutDashboard,
   Menu,
   Sparkles,
-  Tag,
+  MessageSquare,
   Users,
   X,
   type LucideIcon,
@@ -30,7 +30,7 @@ const MENU_LINKS: MenuLink[] = [
   {
     href: '#features',
     label: 'Features',
-    hint: 'What every plan includes',
+    hint: 'What the workspace includes',
     icon: Sparkles,
     tint: 'var(--chart-4)',
   },
@@ -42,10 +42,10 @@ const MENU_LINKS: MenuLink[] = [
     tint: 'var(--chart-3)',
   },
   {
-    href: '#pricing',
-    label: 'Pricing',
-    hint: 'One price per person',
-    icon: Tag,
+    href: '#contact',
+    label: 'Contact',
+    hint: 'Talk to the Meroidea team',
+    icon: MessageSquare,
     tint: 'var(--chart-5)',
   },
 ];
@@ -151,8 +151,8 @@ export function MobileMenu() {
             style={stagger(MENU_LINKS.length + 1)}
           >
             <div className="rounded-2xl border bg-card/80 p-4 shadow-sm">
-              <p className="text-sm font-semibold">Start with a 14-day trial</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">No card needed to begin.</p>
+              <p className="text-sm font-semibold">Ready to bring your business in?</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">We set it up with you.</p>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <Button asChild size="lg" variant="outline">
                   <Link href="/login" onClick={close}>
@@ -160,8 +160,8 @@ export function MobileMenu() {
                   </Link>
                 </Button>
                 <Button asChild size="lg">
-                  <Link href="/signup" onClick={close}>
-                    Start free
+                  <Link href="#contact" onClick={close}>
+                    Talk to us
                     <ArrowRight className="size-4" />
                   </Link>
                 </Button>

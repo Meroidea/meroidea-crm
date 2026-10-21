@@ -1485,6 +1485,27 @@ primary key (bucket, subject_hash, window_start)
 index (window_start)                 -- for sweeping windows older than a day
 ```
 
+### website_enquiries 🟢 (not tenant data; ADR-052)
+Messages from the public website's "Let's talk" form. Written by `src/modules/enquiries/public.ts`
+(no session, insert only, behind a honeypot and per-sender and hourly limits) and read or updated
+by platform owners in `/platform/enquiries`, both through `adminDb`. RLS is enabled with no
+policies, and `anon` and `authenticated` have no privileges.
+```sql
+id             uuid pk default gen_random_uuid()
+name           text not null
+email          text not null            -- lower-cased
+phone          text
+company        text not null
+business_type  text                     -- free text: the public site stays industry-neutral
+team_size      text                     -- one of TEAM_SIZES in src/modules/enquiries/schemas.ts
+message        text not null
+status         text not null default 'new' check (status in ('new', 'contacted', 'closed'))
+handled_by     uuid                     -- the platform owner's auth user id
+handled_at     timestamptz
+created_at     timestamptz not null default now()
+index (created_at)
+```
+
 ### service_agreements 🟢 (not tenant data; ADR-047)
 The agreement between Meroidea and the businesses it serves. A published version is never
 edited; new wording is a new version. Written only through `adminDb` by the platform console.
