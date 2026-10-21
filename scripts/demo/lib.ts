@@ -87,7 +87,7 @@ export function nextMonday(today: Date = new Date()): string {
     day: '2-digit',
   }).format(today);
   const date = new Date(`${local}T00:00:00Z`);
-  const ahead = ((8 - date.getUTCDay()) % 7) || 7;
+  const ahead = (8 - date.getUTCDay()) % 7 || 7;
   date.setUTCDate(date.getUTCDate() + ahead);
   return date.toISOString().slice(0, 10);
 }
