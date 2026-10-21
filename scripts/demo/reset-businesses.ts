@@ -12,7 +12,7 @@
  *   2. deletes the rows in one transaction, children before parents, with the privileged
  *      connection; the order comes from the database's own foreign keys;
  *   3. deletes the businesses' stored files through the Supabase storage API;
- *   4. deletes the logins left with no membership in any business, never a platform owner's.
+ *   4. deletes those businesses' people's logins left with no membership, never a platform owner's.
  *
  * --only limits it to the named businesses (used to test it against a shared local database).
  */
@@ -355,20 +355,21 @@ export async function resetBusinesses(options: {
   }
   log(`Deleted ${deletedFiles} of ${plan.storageObjects.length} stored files.`);
 
-  // 4. Logins left with no membership anywhere. With --only, just these businesses' people.
+  // 4. These businesses' people whose login is now left with no membership anywhere. A login
+  //    never tied to them is not this script's to delete.
   const members = new Set(
     (await run<{ user_id: string }>(sql`select distinct user_id from tenant_memberships`)).map(
       (row) => row.user_id,
     ),
   );
-  const candidates = options.only?.length ? new Set(people) : null;
+  const candidates = new Set(people);
   let deletedLogins = 0;
   let keptLogins = 0;
   let loginFailures = 0;
   const supabase = createSupabaseAdminClient();
   for (const user of await listAuthUsers()) {
     if (members.has(user.id)) continue;
-    if (candidates && !candidates.has(user.id)) continue;
+    if (!candidates.has(user.id)) continue;
     if (user.email && owners.includes(user.email)) {
       keptLogins += 1;
       continue;
