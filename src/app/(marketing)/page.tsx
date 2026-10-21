@@ -1,6 +1,6 @@
 import { AboutSection } from '@/components/marketing/about-section';
+import { ContactSection } from '@/components/marketing/contact-section';
 import { FeatureRow } from '@/components/marketing/feature-row';
-import { PricingSection } from '@/components/marketing/pricing-section';
 import { HowItWorks } from '@/components/marketing/how-it-works';
 import { HeroCta } from '@/components/marketing/hero-cta';
 import { WorkspacePreview } from '@/components/marketing/workspace-preview';
@@ -56,8 +56,8 @@ export default function HomePage() {
       <WorkspacePreview />
       <AboutSection />
       <HowItWorks />
-      <PricingSection />
       <FeatureRow />
+      <ContactSection />
     </main>
   );
 }

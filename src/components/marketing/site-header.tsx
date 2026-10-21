@@ -12,7 +12,7 @@ const NAV_LINKS = [
   { href: '#product', label: 'Product' },
   { href: '#features', label: 'Features' },
   { href: '#about', label: 'About' },
-  { href: '#pricing', label: 'Pricing' },
+  { href: '#contact', label: 'Contact' },
 ];
 
 export function SiteHeader() {
@@ -66,7 +66,7 @@ export function SiteHeader() {
               <Link href="/login">Sign in</Link>
             </Button>
             <Button asChild size="lg">
-              <Link href="/signup">Start free</Link>
+              <Link href="#contact">Talk to us</Link>
             </Button>
           </div>
 

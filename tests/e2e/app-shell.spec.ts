@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-test('the homepage is public and offers sign in and sign up', async ({ page }) => {
+test('the homepage is public and offers sign in and a way to get in touch', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByRole('heading', { level: 1 })).toContainText('run your business');
-  await expect(page.getByRole('link', { name: 'Start free' }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Talk to us' }).first()).toBeVisible();
+  await expect(page.getByText('per person / month')).toHaveCount(0);
 
   await page.getByRole('main').getByRole('link', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/login$/, { timeout: 20_000 });

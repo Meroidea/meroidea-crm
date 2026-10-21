@@ -22,6 +22,12 @@ export default async function PlatformLayout({ children }: { children: ReactNode
           <span className="sr-only sm:not-sr-only">Meroidea platform</span>
         </Link>
         <Link
+          href="/platform/enquiries"
+          className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+        >
+          Enquiries
+        </Link>
+        <Link
           href="/platform/agreement"
           className="text-sm text-muted-foreground underline-offset-4 hover:underline"
         >
