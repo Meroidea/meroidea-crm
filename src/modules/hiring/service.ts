@@ -18,6 +18,7 @@ import { contractWording } from './contract-view';
 import { normalizeDigits } from './identifiers';
 import type { CreateHireInput } from './schemas';
 import type { RevealedPayroll } from './types';
+import { renderEmail } from '@/server/email-template';
 
 /** How long a new hire has to open their link and respond. */
 const LINK_DAYS = 14;
@@ -165,23 +166,34 @@ export async function createHire(
   });
 }
 
-function offerEmail(input: { firstName: string; employerName: string; link: string }) {
-  const subject = `Your offer from ${input.employerName}`;
-  const text = [
-    `Hi ${input.firstName},`,
-    `${input.employerName} has sent you an offer to review and accept.`,
-    `Open it here: ${input.link}`,
-    `This link is personal to you and expires in ${LINK_DAYS} days. Please don't forward it.`,
-  ].join('\n\n');
-  const html = `<p>Hi ${escapeHtml(input.firstName)},</p>
-<p>${escapeHtml(input.employerName)} has sent you an offer to review and accept.</p>
-<p><a href="${input.link}">Review your offer</a></p>
-<p>This link is personal to you and expires in ${LINK_DAYS} days. Please don't forward it.</p>`;
-  return { subject, text, html };
+function offerEmail(input: {
+  firstName: string;
+  employerName: string;
+  color: string | null;
+  link: string;
+}) {
+  return {
+    subject: `Your offer from ${input.employerName}`,
+    ...renderEmail({
+      sender: { kind: 'business', name: input.employerName, color: input.color },
+      preheader: `${input.employerName} has sent you an offer to review and accept.`,
+      heading: `Your offer from ${input.employerName}`,
+      blocks: [
+        { type: 'paragraph', text: `Hi ${input.firstName},` },
+        {
+          type: 'paragraph',
+          text: `${input.employerName} has sent you an offer to review and accept. You can read it in full, ask questions before you decide, and accept it online.`,
+        },
+        { type: 'button', label: 'Review your offer', url: input.link },
+        {
+          type: 'note',
+          text: `This link is personal to you and expires in ${LINK_DAYS} days. Please don't forward it.`,
+        },
+      ],
+      reason: `You received this because ${input.employerName} is offering you a role.`,
+    }),
+  };
 }
-
-const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
 /**
  * Freezes the wording, issues a fresh one-time link and emails it. Sending again replaces the
@@ -247,7 +259,12 @@ export async function sendContract(
   const link = `${serverEnv().APP_URL}/offer/${token}`;
   const result = await sendEmail({
     to: sent.email,
-    ...offerEmail({ firstName: sent.firstName, employerName: ctx.tenant.name, link }),
+    ...offerEmail({
+      firstName: sent.firstName,
+      employerName: ctx.tenant.name,
+      color: ctx.tenant.primaryColor,
+      link,
+    }),
   });
   // Once the offer is in the hire's inbox, the admin holding the link too could accept it, and
   // enter bank details, in the hire's name.

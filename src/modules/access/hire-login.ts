@@ -7,10 +7,11 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { auditLogs, employees, roles, tenantMemberships, tenants, users } from '@/db/schema';
 import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
+import { renderEmail } from '@/server/email-template';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
 import { isPlatformOwnerEmail } from '@/server/platform';
 
-import { businessTeamId, createPasswordLink, escapeHtml } from './service';
+import { businessTeamId, createPasswordLink } from './service';
 
 /*
  * Gives a new hire their login the moment they accept their offer (ADR-048). The person has no
@@ -216,14 +217,26 @@ export async function createLoginForAcceptedHire(input: {
 
   const link = await createPasswordLink(email);
   if (!link) return { created: true, emailed: false };
-  const intro = `Hi ${employee.firstName}, welcome to ${employee.businessName}. You now have a login to see your roster, payslips, time and tasks.`;
-  const closing =
-    'This link works once and expires soon. If it has expired, use “Forgot password” on the sign-in page with this email address.';
   const result = await sendEmail({
     to: email,
     subject: `Your login for ${employee.businessName}`,
-    text: [intro, `Choose your password: ${link}`, closing].join('\n\n'),
-    html: `<p>${escapeHtml(intro)}</p><p><a href="${link}">Choose your password</a></p><p>${escapeHtml(closing)}</p>`,
+    ...renderEmail({
+      sender: { kind: 'business', name: employee.businessName },
+      preheader: 'Your login is ready. Choose a password to get started.',
+      heading: `Welcome to ${employee.businessName}, ${employee.firstName}`,
+      blocks: [
+        {
+          type: 'paragraph',
+          text: 'You now have a login where you can see your roster, payslips, time and tasks.',
+        },
+        { type: 'button', label: 'Choose your password', url: link },
+        {
+          type: 'note',
+          text: 'This link works once and expires soon. If it has expired, use “Forgot password” on the sign-in page with this email address.',
+        },
+      ],
+      reason: `You received this because you accepted an offer from ${employee.businessName}.`,
+    }),
   });
   return { created: true, emailed: result.sent };
 }

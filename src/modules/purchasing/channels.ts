@@ -4,6 +4,7 @@ import { formatCalendarDate, formatMoney } from '@/lib/format';
 import { isEmailConfigured, sendEmail } from '@/server/email';
 
 import { orderNumber, type OrderLineRow } from './types';
+import { renderEmail } from '@/server/email-template';
 
 /**
  * How an order reaches a supplier. Email is the only channel today. A supplier that takes orders
@@ -15,6 +16,8 @@ import { orderNumber, type OrderLineRow } from './types';
 export type OrderDocument = {
   number: number;
   buyerName: string;
+  /** The buying business's own colour, when it has one. */
+  buyerColor?: string | null;
   /** Who placed it, for the supplier to reply to. */
   buyerEmail: string;
   supplierName: string;
@@ -37,8 +40,6 @@ export interface OrderChannel {
   send(order: OrderDocument): Promise<ChannelResult>;
 }
 
-const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 const trimQuantity = (value: string) =>
   value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
 
@@ -54,35 +55,49 @@ export function renderOrderEmail(order: OrderDocument): {
   const describe = (line: OrderLineRow) =>
     [line.code, line.name, line.unit ? `(${line.unit})` : null].filter(Boolean).join(' ');
 
-  const text = [
-    `Hello ${order.supplierName},`,
-    `Please supply the following for delivery on ${delivery}.`,
-    order.accountNumber ? `Account: ${order.accountNumber}` : null,
-    order.lines.map((line) => `${trimQuantity(line.quantity)} x ${describe(line)}`).join('\n'),
-    order.notes ? `Notes: ${order.notes}` : null,
-    `Order reference: ${reference}`,
-    `Please reply to this email to confirm, or if anything is unavailable.`,
-    `Thank you,\n${order.buyerName}`,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-
-  const cell = 'padding:6px 12px 6px 0;border-bottom:1px solid #e5e7eb;text-align:left';
-  const rows = order.lines
-    .map(
-      (line) =>
-        `<tr><td style="${cell}">${escapeHtml(trimQuantity(line.quantity))}</td><td style="${cell}">${escapeHtml(line.code ?? '')}</td><td style="${cell}">${escapeHtml(line.name)}</td><td style="${cell}">${escapeHtml(line.unit ?? '')}</td></tr>`,
-    )
-    .join('');
-  const html = `<p>Hello ${escapeHtml(order.supplierName)},</p>
-<p>Please supply the following for delivery on <strong>${escapeHtml(delivery)}</strong>.</p>
-${order.accountNumber ? `<p>Account: ${escapeHtml(order.accountNumber)}</p>` : ''}
-<table style="border-collapse:collapse;font-size:14px"><thead><tr><th style="${cell}">Qty</th><th style="${cell}">Code</th><th style="${cell}">Item</th><th style="${cell}">Unit</th></tr></thead><tbody>${rows}</tbody></table>
-${order.notes ? `<p>Notes: ${escapeHtml(order.notes)}</p>` : ''}
-<p>Order reference: ${reference}<br>Estimated total at your listed prices: ${escapeHtml(formatMoney(order.total, order.currency))}</p>
-<p>Please reply to this email to confirm, or if anything is unavailable.</p>
-<p>Thank you,<br>${escapeHtml(order.buyerName)}</p>`;
-  return { subject, text, html };
+  const email = renderEmail({
+    sender: { kind: 'business', name: order.buyerName, color: order.buyerColor },
+    preheader: `${order.lines.length} ${order.lines.length === 1 ? 'item' : 'items'} for delivery on ${delivery}.`,
+    heading: `Order ${reference}`,
+    blocks: [
+      { type: 'paragraph', text: `Hello ${order.supplierName},` },
+      { type: 'paragraph', text: `Please supply the following for delivery on ${delivery}.` },
+      {
+        type: 'details',
+        rows: [
+          { label: 'Order reference', value: reference },
+          { label: 'Delivery', value: delivery },
+          ...(order.accountNumber ? [{ label: 'Account', value: order.accountNumber }] : []),
+        ],
+      },
+      {
+        type: 'table',
+        columns: ['Qty', 'Code', 'Item', 'Unit'],
+        rows: order.lines.map((line) => [
+          trimQuantity(line.quantity),
+          line.code ?? '',
+          line.name,
+          line.unit ?? '',
+        ]),
+        textRows: order.lines.map((line) => `${trimQuantity(line.quantity)} x ${describe(line)}`),
+        totals: [
+          {
+            label: 'Estimated total at your listed prices',
+            value: formatMoney(order.total, order.currency),
+          },
+        ],
+        totalsInText: false,
+      },
+      ...(order.notes ? [{ type: 'message' as const, text: `Notes: ${order.notes}` }] : []),
+      {
+        type: 'paragraph',
+        text: 'Please reply to this email to confirm, or to tell us if anything is unavailable.',
+      },
+    ],
+    signature: ['Thank you,', order.buyerName],
+    reason: `You received this order from ${order.buyerName}. Replies go straight to the person who placed it.`,
+  });
+  return { subject, ...email };
 }
 
 const emailChannel: OrderChannel = {

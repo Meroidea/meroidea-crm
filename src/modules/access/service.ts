@@ -11,6 +11,7 @@ import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 import { isEmailConfigured, sendEmail } from '@/server/email';
+import { renderEmail } from '@/server/email-template';
 import { serverEnv } from '@/server/env';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
 import { isPlatformOwnerEmail } from '@/server/platform';
@@ -35,22 +36,30 @@ export async function createPasswordLink(email: string): Promise<string | null> 
   return url.toString();
 }
 
-export const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-
 async function emailPasswordLink(input: {
   to: string;
   link: string;
   heading: string;
   intro: string;
+  reason: string;
 }): Promise<boolean> {
-  const closing =
-    'This link works once and expires soon. If you were not expecting it, ignore this email.';
   const result = await sendEmail({
     to: input.to,
     subject: input.heading,
-    text: [input.intro, `Choose your password: ${input.link}`, closing].join('\n\n'),
-    html: `<p>${escapeHtml(input.intro)}</p><p><a href="${input.link}">Choose your password</a></p><p>${closing}</p>`,
+    ...renderEmail({
+      sender: { kind: 'platform' },
+      preheader: 'Choose your password with this one-time link.',
+      heading: input.heading,
+      blocks: [
+        { type: 'paragraph', text: input.intro },
+        { type: 'button', label: 'Choose your password', url: input.link },
+        {
+          type: 'note',
+          text: 'This link works once and expires soon. If you were not expecting it, you can ignore this email: nothing changes until the link is used.',
+        },
+      ],
+      reason: input.reason,
+    }),
   });
   return result.sent;
 }
@@ -172,7 +181,8 @@ export async function inviteMember(
     to: email,
     link,
     heading: `You have been added to ${ctx.tenant.name}`,
-    intro: `Hi ${input.fullName}, ${ctx.tenant.name} has given you a login.`,
+    intro: `Hi ${input.fullName}, ${ctx.tenant.name} has given you a login to Meroidea, where the team works together. Choose a password to get started.`,
+    reason: `You received this because an admin of ${ctx.tenant.name} added this email address to its workspace.`,
   });
   return { userId, ...delivery(emailed, link) };
 }
@@ -210,7 +220,8 @@ export async function sendPasswordLink(ctx: TenantContext, userId: string): Prom
     to: member.email,
     link,
     heading: `Choose a new password for ${ctx.tenant.name}`,
-    intro: `Hi ${member.fullName}, here is a link to choose a new password.`,
+    intro: `Hi ${member.fullName}, an admin of ${ctx.tenant.name} sent you a link to choose a new password.`,
+    reason: `You received this because an admin of ${ctx.tenant.name} asked for it to be sent.`,
   });
   await withRls(ctx, (tx) =>
     audit(tx, ctx, {
@@ -288,6 +299,8 @@ export async function requestPasswordReset(email: string): Promise<void> {
     to: email.toLowerCase(),
     link,
     heading: 'Choose a new password',
-    intro: 'Someone asked to reset the password for this email address.',
+    intro:
+      'Someone asked to reset the Meroidea password for this email address. If it was you, choose a new one below.',
+    reason: 'You received this because a password reset was requested for this address.',
   });
 }

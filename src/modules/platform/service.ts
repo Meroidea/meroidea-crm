@@ -22,6 +22,7 @@ import { provisionTenant } from '@/modules/tenants/provision';
 import { createLinkToken } from '@/server/crypto';
 import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
+import { renderEmail } from '@/server/email-template';
 import { serverEnv } from '@/server/env';
 import type { PlatformAdmin } from '@/server/platform';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
@@ -117,9 +118,6 @@ function record(
 /** How long the link to accept the service agreement stays usable. */
 const AGREEMENT_LINK_DAYS = 14;
 
-const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-
 /**
  * What happened to the agreement link. The link comes back to the platform owner only when it
  * could not be emailed, to pass on by hand. Once it is in the admin's inbox, the platform owner
@@ -146,15 +144,31 @@ async function emailAgreementLink(input: {
   businessName: string;
   link: string;
 }): Promise<boolean> {
-  const intro = `Hi ${input.name}, ${input.businessName} has been set up on Meroidea and you are its admin.`;
-  const step =
-    'To open your workspace, read and accept the service agreement, then choose your password.';
-  const closing = `This link works once and expires in ${AGREEMENT_LINK_DAYS} days. If you were not expecting it, ignore this email.`;
   const result = await sendEmail({
     to: input.to,
     subject: `Accept your Meroidea service agreement for ${input.businessName}`,
-    text: [intro, step, `Read and accept: ${input.link}`, closing].join('\n\n'),
-    html: `<p>${escapeHtml(intro)}</p><p>${escapeHtml(step)}</p><p><a href="${input.link}">Read and accept the agreement</a></p><p>${escapeHtml(closing)}</p>`,
+    ...renderEmail({
+      sender: { kind: 'platform' },
+      preheader: `${input.businessName}'s workspace is ready. Accept the agreement to open it.`,
+      heading: `Welcome to Meroidea, ${input.name}`,
+      blocks: [
+        {
+          type: 'paragraph',
+          text: `${input.businessName} has been set up on Meroidea, and you are its admin.`,
+        },
+        { type: 'paragraph', text: 'Two quick steps open your workspace:' },
+        {
+          type: 'list',
+          items: ['Read and accept the service agreement.', 'Choose your password and sign in.'],
+        },
+        { type: 'button', label: 'Read and accept the agreement', url: input.link },
+        {
+          type: 'note',
+          text: `This link works once and expires in ${AGREEMENT_LINK_DAYS} days. If you were not expecting it, you can ignore this email.`,
+        },
+      ],
+      reason: `You received this because ${input.businessName} was set up on Meroidea with this email address as its admin.`,
+    }),
   });
   return result.sent;
 }
@@ -473,12 +487,21 @@ async function emailFeaturesSwitchedOn(input: {
   const access = `People in the built-in roles can use ${them} straight away, with their usual access. Roles you created yourself need access given in Settings → Roles.`;
   const results = await Promise.all(
     input.recipients.map(async ({ email, fullName }) => {
-      const intro = `Hi ${fullName}, Meroidea has switched on more for ${input.businessName}: ${names}.`;
       return sendEmail({
         to: email,
         subject: `New in Meroidea for ${input.businessName}: ${names}`,
-        text: [intro, access, `Review who can use ${them}: ${link}`].join('\n\n'),
-        html: `<p>${escapeHtml(intro)}</p><p>${escapeHtml(access)}</p><p><a href="${escapeHtml(link)}">Review who can use ${them}</a></p>`,
+        ...renderEmail({
+          sender: { kind: 'platform' },
+          preheader: `Now switched on for ${input.businessName}: ${names}.`,
+          heading: `New for ${input.businessName}`,
+          blocks: [
+            { type: 'paragraph', text: `Hi ${fullName}, we have switched on more for your team:` },
+            { type: 'list', items: input.labels },
+            { type: 'paragraph', text: access },
+            { type: 'button', label: `Review who can use ${them}`, url: link },
+          ],
+          reason: `You received this because you are an admin of ${input.businessName} on Meroidea.`,
+        }),
       });
     }),
   );

@@ -3,11 +3,11 @@ import 'server-only';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { notifications, users } from '@/db/schema';
-import { escapeHtml } from '@/lib/html';
 import type { TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 import { sendEmail } from '@/server/email';
 import { serverEnv } from '@/server/env';
+import { renderEmail } from '@/server/email-template';
 
 /**
  * What a notice is about. The email for each kind says only that something is waiting and links
@@ -130,11 +130,21 @@ export async function sendNoticeEmails(
     const intro = many
       ? `${subject} in ${businessName} on Meroidea, and ${items.length - 1} more like it.`
       : `${subject} in ${businessName} on Meroidea.`;
+    // Names and details stay inside the workspace (rules/security.md): the email only says what
+    // kind of thing is waiting, and links to it.
     const result = await sendEmail({
       to,
       subject: many ? `${subject} (${items.length})` : subject,
-      text: `${intro}\n\nOpen ${many ? 'them' : 'it'}: ${link}`,
-      html: `<p>${escapeHtml(intro)}</p><p><a href="${escapeHtml(link)}">Open ${many ? 'them' : 'it'} in Meroidea</a></p>`,
+      ...renderEmail({
+        sender: { kind: 'platform' },
+        preheader: intro,
+        heading: subject,
+        blocks: [
+          { type: 'paragraph', text: intro },
+          { type: 'button', label: `Open ${many ? 'them' : 'it'} in Meroidea`, url: link },
+        ],
+        reason: `You received this because you have a login in ${businessName} on Meroidea.`,
+      }),
     });
     // Not set up is not a failure to retry: nothing would change on the next run.
     if (!result.sent && result.reason === 'failed') failed.push(...items);
