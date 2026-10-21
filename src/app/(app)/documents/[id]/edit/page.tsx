@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 
 import { DocumentEditor } from '@/modules/files/components/document-editor';
 import { DownloadButton } from '@/modules/files/components/files-tools';
@@ -23,6 +23,8 @@ export default async function EditDocumentPage({ params }: PageProps<'/documents
   const document = parsed.success ? await getDocument(ctx, parsed.data.id) : null;
   if (!document) notFound();
   const settings = editorSettings();
+  // Without the editing service there is nothing to open: show the document's page instead.
+  if (!settings) redirect(`/documents/${document.id}`);
   const editor = settings ? buildEditorConfig(ctx, document, await getMyName(ctx), settings) : null;
   if (editor) await recordEditorOpen(ctx, document);
 

@@ -41,6 +41,8 @@ export default async function DocumentsPage({ searchParams }: PageProps<'/docume
     listFolders(ctx),
   ]);
   const canManage = hasPermission(ctx, 'files.manage');
+  // The editing service is optional (ADR-030); without it a document opens on its own page.
+  const canEdit = editorSettings() !== null;
   const filtering = Boolean(filters.q || filters.type || filters.folder);
 
   const groups = new Map<string, DocumentRow[]>();
@@ -55,13 +57,17 @@ export default async function DocumentsPage({ searchParams }: PageProps<'/docume
     <div className="flex w-full max-w-5xl flex-col gap-5">
       <PageHeader
         title="Documents"
-        description="Your business’s shared files. Open one to edit it here, together, without downloading."
+        description={
+          canEdit
+            ? 'Your business’s shared files. Open one to edit it here, together, without downloading.'
+            : 'Your business’s shared files, with every version kept.'
+        }
         actions={canManage && <UploadButton folders={folders} />}
       />
-      {!editorSettings() && (
+      {!canEdit && (
         <p className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text">
-          The document editing service is not connected yet, so files can be stored and downloaded
-          but not opened for editing in the browser.
+          Editing in the browser is switched off for now. Files can still be uploaded, stored and
+          downloaded, with every version kept.
         </p>
       )}
       <FilterBar
@@ -122,7 +128,9 @@ export default async function DocumentsPage({ searchParams }: PageProps<'/docume
                     className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
                   >
                     <Link
-                      href={`/documents/${document.id}/edit`}
+                      href={
+                        canEdit ? `/documents/${document.id}/edit` : `/documents/${document.id}`
+                      }
                       className="group flex min-w-0 flex-1 basis-56 items-center gap-3 rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     >
                       <span
