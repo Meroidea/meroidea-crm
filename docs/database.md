@@ -1506,6 +1506,24 @@ created_at     timestamptz not null default now()
 index (created_at)
 ```
 
+### platform_audit_logs 🟢 (not tenant data; ADR-056)
+What platform owners did that no business's own `audit_logs` can hold: today, deleting a business,
+whose audit log is deleted with it. Written by `src/modules/platform/service.ts` through `adminDb`
+in the same transaction as the deletion. `business_id` deliberately has no foreign key, and is not
+called `tenant_id`, so the row outlives the business and is never mistaken for its data. RLS is
+enabled with no policies, and `anon` and `authenticated` have no privileges.
+```sql
+id             uuid pk default gen_random_uuid()
+actor_user_id  uuid not null            -- the platform owner's auth user id
+actor_email    text not null
+action         text not null            -- 'business_deleted'
+business_id    uuid                     -- no FK: the business may be gone
+business_name  text
+context        jsonb not null default '{}'  -- e.g. { slug, rows, members }
+created_at     timestamptz not null default now()
+index (created_at)
+```
+
 ### service_agreements 🟢 (not tenant data; ADR-047)
 The agreement between Meroidea and the businesses it serves. A published version is never
 edited; new wording is a new version. Written only through `adminDb` by the platform console.

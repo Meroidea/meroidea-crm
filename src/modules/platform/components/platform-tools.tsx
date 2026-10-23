@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Copy, KeyRound, LifeBuoy, LogOut, MapPin, Pause, Play } from 'lucide-react';
+import { Check, Copy, KeyRound, LifeBuoy, LogOut, MapPin, Pause, Play, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import type { AgreementLinkDelivery } from '@/modules/platform/service';
 import {
   createBusinessAction,
+  deleteBusinessAction,
   endSupportAccessAction,
   reencryptPayrollDetailsAction,
   setBusinessFeaturesAction,
@@ -393,6 +394,83 @@ export function BusinessControls({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Deletes a test or example business for good (ADR-056). Only a suspended business can be
+ * deleted, and its name must be typed exactly, so a slip cannot remove a live client.
+ */
+export function DeleteBusiness({
+  tenantId,
+  name,
+  suspended,
+}: {
+  tenantId: string;
+  name: string;
+  suspended: boolean;
+}) {
+  const router = useRouter();
+  const [confirmName, setConfirmName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-card p-5">
+      <div>
+        <h2 className="font-medium">Delete this business</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {suspended
+            ? 'Removes the business and everything in it: its people, records, files and audit log. Logins are removed for anyone who belongs to no other business. This cannot be undone. A record that you deleted it is kept in the platform log.'
+            : 'Suspend the business first. Only a suspended business can be deleted, and deleting cannot be undone.'}
+        </p>
+      </div>
+      {suspended && (
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            startTransition(async () => {
+              setError(null);
+              const result = await deleteBusinessAction({ tenantId, confirmName });
+              if (!result.ok) {
+                return setError(
+                  Object.values(result.error.fieldErrors ?? {})[0]?.[0] ?? result.error.message,
+                );
+              }
+              router.push('/platform');
+            });
+          }}
+        >
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="confirm-name">
+              Type <span className="font-semibold">{name}</span> to confirm
+            </Label>
+            <Input
+              id="confirm-name"
+              autoComplete="off"
+              className="max-w-sm"
+              value={confirmName}
+              onChange={(event) => setConfirmName(event.target.value)}
+              aria-invalid={Boolean(error)}
+            />
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-destructive-text">
+              {error}
+            </p>
+          )}
+          <Button
+            type="submit"
+            variant="destructive"
+            className="self-start"
+            disabled={isPending || confirmName.trim() !== name}
+          >
+            <Trash2 aria-hidden /> Delete {name}
+          </Button>
+        </form>
+      )}
+    </section>
   );
 }
 

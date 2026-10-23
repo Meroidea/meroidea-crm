@@ -456,6 +456,13 @@
       "when": 1792556968489,
       "tag": "0064_website_enquiries",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1792733769438,
+      "tag": "0065_platform_audit_logs",
+      "breakpoints": true
     }
   ]
 }
