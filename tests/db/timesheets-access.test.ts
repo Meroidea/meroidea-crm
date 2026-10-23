@@ -257,7 +257,7 @@ describe('paying from timesheets', () => {
     await decideEntries(owner, { ids: [rows[0]!.id], decision: 'approved' });
     await decideEntries(owner, { ids: [rows[1]!.id], decision: 'rejected' });
     const result = await authoriseRoster(owner, authorise('timesheets'));
-    expect(result).toEqual({ created: 1, skipped: [] });
+    expect(result).toMatchObject({ created: 1, skipped: [] });
     const [slip] = await listPayslipsForRoster(owner, rosterId);
     // 6h30m at 30.00 = 195.00, not the 8 rostered hours.
     expect(slip).toMatchObject({ minutes: 390, gross: '195.00', superAmount: '23.40' });

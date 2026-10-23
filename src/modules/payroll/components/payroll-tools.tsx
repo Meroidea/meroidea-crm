@@ -35,7 +35,10 @@ export function AuthoriseForm({
   const [hoursFrom, setHoursFrom] = useState<'roster' | 'timesheets'>('roster');
   const [employerDetails, setEmployerDetails] = useState(defaultEmployerDetails);
   const [error, setError] = useState<string | null>(null);
-  const [skipped, setSkipped] = useState<SkippedPerson[] | null>(null);
+  const [outcome, setOutcome] = useState<{
+    skipped: SkippedPerson[];
+    taxByHand: SkippedPerson[];
+  } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const submit = () =>
@@ -52,22 +55,16 @@ export function AuthoriseForm({
         const fieldError = Object.values(result.error.fieldErrors ?? {})[0]?.[0];
         return setError(fieldError ?? result.error.message);
       }
-      setSkipped(result.data.skipped);
+      setOutcome({ skipped: result.data.skipped, taxByHand: result.data.taxByHand });
       router.refresh();
     });
 
-  if (skipped) {
-    return skipped.length === 0 ? null : (
-      <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text">
-        <p className="font-medium">Not everyone on the roster got a payslip</p>
-        <ul className="mt-1.5 list-disc space-y-1 pl-5">
-          {skipped.map((person) => (
-            <li key={person.name}>
-              <span className="font-medium">{person.name}:</span> {person.reason}
-            </li>
-          ))}
-        </ul>
-      </div>
+  if (outcome) {
+    return (
+      <>
+        <PeopleNotice title="Not everyone on the roster got a payslip" people={outcome.skipped} />
+        <PeopleNotice title="Tax to enter by hand" people={outcome.taxByHand} />
+      </>
     );
   }
 
@@ -160,6 +157,25 @@ export function AuthoriseForm({
         <CircleCheck aria-hidden /> Authorise and draft payslips
       </Button>
     </form>
+  );
+}
+
+function PeopleNotice({ title, people }: { title: string; people: SkippedPerson[] }) {
+  if (people.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text">
+      <p className="font-medium">{title}</p>
+      <ul className="mt-1.5 list-disc space-y-1 pl-5">
+        {people.map((person) => (
+          <li key={person.name}>
+            <span className="font-medium" data-sensitive>
+              {person.name}:
+            </span>{' '}
+            {person.reason}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

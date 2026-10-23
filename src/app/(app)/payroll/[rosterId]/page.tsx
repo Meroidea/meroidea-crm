@@ -159,8 +159,10 @@ export default async function PayRunPage({ params }: PageProps<'/payroll/[roster
           {drafts.length > 0 ? (
             <div className="flex flex-col gap-2">
               <p className="text-sm text-muted-foreground">
-                Enter the tax withheld for each person from your payroll or tax tables, then
-                release.
+                Tax is worked out with the ATO’s 2026–27 withholding formulas from each person’s tax
+                file number declaration, including any study loan. Medicare levy variations, tax
+                offsets and working holiday makers are not applied, so check each amount and correct
+                it where needed, then release.
               </p>
               <ReleaseButton rosterId={run.id} count={drafts.length} />
             </div>

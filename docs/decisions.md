@@ -970,3 +970,44 @@ quiet while the public site keeps its richer, scroll-driven movement.
 **Consequences.** New pages get their entrance for free. A new animation should use the shared
 easing and add itself to the reduced-motion block in `globals.css`.
 
+
+## ADR-055 — Tax withheld is worked out with the ATO's formulas, and a person checks it
+
+**Amends** ADR-028 (tax was entered, not calculated) and the tax note in ADR-046.
+
+**Context.** Every pay run asked whoever runs payroll to look up each person's tax in the ATO's
+tables and type it in. The new hire already answers the tax file number declaration questions
+that decide the figure (ADR-026): residency, the tax-free threshold and a study loan.
+
+**Decision.** Authorising a roster works out the tax withheld on each draft payslip with
+`src/modules/payroll/payg.ts`, a copy of the ATO's Schedule 1 (NAT 1004) and Schedule 8
+coefficients as made in the Taxation Administration (Withholding Schedules) Instrument 2026
+(F2026L00716), for payments from 1 July 2026:
+
+- the weekly equivalent of the period's gross, the coefficients, the rounding and the weekly to
+  fortnightly conversion are the schedule's own, in integer cents;
+- the scale comes from the declaration: 2 with the tax-free threshold, 1 without, 3 for a
+  foreign resident; a study loan adds the Schedule 8 component (the tax-free threshold column
+  for foreign residents);
+- the figure stays editable until the payslips are released, and the pay run says who still
+  needs tax entered by hand and why.
+
+Tax is left at zero for a person to enter, and named on the pay run, when any of these hold: the
+person has no declaration, or did not answer residency or the tax-free threshold; there is no tax
+file number on record (they may have applied for one in the last 28 days, otherwise scale 4
+applies); they are a contractor; the period is not a week or a fortnight; the payment date falls
+outside 1 July 2026 to 30 June 2027; or whoever runs payroll lacks `employees.view_sensitive`,
+which the declaration is read under. The tax file number itself is never read, only whether one
+is held.
+
+**Why.** Copying a published schedule is mechanical, and the ATO supplies sample data to prove a
+copy: `tests/unit/payg.test.ts` checks every row of it (weekly, fortnightly and monthly, scales 1,
+2, 3, 5 and 6) and the schedules' worked examples. A guess at a missing answer moves the figure by
+hundreds of dollars, so anything the declaration does not settle stays with a person.
+
+**Consequences.** Not applied, and left to whoever runs payroll: Medicare levy variations (scales
+5 and 6 and the levy adjustment), tax offsets claimed on a withholding declaration, working
+holiday makers (Schedule 15), seniors and pensioners, the extra amount for a 53rd weekly or 27th
+fortnightly pay, and bonuses or back pay (Schedule 5 methods). There is no Single Touch Payroll
+reporting. The coefficients must be replaced each time the ATO issues a new schedule; payments
+after 30 June 2027 are refused until then, rather than taxed with old rates.
