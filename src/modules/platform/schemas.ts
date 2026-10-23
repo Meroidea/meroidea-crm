@@ -94,6 +94,13 @@ export const setStatusSchema = z.object({
 });
 export const tenantIdSchema = z.object({ tenantId: z.uuid() });
 
+/** Deleting a business: the platform owner types its name exactly to confirm (ADR-056). */
+export const deleteBusinessSchema = z.object({
+  tenantId: z.uuid(),
+  confirmName: z.string().trim().min(1, 'Type the business’s name to confirm').max(200),
+});
+export type DeleteBusinessInput = z.output<typeof deleteBusinessSchema>;
+
 /** Where a business is, for location-locked clocking. Both blank clears it. */
 export const setLocationSchema = z
   .object({ tenantId: z.uuid(), ...location })

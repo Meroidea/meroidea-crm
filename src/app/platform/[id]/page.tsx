@@ -10,7 +10,11 @@ import {
   AgreementStatus,
   BusinessIdentityForm,
 } from '@/modules/platform/components/agreement-tools';
-import { BusinessControls, BusinessLocation } from '@/modules/platform/components/platform-tools';
+import {
+  BusinessControls,
+  BusinessLocation,
+  DeleteBusiness,
+} from '@/modules/platform/components/platform-tools';
 import {
   getBusiness,
   getBusinessAgreement,
@@ -90,6 +94,11 @@ export default async function BusinessPage({ params }: PageProps<'/platform/[id]
         latitude={business.locationLatitude}
         longitude={business.locationLongitude}
         radiusMetres={business.clockRadiusMetres}
+      />
+      <DeleteBusiness
+        tenantId={business.id}
+        name={business.name}
+        suspended={business.status === 'suspended'}
       />
     </div>
   );

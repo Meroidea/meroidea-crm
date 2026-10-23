@@ -11,6 +11,7 @@ import { assertPlatformAdmin, type PlatformAdmin } from '@/server/platform';
 import {
   businessIdentitySchema,
   createBusinessSchema,
+  deleteBusinessSchema,
   publishAgreementSchema,
   setFeaturesSchema,
   setLocationSchema,
@@ -52,6 +53,13 @@ export async function setBusinessFeaturesAction(raw: unknown) {
 export async function setBusinessStatusAction(raw: unknown) {
   return platformAction((admin) =>
     platformService.setBusinessStatus(admin, setStatusSchema.parse(raw)),
+  );
+}
+
+/** Deletes a suspended business and everything it holds (ADR-056). */
+export async function deleteBusinessAction(raw: unknown) {
+  return platformAction((admin) =>
+    platformService.deleteBusiness(admin, deleteBusinessSchema.parse(raw)),
   );
 }
 

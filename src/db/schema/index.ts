@@ -22,3 +22,4 @@ export * from './concerns';
 export * from './training';
 export * from './leads';
 export * from './enquiries';
+export * from './platform-audit';

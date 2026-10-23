@@ -87,6 +87,10 @@ change as touching sensitive personal data.
   `PLATFORM_ADMIN_EMAILS`. Non-owners get "not found".
 - `src/modules/platform/service.ts` may use `adminDb` because it works across businesses. Every
   change to a business writes a row to that business's `audit_logs` with `actor_type = 'platform'`.
+- Deleting a business (ADR-056) is `deleteBusiness` in `src/modules/platform/service.ts` only: the
+  business must already be suspended, its name typed exactly, and every row goes in one
+  transaction ordered by the database's foreign keys, with a `platform_audit_logs` row. Never
+  delete a platform owner's login, or one that belongs to another business.
 - Never add a way to read a business's data that skips membership. Support access is a real,
   visible membership (`is_support`) so RLS keeps applying; remove it when the owner leaves.
 - A new permission family must be mapped to its feature in `src/lib/features.ts` and in

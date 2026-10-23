@@ -1011,3 +1011,32 @@ holiday makers (Schedule 15), seniors and pensioners, the extra amount for a 53r
 fortnightly pay, and bonuses or back pay (Schedule 5 methods). There is no Single Touch Payroll
 reporting. The coefficients must be replaced each time the ATO issues a new schedule; payments
 after 30 June 2027 are refused until then, rather than taxed with old rates.
+
+## ADR-056 — A platform owner can delete a suspended business, and the platform keeps the record
+
+**Context.** Test and example businesses pile up in production, and the only way to remove one was
+to delete rows by hand across some eighty tables, which the project rules forbid and which is easy
+to get wrong. Suspending (ADR-029) hides a business but keeps everything.
+
+**Decision.** `/platform/[id]` gets "Delete this business", served by `deleteBusiness` in
+`src/modules/platform/service.ts`:
+
+- only a **suspended** business can be deleted, and the platform owner types its **name exactly**;
+- every table with a `tenant_id` is emptied for that business, then the `tenants` row, all in **one
+  transaction**. The order comes from the database's own foreign keys at the time of deletion
+  (`src/modules/platform/delete-order.ts`), so a table added later is neither missed nor deleted
+  out of order, and a cycle refuses before anything is removed;
+- a row in the new **`platform_audit_logs`** table records who deleted which business and how many
+  rows went, in the same transaction, because the business's own `audit_logs` go with it;
+- after the commit, its files under `{tenant_id}/` in the `documents` bucket are removed, and the
+  logins of its people are removed **only** when they belong to no other business and are not a
+  platform owner.
+
+**Why.** Deleting is for businesses that were never real; for a real client, suspension remains
+the tool, which is why deletion requires it first. Reading the order from the catalogue keeps the
+feature correct as the schema grows, where a hand-kept table list (as in the test helpers) would
+silently fall behind.
+
+**Consequences.** Deletion cannot be undone; backups are the only way back. A file whose removal
+fails is left orphaned in the private bucket, unreachable by anyone, and is reported in the count.
+Migration 0065 must be applied to production before this ships.

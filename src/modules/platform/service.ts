@@ -6,6 +6,7 @@ import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 
 import {
   auditLogs,
+  platformAuditLogs,
   roles,
   serviceAgreements,
   tenantAgreements,
@@ -24,12 +25,16 @@ import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
 import { renderEmail } from '@/server/email-template';
 import { serverEnv } from '@/server/env';
-import type { PlatformAdmin } from '@/server/platform';
+import { platformOwnerEmails, type PlatformAdmin } from '@/server/platform';
+import { removeObjects } from '@/server/storage';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
+
+import { deletionOrder } from './delete-order';
 
 import type {
   BusinessIdentityInput,
   CreateBusinessInput,
+  DeleteBusinessInput,
   PublishAgreementInput,
   SetLocationInput,
 } from './schemas';
@@ -724,4 +729,130 @@ export async function endSupportAccess(admin: PlatformAdmin, tenantId: string): 
       .returning({ id: tenantMemberships.id });
     if (ended.length > 0) await tx.insert(auditLogs).values(supportAudit(tenantId, admin, 'ended'));
   });
+}
+
+export type DeletedBusiness = {
+  name: string;
+  /** Rows removed across all of the business's tables. */
+  rows: number;
+  files: { removed: number; failed: number };
+  /** Logins removed because they belonged to nobody else; platform owners always keep theirs. */
+  loginsRemoved: number;
+  loginsKept: number;
+};
+
+/**
+ * Deletes a business and everything it holds, for test and example businesses (ADR-056). Only a
+ * suspended business can be deleted, and the platform owner types its name to confirm. All rows
+ * go in one transaction, in an order read from the database's foreign keys, so either everything
+ * is gone or nothing is. The record of the deletion is written to the platform's own audit log,
+ * because the business's audit log goes with it. Files and logins are removed after the commit:
+ * a file that fails is left orphaned in the private bucket, never reachable; a login is removed
+ * only when its owner belongs to no other business and is not a platform owner.
+ */
+export async function deleteBusiness(
+  admin: PlatformAdmin,
+  input: DeleteBusinessInput,
+): Promise<DeletedBusiness> {
+  const db = adminDb();
+  const { name, rows, userIds } = await db.transaction(async (tx) => {
+    const [business] = await tx
+      .select({ id: tenants.id, name: tenants.name, slug: tenants.slug, status: tenants.status })
+      .from(tenants)
+      .where(eq(tenants.id, input.tenantId))
+      .limit(1)
+      .for('update');
+    if (!business) throw new AppError('NOT_FOUND', 'That business was not found.');
+    if (business.status !== 'suspended') {
+      throw new AppError('CONFLICT', 'Suspend the business before deleting it.');
+    }
+    if (input.confirmName !== business.name) {
+      throw new AppError('VALIDATION', 'That is not the business’s name.', {
+        confirmName: [`Type ${business.name} exactly to confirm`],
+      });
+    }
+
+    const members = await tx
+      .selectDistinct({ userId: tenantMemberships.userId })
+      .from(tenantMemberships)
+      .where(eq(tenantMemberships.tenantId, business.id));
+    const tables = (await tx.execute(sql`
+      select c.relname as name from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind = 'r' and c.relname <> 'tenants'
+        and exists (select 1 from pg_attribute a
+                    where a.attrelid = c.oid and a.attname = 'tenant_id' and not a.attisdropped)
+    `)) as unknown as { name: string }[];
+    const references = (await tx.execute(sql`
+      select child.relname as child, parent.relname as parent from pg_constraint k
+      join pg_class child on child.oid = k.conrelid
+      join pg_class parent on parent.oid = k.confrelid
+      join pg_namespace n on n.oid = child.relnamespace
+      where k.contype = 'f' and n.nspname = 'public'
+    `)) as unknown as { child: string; parent: string }[];
+
+    let removed = 0;
+    for (const table of deletionOrder(
+      tables.map((row) => row.name),
+      references.map((row) => [row.child, row.parent]),
+    )) {
+      const [result] = (await tx.execute(sql`
+        with gone as (delete from ${sql.identifier(table)} where tenant_id = ${business.id} returning 1)
+        select count(*)::int as n from gone
+      `)) as unknown as { n: number }[];
+      removed += result?.n ?? 0;
+    }
+    await tx.delete(tenants).where(eq(tenants.id, business.id));
+    await tx.insert(platformAuditLogs).values({
+      actorUserId: admin.userId,
+      actorEmail: admin.email,
+      action: 'business_deleted',
+      businessId: business.id,
+      businessName: business.name,
+      context: { slug: business.slug, rows: removed + 1, members: members.length },
+    });
+    return {
+      name: business.name,
+      rows: removed + 1,
+      userIds: members.map((member) => member.userId),
+    };
+  });
+
+  // Every stored file sits under the business's id (.claude/rules/security.md, Files). Storage
+  // has no recursive delete, so the paths are read from its own table.
+  const prefix = `${input.tenantId}/`;
+  const stored = (await db.execute(
+    sql`select name from storage.objects
+        where bucket_id = 'documents' and left(name, ${prefix.length}) = ${prefix}`,
+  )) as unknown as { name: string }[];
+  const filesRemoved = await removeObjects(stored.map((row) => row.name));
+  const files = { removed: filesRemoved, failed: stored.length - filesRemoved };
+  const owners = new Set(platformOwnerEmails());
+  const supabase = createSupabaseAdminClient();
+  let loginsRemoved = 0;
+  let loginsKept = 0;
+  for (const userId of userIds) {
+    const [person] = await db
+      .select({
+        email: users.email,
+        elsewhere: sql<number>`(select count(*)::int from ${tenantMemberships}
+                                 where ${tenantMemberships.userId} = ${users.id})`,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const keep =
+      !person ||
+      userId === admin.userId ||
+      owners.has(person.email.toLowerCase()) ||
+      person.elsewhere > 0;
+    if (keep) {
+      loginsKept += 1;
+      continue;
+    }
+    const { error } = await supabase.auth.admin.deleteUser(userId);
+    if (error) loginsKept += 1;
+    else loginsRemoved += 1;
+  }
+  return { name, rows, files, loginsRemoved, loginsKept };
 }

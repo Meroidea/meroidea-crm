@@ -33,6 +33,16 @@ export async function removeObject(path: string): Promise<void> {
   await bucket().remove([path]);
 }
 
+/** Removes many objects, in batches the storage API accepts; returns how many went. */
+export async function removeObjects(paths: string[]): Promise<number> {
+  let removed = 0;
+  for (let start = 0; start < paths.length; start += 100) {
+    const { data, error } = await bucket().remove(paths.slice(start, start + 100));
+    if (!error) removed += data?.length ?? 0;
+  }
+  return removed;
+}
+
 /** A link that downloads the object under a given file name, valid for one minute. */
 export async function createDownloadUrl(path: string, fileName: string): Promise<string> {
   const { data, error } = await bucket().createSignedUrl(path, 60, { download: fileName });
