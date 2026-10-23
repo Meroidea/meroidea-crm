@@ -32,6 +32,7 @@ import { withRls, type Tx } from '@/server/db/with-rls';
 
 import type { AuthoriseRosterInput } from './schemas';
 import { payslipLinesFor, type WorkedShift } from './lines';
+import { withholdingFor, type Withholding } from './payg';
 import type { PayslipShift, SkippedPerson } from './types';
 
 /**
@@ -42,13 +43,14 @@ import type { PayslipShift, SkippedPerson } from './types';
  * Gross pay is the sum of the pay lines (ADR-046): under an award with written-down rules, the
  * award's penalty, overtime and allowance lines; otherwise hours at the contract's rate with the
  * workspace's weekend and public-holiday loadings. Super is a percentage of ordinary time
- * earnings. Leave is not applied, and tax is not calculated: the amount withheld is entered by
- * whoever runs payroll before the payslips are released.
+ * earnings. Leave is not applied. Tax is worked out from the ATO's withholding formulas and the
+ * person's tax file number declaration where both allow it (ADR-055); otherwise it is entered by
+ * whoever runs payroll. Either way it can be corrected until the payslips are released.
  */
 export async function authoriseRoster(
   ctx: TenantContext,
   input: AuthoriseRosterInput,
-): Promise<{ created: number; skipped: SkippedPerson[] }> {
+): Promise<{ created: number; skipped: SkippedPerson[]; taxByHand: SkippedPerson[] }> {
   requirePermission(ctx, 'payroll.manage');
   const rules: RosterRules = hasPermission(ctx, 'rosters.view')
     ? await getRosterRules(ctx)
@@ -203,21 +205,37 @@ export async function authoriseRoster(
           )
           .orderBy(desc(employmentContracts.acceptedAt))
       : [];
-    // Fund names are only readable with the sensitive-details permission; without it they are
-    // left off the payslip rather than failing the pay run.
-    const funds =
-      staff.length && hasPermission(ctx, 'employees.view_sensitive')
+    // Fund names and tax declarations are only readable with the sensitive-details permission;
+    // without it the fund is left off the payslip and the tax is entered by hand, rather than
+    // failing the pay run. The tax file number itself is never read, only whether there is one.
+    const canReadDetails = hasPermission(ctx, 'employees.view_sensitive');
+    const details =
+      staff.length && canReadDetails
         ? await tx
             .select({
               employeeId: employeePayrollDetails.employeeId,
               superFundName: employeePayrollDetails.superFundName,
+              hasTaxFileNumber: sql<boolean>`${employeePayrollDetails.taxFileNumberCiphertext} is not null`,
+              taxResident: employeePayrollDetails.taxResident,
+              claimsTaxFreeThreshold: employeePayrollDetails.claimsTaxFreeThreshold,
+              hasStudyLoan: employeePayrollDetails.hasStudyLoan,
             })
             .from(employeePayrollDetails)
-            .where(eq(employeePayrollDetails.tenantId, ctx.tenantId))
+            .where(
+              and(
+                eq(employeePayrollDetails.tenantId, ctx.tenantId),
+                inArray(
+                  employeePayrollDetails.employeeId,
+                  staff.map((employee) => employee.id),
+                ),
+              ),
+            )
         : [];
 
     const skipped: SkippedPerson[] = [];
+    const taxByHand: SkippedPerson[] = [];
     let created = 0;
+    let taxCalculated = 0;
     for (const userId of userIds) {
       const name = nameOf.get(userId) ?? 'Someone on the roster';
       const employee = staff.find((candidate) => candidate.userId === userId);
@@ -273,6 +291,23 @@ export async function authoriseRoster(
           : {}),
       });
       const gross = centsToAmount(pay.grossCents);
+      const declaration = details.find((row) => row.employeeId === employee.id) ?? null;
+      const withholding: Withholding = canReadDetails
+        ? withholdingFor({
+            grossCents: pay.grossCents,
+            weeks,
+            paymentDate: input.paymentDate,
+            employmentType: contract.employmentType,
+            declaration,
+          })
+        : {
+            calculated: false,
+            reason:
+              'Tax was not worked out, because it needs permission to see staff tax details. Enter it by hand.',
+          };
+      const taxCents = withholding.calculated ? withholding.cents : 0;
+      if (withholding.calculated) taxCalculated += 1;
+      else taxByHand.push({ name, reason: withholding.reason });
       const [{ issued = 0 } = {}] = await tx
         .select({ issued: sql<number>`count(*)::int` })
         .from(payslips)
@@ -292,7 +327,8 @@ export async function authoriseRoster(
         minutes: entry.minutes,
         hourlyRate: contract.payRate,
         gross,
-        net: gross,
+        taxWithheld: centsToAmount(taxCents),
+        net: centsToAmount(pay.grossCents - taxCents),
         superRate: input.superRate,
         // Super is on ordinary time earnings, so overtime is left out of it.
         superAmount: sql`round(${centsToAmount(pay.superableCents)}::numeric * ${input.superRate}::numeric / 100, 2)`,
@@ -301,7 +337,7 @@ export async function authoriseRoster(
         employmentType: contract.employmentType,
         classification: contract.classification,
         lines: pay.lines,
-        superFundName: funds.find((fund) => fund.employeeId === employee.id)?.superFundName ?? null,
+        superFundName: declaration?.superFundName ?? null,
         currency: contract.currency,
         shifts: entry.shifts,
         createdBy: ctx.userId,
@@ -323,9 +359,11 @@ export async function authoriseRoster(
         hoursFrom: input.hoursFrom,
         payslips: created,
         skipped: skipped.length,
+        taxCalculated,
+        taxByHand: taxByHand.length,
       },
     });
-    return { created, skipped };
+    return { created, skipped, taxByHand };
   });
 }
 

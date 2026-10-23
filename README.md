@@ -4,8 +4,8 @@ An open-source, multi-tenant business platform for small businesses: restaurants
 retail shops, consultancies and service businesses. One codebase, one login per business, and
 each business gets only the features switched on for it.
 
-> **Status: early and under active development.** It runs and is covered by tests, but it has
-> not been through an independent security review or a production deployment. Read
+> **Status: early and under active development.** It runs in production and is covered by
+> tests, but it has not been through an independent security review. Read
 > [What it does not do](#what-it-does-not-do) before relying on it.
 
 ## What is in it
@@ -98,8 +98,11 @@ docs             the specification
 Being plain about this matters more than a long feature list:
 
 - **It is not legal, tax or payroll advice.** Contract wording is a starting template, not
-  lawyer-reviewed. Payslips do not calculate tax, penalty rates, overtime or leave loading; tax
-  withheld is typed in. The employment rules it knows about are Australian.
+  lawyer-reviewed. Payslips apply the Restaurant Industry Award's penalty rates and overtime and
+  work out tax withheld with the ATO's 2026–27 formulas, but the award readings have not been
+  confirmed by a qualified person, Medicare levy variations and tax offsets are not applied, leave
+  is not paid or accrued, and nothing is reported to the ATO (no Single Touch Payroll). Check
+  every payslip before releasing it. The employment rules it knows about are Australian.
 - **The clock-in location check deters, it does not prove.** The position comes from the
   person's own device.
 - **Customer reviews are unverified** and are not published anywhere.

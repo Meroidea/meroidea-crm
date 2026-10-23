@@ -121,7 +121,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `training.learn` | | See and complete your own assigned training, and your own results (ADR-050) |
 | `training.view_all` | | See everyone's training progress, per person and per course. Enforced again by RLS and `app.training_progress` |
 | `training.manage` | | Write courses, modules and quizzes (including the right answers), publish and archive them, and assign them by role, department or person |
-| `payroll.manage` | | Authorise a roster for pay, enter tax withheld, release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
+| `payroll.manage` | | Authorise a roster for pay, check and correct tax withheld (worked out only with `employees.view_sensitive`, ADR-055), release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
 | `purchasing.manage` | | See and manage suppliers and their price lists, and place, re-send and cancel orders. Enforced again by RLS on `suppliers`, `supplier_items`, `purchase_orders`, `purchase_order_lines` |
 | `inventory.view` | | See stock items, quantities, values and each item's history |
 | `inventory.manage` | | Add and edit items, archive them, and record stock changes. Enforced again by RLS on the `inventory_*` tables |
