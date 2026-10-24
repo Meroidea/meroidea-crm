@@ -214,10 +214,15 @@ async function memberEmail(ctx: TenantContext, userId: string) {
 export async function sendPasswordLink(ctx: TenantContext, userId: string): Promise<LinkDelivery> {
   requirePermission(ctx, 'users.manage');
   const member = await memberEmail(ctx, userId);
-  const link = await createPasswordLink(member.email);
+  // The link signs in whichever login owns the address, so it is made for the member's own
+  // confirmed login email, never the profile copy in public.users (ADR-059).
+  const { data: login } = await createSupabaseAdminClient().auth.admin.getUserById(userId);
+  const email = login.user?.email;
+  if (!email) throw new AppError('NOT_FOUND', 'That person was not found.');
+  const link = await createPasswordLink(email);
   if (!link) throw new AppError('INTERNAL', 'A sign-in link could not be made. Try again.');
   const emailed = await emailPasswordLink({
-    to: member.email,
+    to: email,
     link,
     heading: `Choose a new password for ${ctx.tenant.name}`,
     intro: `Hi ${member.fullName}, an admin of ${ctx.tenant.name} sent you a link to choose a new password.`,

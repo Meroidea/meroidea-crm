@@ -1105,3 +1105,49 @@ Not built yet: a board of items, reordering items, a products catalogue for `pro
 documents (milestone 10), commissions from received revenue (ADR-019), offer-rate reports, and
 offering to withdraw open items when an opportunity is lost.
 
+## ADR-059 — Security review, first pass: verified emails, settings under RLS, security headers
+
+**Context.** Milestone 14 starts with a review of how requests reach data: every Server Action,
+every use of the privileged connection, row-level security and grants on every table, the
+`security definer` functions, the route handlers, the response headers, and the production
+project's Data API.
+
+**Findings and decisions.**
+1. *Profile email trusted as identity (fixed).* `authenticated` could update every column of its
+   own `users` row, including `email`, and two paths trusted that column: an admin's "send password
+   link" generated a recovery link for whichever login owned the address, and a hire whose email
+   already had a login was linked to a member of the business with that profile email. A member
+   who rewrote their profile email could therefore have an admin hand them a sign-in link to
+   someone else's account (when email is not configured and the link is shown to the admin), or
+   receive a new hire's staff record and payslips. Migration `0067` limits the update grant to
+   `full_name`, `phone`, `avatar_path` and `updated_at`; the password link and the hire link read
+   the verified email from Supabase Auth. Tests reproduce both paths and fail without the fix.
+2. *Workspace settings written with the privileged connection (fixed).* `settings/workspace.ts`
+   checked `settings.manage` in the application and then wrote `tenants` through `adminDb`, against
+   rule 1 of the project rules. A request holding a context from before its admin was switched
+   off could still write. The settings columns are now granted to `authenticated` behind a
+   `tenant_settings` policy requiring `settings.manage` in the active business, and the writes go
+   through `withRls`.
+3. *No security headers (fixed).* The site sent only HSTS. It now sends `X-Frame-Options: DENY`
+   and `frame-ancestors 'none'` (website forms at `/f/*` excepted, since businesses embed them),
+   `nosniff`, a referrer policy (`no-referrer` on pages whose address is a one-time secret), a
+   permissions policy allowing only same-origin location (for clocking in), and the CSP directives
+   that need no nonces (`base-uri`, `form-action`, `object-src`).
+4. *Production exposes the `public` schema on the Data API (owner action).* ADR-007 says it should
+   not; the hosted project does. Nothing leaks: `anon` has no grants, and every business table's
+   policy needs `app.active_tenant_id()`, which only the server sets. But it is the route finding 1
+   used, and it widens what a session token can try. Remove `public` from the exposed schemas in
+   the Supabase dashboard (Project settings → Data API).
+5. *Checked and sound.* Every Server Action outside public links, sign-in and the platform console
+   is built with `authedAction`; the platform's go through `assertPlatformAdmin`, which trusts the
+   verified auth user. Every `adminDb` use is one of the documented exceptions (provisioning,
+   cron, platform console, one-time public links, the editor callback). Every public table has RLS;
+   `anon` has no privileges; every `security definer` function callable by a session checks the
+   active tenant, membership and permission.
+
+**Not done in this pass.** A full script `Content-Security-Policy` with nonces (it must allow the
+editing service and the training video hosts); revoking PUBLIC execute on `app` helper functions
+(no route reaches them without a session, and revoking risks the triggers); a review of each
+public route handler's input limits beyond what ADR-039 already tests; dependency audit; backup
+restore drill; Playwright journeys; the audit log viewer.
+

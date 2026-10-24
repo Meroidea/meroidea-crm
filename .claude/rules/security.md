@@ -32,6 +32,11 @@ change as touching sensitive personal data.
 
 ## Data exposure
 
+- `public.users.email` is a profile copy. Anything that decides who a login is (password links,
+  linking a hire to an existing login, platform owners) reads the verified email from Supabase
+  Auth (`auth.users` / `auth.admin.getUserById` / `auth.getUser()`), never `public.users` (ADR-059).
+- Security headers live in `next.config.ts`: no page may be framed by another site except website
+  forms (`/f/*`), and pages whose address carries a one-time secret send no referrer.
 - `src/server/**` and every `service.ts`, `queries.ts`, `actions.ts` start with `import 'server-only'`
   (actions files use `'use server'` which implies server, but still never import admin clients into them).
 - Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` may be public.

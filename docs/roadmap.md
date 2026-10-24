@@ -60,7 +60,7 @@ Built as working vertical slices ahead of milestones 3–5, so the whole sidebar
 | 11 | **Insight** — dashboards and reports (conversion, sources, follow-up compliance, time in stage, revenue), CSV export | The owner can answer "who's following up, where things stall, what's coming" |
 | 12 | **Configuration** — pipeline and stage editor, custom field builder, labels, document types, lead sources, roles editor | A workspace can be reconfigured for a different industry without code |
 | 13 | **Billing: manual for now (ADR-057)** — a business pays the platform owner directly by bank transfer; the platform owner gives and withdraws access with the console's existing Suspend and Reactivate. Nothing to build until online payment is wanted; Stripe may come later as a new decision | Done: a business that has not paid can be suspended and reactivated from the console, its records kept |
-| 14 | **Hardening & launch** — audit viewer, security review, Playwright happy paths, backups tested, production setup | First paying workspace runs on it daily |
+| 14 | **Hardening & launch** — audit viewer, security review, Playwright happy paths, backups tested, production setup. *Started: first security review pass done (ADR-059).* | First paying workspace runs on it daily |
 
 ## Stage 3 — The rest of the business, in the same workspace
 
