@@ -160,6 +160,10 @@ suspended slug renders a neutral page and never leaks another tenant's data.
 
 ## 7. Billing
 
+> **Superseded by ADR-057.** Plans are agreed with the platform owner and recorded in the
+> console; invoices are issued outside Meroidea. The Stripe design below is kept only for if
+> self-serve sign-up reopens.
+
 - Stripe Checkout for subscription, Customer Portal for card/invoice self-service (ADR-024).
 - 14-day trial, no card. Trial end: read-only mode for 14 days, then export-only, with reminder
   emails at day 3, 1 and 0 — nothing is deleted.

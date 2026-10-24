@@ -183,7 +183,7 @@ export const tenantMemberships = pgTable(
   ],
 );
 
-/** Billing state; Stripe stays the source of truth (ADR-024). */
+/** Billing state, recorded by the platform owner in the console (ADR-057). */
 export const tenantSubscriptions = pgTable('tenant_subscriptions', {
   id: uuid().primaryKey().defaultRandom(),
   tenantId: uuid()
