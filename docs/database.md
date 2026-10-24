@@ -320,8 +320,9 @@ unique (tenant_id, code)
 ### pipelines
 ```sql
 id, tenant_id, name text not null, description text,
-object_type      pipeline_object not null default 'opportunity'   -- opportunity | opportunity_item
-item_pipeline_id uuid        -- for opportunity pipelines: the pipeline its items use (e.g. 'Applications')
+object_type      pipeline_object not null default 'opportunity'   -- opportunity | opportunity_item; fixed once created
+item_pipeline_id uuid        -- opportunity pipelines only: the item pipeline its items use (e.g. 'Applications');
+                             -- null = the default item pipeline. (tenant_id, item_pipeline_id) → pipelines
 is_default boolean not null default false,
 is_active  boolean not null default true,
 position   int not null default 0,
@@ -340,7 +341,8 @@ probability      smallint check (probability between 0 and 100)
 color            text
 stale_after_days int                      -- overrides tenant default for "stuck" detection
 advances_parent_to_stage_id uuid          -- item stages only: entering this stage moves the parent
-                                          -- opportunity forward to that stage (never backwards)
+                                          -- opportunity forward to that stage (never backwards, never
+                                          -- to a lost stage). (tenant_id, …) → pipeline_stages
 is_active        boolean not null default true
 created_at, updated_at
 unique (pipeline_id, position) deferrable initially deferred   -- allows reorder in one tx
@@ -392,22 +394,24 @@ index using gin (custom_fields jsonb_path_ops)
 ```
 Board ordering: by `last_activity_at desc` within a stage (no manual card ordering in MVP).
 
-### opportunity_items 🟢 (not built yet — milestone 8)
+### opportunity_items 🟢 (milestone 8, migration `0066`)
 Applications (education), offers (real estate), submissions (recruitment). One opportunity
 has many; each has its own stage in an `opportunity_item` pipeline and its own revenue.
+`product_id` is not built: there is no products table yet, so the course is the free-text title
+plus custom fields.
 ```sql
 id, tenant_id,
 opportunity_id      uuid not null     -- (tenant_id, opportunity_id) → opportunities
 organization_id     uuid not null     -- the institution / counterparty
-product_id          uuid              -- the course, if catalogued
-title               text not null     -- 'Master of Data Science — Feb 2027' (free text; catalogue optional)
+title               text not null     -- 1–200: 'Master of Data Science — Feb 2027'
 pipeline_id         uuid not null     -- an object_type='opportunity_item' pipeline
 stage_id            uuid not null
 status              opportunity_status not null default 'open'   -- mirrors stage.category
 stage_entered_at    timestamptz not null default now()
 closed_at           timestamptz
 lost_reason_id      uuid
-external_reference  text              -- institution's application ID / student ID
+lost_reason_note    text              -- ≤ 1000
+external_reference  text              -- ≤ 100: institution's application ID / student ID
 base_amount         numeric(14,2)     -- education: tuition fee the commission is based on
 revenue_rate        numeric(7,4)      -- education: commission % (e.g. 15.0000)
 expected_revenue    numeric(14,2)     -- defaults to base_amount × rate / 100; editable (bonuses, flat fees)
@@ -418,15 +422,21 @@ position            int not null default 0        -- student's preference order
 created_at, updated_at, created_by, updated_by, deleted_at
 
 check (status <> 'lost' or lost_reason_id is not null)
+check (base_amount ≥ 0, expected_revenue ≥ 0, revenue_rate between 0 and 100)
+check (no money without a currency)
 index (tenant_id, opportunity_id) where deleted_at is null
-index (tenant_id, organization_id, status)          -- institution page, offer-rate reports
+index (tenant_id, organization_id, status)          -- organization page, offer-rate reports
 index (tenant_id, pipeline_id, stage_id) where deleted_at is null
-index using gin (custom_fields jsonb_path_ops)
 ```
-Access follows the parent opportunity (see `permissions.md`).
+Access follows the parent opportunity (see `permissions.md`). RLS: the standard
+`tenant_isolation` policy and the restrictive `feature_switch` policy for `crm`. Grants: select,
+insert, update (soft delete, no delete grant). Composite FKs to opportunities, organizations,
+pipelines, pipeline_stages, lost_reasons and memberships (owner). The GIN index on
+`custom_fields` waits for a query that searches it.
 
 ### stage_history
-Built in `0007`–`0008` for opportunities only; `opportunity_item_id` arrives with opportunity items.
+Built in `0007`–`0008`; `opportunity_item_id` added in `0066` with opportunity items. Every read
+of an opportunity's own history filters `opportunity_item_id is null`.
 One row per **visit** to a stage, for opportunities and items. Powers time-in-stage, funnel
 conversion, velocity, and offer-rate reports.
 ```sql
@@ -443,6 +453,7 @@ index (tenant_id, opportunity_item_id, entered_at) where opportunity_item_id is 
 index (tenant_id, stage_id, entered_at)
 unique (opportunity_id)      where exited_at is null and opportunity_item_id is null   -- one open visit
 unique (opportunity_item_id) where exited_at is null and opportunity_item_id is not null
+-- (tenant_id, opportunity_item_id) → opportunity_items on delete cascade
 ```
 Written only by the `moveStage()` / `moveItemStage()` services, in the same transaction as the stage update.
 
@@ -508,7 +519,7 @@ name text not null, is_active, position, created_at, updated_at
 
 ### custom_field_definitions
 ```sql
-id, tenant_id, entity_type custom_entity not null   -- contact | organization | opportunity
+id, tenant_id, entity_type custom_entity not null   -- contact | organization | opportunity | opportunity_item
 key text not null                          -- ^[a-z][a-z0-9_]{0,39}$, immutable
 label text (1–60), description text,
 field_type custom_field_type not null      -- text | textarea | number | date | boolean | select | multi_select | email | phone | url
@@ -1623,9 +1634,9 @@ index (tenant_id, created_at desc)
 |---|---|
 | Stage change: close current `stage_history` row, open a new one, set `stage_entered_at`, sync `status`/`closed_at`, log `stage_changed` activity, audit. Moving to `lost` requires a lost reason. Moving out of won/lost reopens. | `opportunities/service.ts moveStage()` |
 | Stage must belong to the opportunity's pipeline. Changing pipeline requires choosing a stage in the new pipeline. | same |
-| Item stage change: same history/activity/audit pattern. If the new stage has `advances_parent_to_stage_id` and the parent opportunity's current stage is earlier (lower position, still `open`), move the parent there too, `entered_by = null` (automation), in the same transaction. Never moves the parent backwards. | `opportunities/items.service.ts moveItemStage()` |
-| `expected_revenue` defaults to `base_amount × revenue_rate / 100` when either changes, unless the user has overridden it (tracked in `custom_fields._revenue_overridden` → promote to a column if used often). | items service |
-| Opportunity can be marked **won** only if at least one item is won (when the pipeline has an item pipeline). Marking the opportunity lost prompts to withdraw its open items. | `moveStage()` |
+| Item stage change: same history/activity/audit pattern, the activity on the parent's timeline. Item stages carry no gates of their own. If the new stage has `advances_parent_to_stage_id` and the parent is `open` in an earlier stage of that pipeline, the parent moves there in the same transaction, through the parent stage's own gates (required fields, checklist, approval), recorded as the person who moved the item. A gate that is not met leaves the parent where it is and says why; a stage needing approval becomes a request. Never moves the parent backwards (ADR-058). | `opportunities/item-service.ts moveItemStage()`, `service.ts advanceFromItem()` |
+| `expected_revenue`: what was entered, else `base_amount × revenue_rate / 100`, rounded half up to the cent in integer arithmetic. | `opportunities/item-revenue.ts` |
+| An opportunity that has items can be marked **won** only once one of them is won; one with no items is unaffected. (Not built: offering to withdraw open items when the opportunity is lost.) | `moveStage()` / `performMove()` |
 | Source of type `partner` ⇒ `partner_id` required. | opportunity/contact Zod + service |
 | New opportunity: create opportunity-level `document_requirements` from required types; ensure contact-level ones exist (don't duplicate). New item: create item-level ones. | `create()` / `createItem()` |
 | Owner change: audit + `owner_changed` activity + notification to new owner. | `assignOwner()` |

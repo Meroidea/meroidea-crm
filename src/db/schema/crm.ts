@@ -66,7 +66,12 @@ export const leadStatusKind = pgEnum('lead_status_kind', [
 /** `disqualify`: why a lead was closed. `reject`: why a handover was turned down. */
 export const leadReasonKind = pgEnum('lead_reason_kind', ['disqualify', 'reject']);
 
-export const customEntity = pgEnum('custom_entity', ['contact', 'organization', 'opportunity']);
+export const customEntity = pgEnum('custom_entity', [
+  'contact',
+  'organization',
+  'opportunity',
+  'opportunity_item',
+]);
 export const customFieldType = pgEnum('custom_field_type', [
   'text',
   'textarea',

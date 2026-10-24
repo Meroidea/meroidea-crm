@@ -394,7 +394,13 @@ export async function getOpportunity(ctx: TenantContext, id: string): Promise<Op
         ),
       )
       .leftJoin(enteredByUsers, eq(enteredByUsers.id, stageHistory.enteredBy))
-      .where(and(eq(stageHistory.tenantId, ctx.tenantId), eq(stageHistory.opportunityId, id)))
+      .where(
+        and(
+          eq(stageHistory.tenantId, ctx.tenantId),
+          eq(stageHistory.opportunityId, id),
+          isNull(stageHistory.opportunityItemId),
+        ),
+      )
       .orderBy(asc(stageHistory.enteredAt));
 
     const [people, approvals] = await Promise.all([

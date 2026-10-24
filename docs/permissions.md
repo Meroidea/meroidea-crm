@@ -81,7 +81,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `opportunities.assign` | ✓ | Change owner |
 | `opportunities.export` | | Export (audited) |
 | `opportunities.approve` | | Approve or decline a move into a stage that needs approval, and approve B2C conversions when the business asks for it, for opportunities in your `opportunities.view` scope (docs/leads.md §4.8, §5.4) |
-| — opportunity items | | Follow the parent: view/create/edit/delete an application = the same permission on its opportunity. Ops staff who own an item's processing still need access to the parent. |
+| — opportunity items | | Follow the parent, within its record scope: seeing items needs `opportunities.view` on the opportunity; adding, changing and moving one needs `opportunities.edit` on it; removing one needs `opportunities.delete` on it. Revenue on items follows `revenue.view` on the opportunity. An item's owner gains no access by owning it: ops staff who handle an item still need access to the parent (ADR-058). |
 | `revenue.view` | ✓ | See service fees, tuition, commission rates and expected revenue (masked otherwise) |
 | `revenue.manage` 🟡 | | Record invoices/receipts in the revenue ledger |
 | `activities.create` | | Log calls, emails, meetings, messages, notes on records you can see |

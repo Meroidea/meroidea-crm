@@ -181,6 +181,30 @@ export const DEFAULT_PIPELINE = {
   ],
 } as const;
 
+/** A new item pipeline's starting stages, renamed to fit afterwards (ADR-018). */
+export const DEFAULT_ITEM_PIPELINE = {
+  name: 'Items',
+  stages: [
+    { name: 'Preparing', category: 'open', probability: 20, color: 'chart-2', staleAfterDays: 7 },
+    { name: 'Submitted', category: 'open', probability: 40, color: 'chart-3', staleAfterDays: 14 },
+    { name: 'Offered', category: 'open', probability: 70, color: 'info', staleAfterDays: 14 },
+    {
+      name: 'Accepted',
+      category: 'won',
+      probability: 100,
+      color: 'positive',
+      staleAfterDays: null,
+    },
+    {
+      name: 'Declined',
+      category: 'lost',
+      probability: 0,
+      color: 'destructive',
+      staleAfterDays: null,
+    },
+  ],
+} as const;
+
 export const DEFAULT_LOST_REASONS = [
   'Price',
   'Chose a competitor',
