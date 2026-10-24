@@ -147,8 +147,8 @@ and period; plan entitlements (seats, storage, features) live in code and are ch
 server before invites, uploads and gated features.
 **Why:** Billing correctness is not worth building. Reversing the "no Stripe" line in ADR-001 is
 deliberate: self-serve subscription is the business model.
-*(Superseded by ADR-057: plans are agreed with the platform owner and recorded in the console;
-invoicing happens outside Meroidea.)*
+*(Superseded for now by ADR-057: businesses pay the platform owner directly and access is
+switched by hand; Stripe may come back as a new decision.)*
 
 ### ADR-025 · One platform, one login — not installable apps
 **Decision:** Everything the business needs — sales, people, work, documents, finance,
@@ -1045,29 +1045,29 @@ silently fall behind.
 fails is left orphaned in the private bucket, unreachable by anyone, and is reported in the count.
 Migration 0065 must be applied to production before this ships.
 
-## ADR-057 — Billing is recorded by the platform owner; invoicing stays outside Meroidea
+## ADR-057 — Businesses pay the platform owner directly; access is switched by hand
 
 **Supersedes:** ADR-024 (Stripe self-serve subscription) and the self-serve billing in
-`onboarding.md` §7.
+`onboarding.md` §7, for now.
 
 **Context.** Businesses are onboarded after a conversation and prices are discussed, not published
 (ADR-029, ADR-047, ADR-052). Milestone 13 still described Stripe Checkout, a customer portal,
 trials and dunning, which assumed a business subscribes, adds seats and cancels on its own.
 
-**Decision.** Each business's commercial terms are recorded by a platform owner in the console, on
-the existing `tenant_subscriptions` row: plan, agreed price and currency, billing cycle, seat limit
-and status (`active`, `past_due`, `canceled`). The seat limit is enforced on the server when a
-login is added or reactivated. The console shows per-business usage (active logins, storage). A
-business that does not pay is marked past due and, if needed, suspended with the suspension that
-already exists. Invoices to businesses are issued from the platform owner's own accounting
-system, not from Meroidea. Every change is written to `platform_audit_logs`.
+**Decision.** A business pays the platform owner directly, by bank transfer, on terms agreed in
+person. Meroidea takes no payment and issues no invoice for it. The platform owner gives and
+withdraws access by hand with the controls the console already has: onboarding opens the business
+once its admin accepts the service agreement, **Suspend** closes it to its people while keeping
+every record, and **Reactivate** opens it again. Both are written to the business's audit log.
+Nothing is built for billing now; `tenant_subscriptions` stays as it is, unused.
 
-**Why.** A sales-led service with a handful of clients needs the agreed terms written down and the
-seat limit kept, not a payment flow. Stripe would add webhooks, a second source of truth for
-status and a dependency, for collections the platform owner already handles. This matches
-ADR-019's line that invoicing belongs in the accounting system.
+**Why.** With a handful of clients met in person, a bank transfer and a switch are all that is
+needed, and anything more would be built before anyone has asked for it. ADR-019 already keeps
+invoicing in an accounting system.
 
-**Consequences.** Nothing is charged automatically; a missed payment is noticed by the platform
-owner, not by the system. `stripe_customer_id`, `stripe_subscription_id` and `trial_ends_at` on
-`tenant_subscriptions` are unused, and milestone 13 decides whether to drop them. The design is
-recorded here and in `roadmap.md`; none of milestone 13 is built yet.
+**Consequences.** Nothing is charged or chased automatically: the platform owner notices a missed
+payment and suspends by hand. A business opens as soon as its admin accepts the agreement, so
+onboard once the first payment has arrived, or suspend straight after onboarding. Taking payment
+by Stripe later is still open: it would add a record of each business's plan and payment status,
+and could drive the same suspend and reactivate steps automatically. That would be a new decision
+when it is wanted.
