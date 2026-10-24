@@ -31,7 +31,9 @@ import { OpportunityActions } from '@/modules/opportunities/components/opportuni
 import { StageBadge } from '@/modules/opportunities/components/stage-badge';
 import { StageStepper } from '@/modules/opportunities/components/stage-stepper';
 import { getOpportunity } from '@/modules/opportunities/queries';
-import { getPipelineConfig } from '@/modules/pipelines/queries';
+import { getItemPipelineFor, getPipelineConfig } from '@/modules/pipelines/queries';
+import { OpportunityItems } from '@/modules/opportunities/components/opportunity-items';
+import { listItemsForOpportunity } from '@/modules/opportunities/item-queries';
 import { formatDateTime } from '@/lib/format';
 import { getCustomFields } from '@/modules/custom-fields/queries';
 import { displayCustomValue } from '@/modules/custom-fields/validation';
@@ -80,13 +82,17 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
       notFound();
     throw error;
   });
-  const [pipeline, timeline, tasks, members, customFields] = await Promise.all([
-    getPipelineConfig(ctx, opportunity.pipelineId),
-    getTimeline(ctx, { opportunityId: id }),
-    listTasksFor(ctx, { opportunityId: id }),
-    listActiveMembers(ctx),
-    getCustomFields(ctx, 'opportunity'),
-  ]);
+  const [pipeline, timeline, tasks, members, customFields, items, itemPipeline, itemFields] =
+    await Promise.all([
+      getPipelineConfig(ctx, opportunity.pipelineId),
+      getTimeline(ctx, { opportunityId: id }),
+      listTasksFor(ctx, { opportunityId: id }),
+      listActiveMembers(ctx),
+      getCustomFields(ctx, 'opportunity'),
+      listItemsForOpportunity(ctx, id),
+      getItemPipelineFor(ctx, opportunity.pipelineId),
+      getCustomFields(ctx, 'opportunity_item'),
+    ]);
 
   const labels = ctx.tenant.labels;
   const canEdit =
@@ -105,6 +111,11 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
   const contactRoles = readCrmSettings(ctx.tenant.settings).contactRoles;
   const currency = opportunity.currency ?? ctx.tenant.currency;
   const daysInStage = daysBetween(new Date(opportunity.stageEnteredAt), new Date());
+  const itemOwners = assignableOwners(ctx, members, 'opportunities.assign');
+  // An item's stage list comes from its own pipeline; items made under an earlier pipeline keep it.
+  const itemStages = (itemPipeline?.stages ?? [])
+    .filter((stage) => stage.isActive)
+    .map(({ id: stageId, name, category }) => ({ id: stageId, name, category }));
 
   return (
     <div className="flex w-full max-w-6xl flex-col gap-5">
@@ -227,6 +238,35 @@ export default async function OpportunityPage({ params }: PageProps<'/opportunit
 
       <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
         <div className="flex flex-col gap-4">
+          {(itemPipeline || items.length > 0 || hasPermission(ctx, 'settings.manage')) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{labels.opportunityItem.plural}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <OpportunityItems
+                  opportunityId={opportunity.id}
+                  items={items}
+                  stages={itemStages}
+                  lostReasons={itemPipeline?.lostReasons ?? pipeline.lostReasons}
+                  owners={itemOwners}
+                  customFields={itemFields}
+                  names={{
+                    item: labels.opportunityItem,
+                    organization: labels.organization,
+                    opportunity: labels.opportunity,
+                  }}
+                  currency={ctx.tenant.currency}
+                  hasPipeline={itemPipeline !== null}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                  canAssign={canEdit && itemOwners.length > 1}
+                  canViewRevenue={opportunity.canViewRevenue}
+                  canConfigure={hasPermission(ctx, 'settings.manage')}
+                />
+              </CardContent>
+            </Card>
+          )}
           {hasPermission(ctx, 'activities.create') && (
             <ActivityComposer
               opportunityId={opportunity.id}

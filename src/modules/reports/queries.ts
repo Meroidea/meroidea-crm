@@ -350,7 +350,14 @@ export async function getReports(ctx: TenantContext, range: ReportRange): Promis
           eq(opportunities.id, stageHistory.opportunityId),
         ),
       )
-      .where(and(...live(ctx), scope, gte(opportunities.createdAt, since)))
+      .where(
+        and(
+          ...live(ctx),
+          scope,
+          isNull(stageHistory.opportunityItemId),
+          gte(opportunities.createdAt, since),
+        ),
+      )
       .groupBy(stageHistory.stageId);
     const ordered = pipeline.stages.filter((stage) => stage.isActive && stage.category !== 'lost');
     // Reaching a later stage implies passing the earlier ones, even if a stage was skipped.
@@ -410,7 +417,14 @@ export async function getReports(ctx: TenantContext, range: ReportRange): Promis
           eq(opportunities.id, stageHistory.opportunityId),
         ),
       )
-      .where(and(...live(ctx), scope, gte(stageHistory.enteredAt, since)))
+      .where(
+        and(
+          ...live(ctx),
+          scope,
+          isNull(stageHistory.opportunityItemId),
+          gte(stageHistory.enteredAt, since),
+        ),
+      )
       .groupBy(stageHistory.stageId);
 
     const taskScope = scopeFilter(ctx, 'reports.view', { ownerUserId: tasks.assignedTo });

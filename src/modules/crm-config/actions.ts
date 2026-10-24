@@ -12,6 +12,7 @@ import {
   addPipelineStageSchema,
   customFieldSchema,
   emailTemplateSchema,
+  itemStageAdvanceSchema,
   leadReasonSchema,
   leadStatusSchema,
   moveSchema,
@@ -108,6 +109,10 @@ export const togglePipelineAction = authedAction(
 export const addPipelineStageAction = authedAction(
   { permission: manage, input: addPipelineStageSchema, revalidate: SETTINGS },
   (ctx, input) => addStage(ctx, input.name, input.pipelineId),
+);
+export const saveItemStageAdvanceAction = authedAction(
+  { permission: manage, input: itemStageAdvanceSchema, revalidate: SETTINGS },
+  (ctx, input) => config.saveItemStageAdvance(ctx, input),
 );
 export const saveStageRulesAction = authedAction(
   { permission: manage, input: stageRulesSchema, revalidate: SETTINGS },

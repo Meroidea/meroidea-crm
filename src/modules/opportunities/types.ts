@@ -76,3 +76,43 @@ export type OpportunityDetail = OpportunityRow & {
     note: string | null;
   } | null;
 };
+
+/** One opportunity item as its opportunity's page shows it; revenue is null where masked. */
+export type ItemRow = {
+  id: string;
+  title: string;
+  organizationId: string;
+  organizationName: string;
+  pipelineId: string;
+  stageId: string;
+  stageName: string;
+  stageColor: string | null;
+  status: OpportunityStatus;
+  stageEnteredAt: Date;
+  closedAt: Date | null;
+  lostReasonName: string | null;
+  lostReasonNote: string | null;
+  externalReference: string | null;
+  baseAmount: string | null;
+  revenueRate: string | null;
+  expectedRevenue: string | null;
+  currency: string | null;
+  ownerUserId: string | null;
+  ownerName: string | null;
+  customFields: Record<string, unknown>;
+};
+
+/** An item as its organization's page lists it. */
+export type OrganizationItemRow = {
+  id: string;
+  title: string;
+  opportunityId: string;
+  opportunityName: string;
+  contactName: string;
+  stageName: string;
+  stageColor: string | null;
+  status: OpportunityStatus;
+  expectedRevenue: string | null;
+  currency: string | null;
+  createdAt: Date;
+};

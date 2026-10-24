@@ -1071,3 +1071,37 @@ onboard once the first payment has arrived, or suspend straight after onboarding
 by Stripe later is still open: it would add a record of each business's plan and payment status,
 and could drive the same suspend and reactivate steps automatically. That would be a new decision
 when it is wanted.
+
+## ADR-058 — Opportunity items: access, gates and the parent move
+
+**Builds on** ADR-018 (opportunity items with their own stage track).
+
+**Decision.**
+- Items live in the opportunities module (`item-service.ts`, `item-queries.ts`), because an item
+  has no life outside its opportunity. They have no permissions of their own: viewing needs
+  `opportunities.view`, adding, changing and moving need `opportunities.edit`, and removing needs
+  `opportunities.delete`, each on the parent and within its record scope. Every write locks the
+  parent first, as an opportunity write does.
+- Item pipelines are ordinary pipelines with `object_type = 'opportunity_item'`, edited on the same
+  Settings screen. An opportunity pipeline names the item pipeline its items use, or follows the
+  default one; the first item pipeline a business adds becomes the default.
+- Item stages have no owners, required fields, checklists or approvals. Their one rule is
+  `advances_parent_to_stage_id`: entering the stage moves the opportunity forward to an open or won
+  stage, never back and never to a lost one. That move goes through the opportunity stage's own
+  gates. When a gate is not met the item still moves, the opportunity stays, and the person is told
+  why; a stage that needs approval becomes an approval request.
+- An opportunity that has items is won only once one of its items is won.
+- Expected revenue is what was entered, or base × rate ÷ 100, worked out in integer cents.
+
+**Why.** Following the parent keeps one place where access is decided, and an application cannot
+be seen by someone who cannot see the student's case. Letting an item bypass the opportunity's
+gates would let a clerk skip a required field or a manager's approval by moving an application;
+refusing the item's move instead would block the record of what happened at the institution.
+
+**Consequences.** Ops staff who process an item need edit access to the opportunity. The
+"Submitted" stage moving a case works only for opportunities in the pipeline that stage belongs
+to; an item pipeline shared by two opportunity pipelines can move only one of them per stage.
+Not built yet: a board of items, reordering items, a products catalogue for `product_id`, item
+documents (milestone 10), commissions from received revenue (ADR-019), offer-rate reports, and
+offering to withdraw open items when an opportunity is lost.
+

@@ -13,6 +13,7 @@ import {
   leadStatuses,
   leadSubSources,
   opportunities,
+  opportunityItems,
   pipelineStages,
   pipelines,
   rolePermissions,
@@ -26,7 +27,7 @@ import {
 import { diffChanges } from '@/lib/audit-diff';
 import { AppError } from '@/lib/errors';
 import { isScoped, PERMISSION_KEYS, type PermissionKey } from '@/lib/permissions/catalog';
-import { DEFAULT_PIPELINE } from '@/lib/tenant/defaults';
+import { DEFAULT_ITEM_PIPELINE, DEFAULT_PIPELINE } from '@/lib/tenant/defaults';
 import { choicesOf, keyFromLabel, reconcileChoices } from '@/modules/custom-fields/validation';
 import { formFieldsSchema, type FormField } from '@/modules/leads/form-fields';
 import { audit } from '@/server/audit';
@@ -35,6 +36,7 @@ import { withRls, type Tx } from '@/server/db/with-rls';
 
 import type {
   CustomFieldInput,
+  ItemStageAdvanceInput,
   RoleInput,
   RoutingRuleInput,
   SequenceInput,
@@ -426,31 +428,87 @@ export function moveRoutingRule(
 
 // ── Pipelines and stage rules ────────────────────────────────────────────────
 
+/** The item pipeline an opportunity pipeline may point at: one of this business's item pipelines. */
+async function assertItemPipeline(tx: Tx, ctx: TenantContext, id: string | null) {
+  if (!id) return;
+  const [pipeline] = await tx
+    .select({ id: pipelines.id })
+    .from(pipelines)
+    .where(
+      and(
+        eq(pipelines.tenantId, ctx.tenantId),
+        eq(pipelines.id, id),
+        eq(pipelines.objectType, 'opportunity_item'),
+      ),
+    )
+    .limit(1);
+  if (!pipeline) {
+    throw new AppError('VALIDATION', 'Choose one of your item pipelines.', {
+      itemPipelineId: ['Invalid'],
+    });
+  }
+}
+
 export function savePipeline(
   ctx: TenantContext,
   input: {
     id?: string | undefined;
     name: string;
+    objectType?: 'opportunity' | 'opportunity_item';
     leadType: 'b2b' | 'b2c' | null;
+    itemPipelineId?: string | null;
     description: string | null;
   },
 ): Promise<Result> {
+  const objectType = input.objectType ?? 'opportunity';
   return configure(ctx, async (tx) => {
     if (input.id) {
-      const [row] = await tx
-        .update(pipelines)
-        .set({ name: input.name, leadType: input.leadType, description: input.description })
+      const [existing] = await tx
+        .select()
+        .from(pipelines)
         .where(and(eq(pipelines.tenantId, ctx.tenantId), eq(pipelines.id, input.id)))
-        .returning({ id: pipelines.id });
-      if (!row) throw new AppError('NOT_FOUND', 'That pipeline was not found.');
+        .limit(1);
+      if (!existing) throw new AppError('NOT_FOUND', 'That pipeline was not found.');
+      // Lead types and item pipelines describe opportunity pipelines only.
+      const forOpportunities = existing.objectType === 'opportunity';
+      // Not sent means unchanged; null means "the default item pipeline".
+      const itemPipelineId =
+        input.itemPipelineId === undefined ? existing.itemPipelineId : input.itemPipelineId;
+      if (forOpportunities) await assertItemPipeline(tx, ctx, itemPipelineId);
+      const next = {
+        name: input.name,
+        description: input.description,
+        leadType: forOpportunities ? input.leadType : null,
+        itemPipelineId: forOpportunities ? itemPipelineId : null,
+      };
+      const changes = diffChanges(existing, next);
+      if (Object.keys(changes).length === 0) return { id: existing.id };
+      await tx.update(pipelines).set(next).where(eq(pipelines.id, existing.id));
       await audit(tx, ctx, {
         action: 'update',
         entityType: 'pipeline',
-        entityId: row.id,
-        context: { name: input.name },
+        entityId: existing.id,
+        changes,
       });
-      return row;
+      return { id: existing.id };
     }
+    const forOpportunities = objectType === 'opportunity';
+    const itemPipelineId = input.itemPipelineId ?? null;
+    if (forOpportunities) await assertItemPipeline(tx, ctx, itemPipelineId);
+    // The first item pipeline becomes the default, or no opportunity would use it.
+    const [itemDefault] = forOpportunities
+      ? []
+      : await tx
+          .select({ id: pipelines.id })
+          .from(pipelines)
+          .where(
+            and(
+              eq(pipelines.tenantId, ctx.tenantId),
+              eq(pipelines.objectType, 'opportunity_item'),
+              eq(pipelines.isDefault, true),
+            ),
+          )
+          .limit(1);
     const position = await nextPosition(
       tx,
       pipelines.position,
@@ -461,22 +519,31 @@ export function savePipeline(
       .values({
         tenantId: ctx.tenantId,
         name: input.name,
-        leadType: input.leadType,
+        objectType,
+        leadType: forOpportunities ? input.leadType : null,
+        itemPipelineId: forOpportunities ? itemPipelineId : null,
         description: input.description,
+        isDefault: !forOpportunities && !itemDefault,
         position,
       })
       .returning({ id: pipelines.id });
     if (!created) throw new AppError('INTERNAL', 'Could not add the pipeline.');
     // A new pipeline starts with a working set of stages, renamed to fit afterwards.
+    const starting = forOpportunities ? DEFAULT_PIPELINE : DEFAULT_ITEM_PIPELINE;
     await tx.insert(pipelineStages).values(
-      DEFAULT_PIPELINE.stages.map((stage, index) => ({
+      starting.stages.map((stage, index) => ({
         tenantId: ctx.tenantId,
         pipelineId: created.id,
         position: index,
         ...stage,
       })),
     );
-    await audit(tx, ctx, { action: 'create', entityType: 'pipeline', entityId: created.id });
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'pipeline',
+      entityId: created.id,
+      context: { objectType },
+    });
     return created;
   });
 }
@@ -484,7 +551,7 @@ export function savePipeline(
 export function makeDefaultPipeline(ctx: TenantContext, id: string): Promise<Result> {
   return configure(ctx, async (tx) => {
     const [target] = await tx
-      .select({ id: pipelines.id, isActive: pipelines.isActive })
+      .select({ id: pipelines.id, isActive: pipelines.isActive, objectType: pipelines.objectType })
       .from(pipelines)
       .where(and(eq(pipelines.tenantId, ctx.tenantId), eq(pipelines.id, id)))
       .limit(1);
@@ -496,7 +563,7 @@ export function makeDefaultPipeline(ctx: TenantContext, id: string): Promise<Res
       .where(
         and(
           eq(pipelines.tenantId, ctx.tenantId),
-          eq(pipelines.objectType, 'opportunity'),
+          eq(pipelines.objectType, target.objectType),
           ne(pipelines.id, id),
         ),
       );
@@ -525,21 +592,26 @@ export function togglePipeline(
     if (!input.isActive) {
       if (pipeline.isDefault)
         throw new AppError('CONFLICT', 'Make another pipeline the default first.');
+      const records = pipeline.objectType === 'opportunity' ? opportunities : opportunityItems;
       const [open] = await tx
         .select({ total: count() })
-        .from(opportunities)
+        .from(records)
         .where(
           and(
-            eq(opportunities.tenantId, ctx.tenantId),
-            eq(opportunities.pipelineId, pipeline.id),
-            eq(opportunities.status, 'open'),
-            isNull(opportunities.deletedAt),
+            eq(records.tenantId, ctx.tenantId),
+            eq(records.pipelineId, pipeline.id),
+            eq(records.status, 'open'),
+            isNull(records.deletedAt),
           ),
         );
       if ((open?.total ?? 0) > 0) {
+        const plural =
+          pipeline.objectType === 'opportunity'
+            ? ctx.tenant.labels.opportunity.plural
+            : ctx.tenant.labels.opportunityItem.plural;
         throw new AppError(
           'CONFLICT',
-          `Close or move its ${open?.total} open opportunities first.`,
+          `Close or move its ${open?.total} open ${plural.toLowerCase()} first.`,
         );
       }
     }
@@ -584,6 +656,80 @@ export function saveStageRules(ctx: TenantContext, input: StageRulesInput): Prom
       entityType: 'pipeline_stage',
       entityId: stage.id,
       changes,
+    });
+    return { id: stage.id };
+  });
+}
+
+/**
+ * Which opportunity stage an item entering this item stage moves its opportunity to (ADR-018).
+ * Never a lost stage: losing needs a reason a person gives.
+ */
+export function saveItemStageAdvance(
+  ctx: TenantContext,
+  input: ItemStageAdvanceInput,
+): Promise<Result> {
+  return configure(ctx, async (tx) => {
+    const [stage] = await tx
+      .select({
+        id: pipelineStages.id,
+        advancesParentToStageId: pipelineStages.advancesParentToStageId,
+        objectType: pipelines.objectType,
+      })
+      .from(pipelineStages)
+      .innerJoin(
+        pipelines,
+        and(
+          eq(pipelines.tenantId, pipelineStages.tenantId),
+          eq(pipelines.id, pipelineStages.pipelineId),
+        ),
+      )
+      .where(and(eq(pipelineStages.tenantId, ctx.tenantId), eq(pipelineStages.id, input.id)))
+      .limit(1);
+    if (!stage || stage.objectType !== 'opportunity_item') {
+      throw new AppError('NOT_FOUND', 'That stage was not found.');
+    }
+    if (input.advancesParentToStageId) {
+      const [target] = await tx
+        .select({ category: pipelineStages.category, objectType: pipelines.objectType })
+        .from(pipelineStages)
+        .innerJoin(
+          pipelines,
+          and(
+            eq(pipelines.tenantId, pipelineStages.tenantId),
+            eq(pipelines.id, pipelineStages.pipelineId),
+          ),
+        )
+        .where(
+          and(
+            eq(pipelineStages.tenantId, ctx.tenantId),
+            eq(pipelineStages.id, input.advancesParentToStageId),
+            eq(pipelineStages.isActive, true),
+          ),
+        )
+        .limit(1);
+      if (!target || target.objectType !== 'opportunity' || target.category === 'lost') {
+        throw new AppError(
+          'VALIDATION',
+          'Choose an open or won stage of an opportunity pipeline.',
+          {
+            advancesParentToStageId: ['Invalid'],
+          },
+        );
+      }
+    }
+    if (stage.advancesParentToStageId === input.advancesParentToStageId) return { id: stage.id };
+    await tx
+      .update(pipelineStages)
+      .set({ advancesParentToStageId: input.advancesParentToStageId })
+      .where(and(eq(pipelineStages.tenantId, ctx.tenantId), eq(pipelineStages.id, stage.id)));
+    await audit(tx, ctx, {
+      action: 'update',
+      entityType: 'pipeline_stage',
+      entityId: stage.id,
+      changes: {
+        advancesParentToStageId: [stage.advancesParentToStageId, input.advancesParentToStageId],
+      },
     });
     return { id: stage.id };
   });
