@@ -124,6 +124,8 @@ workspace is provisioned in one transaction (tenant, industry template, owner me
 trial). See `onboarding.md`.
 **Why:** This is the product's actual front door and the business model. Retrofitting it later
 would mean rewriting auth, tenant resolution, seeding and billing at once.
+*(Superseded by ADR-029 and ADR-047: the platform owner onboards each business; public sign-up
+is closed.)*
 
 ### ADR-022 · Every workspace answers on its own branded address
 **Decision:** `{slug}.meroidea.app` (wildcard DNS + TLS), with `/w/{slug}` as a fallback and
@@ -145,6 +147,8 @@ and period; plan entitlements (seats, storage, features) live in code and are ch
 server before invites, uploads and gated features.
 **Why:** Billing correctness is not worth building. Reversing the "no Stripe" line in ADR-001 is
 deliberate: self-serve subscription is the business model.
+*(Superseded for now by ADR-057: businesses pay the platform owner directly and access is
+switched by hand; Stripe may come back as a new decision.)*
 
 ### ADR-025 · One platform, one login — not installable apps
 **Decision:** Everything the business needs — sales, people, work, documents, finance,
@@ -1040,3 +1044,30 @@ silently fall behind.
 **Consequences.** Deletion cannot be undone; backups are the only way back. A file whose removal
 fails is left orphaned in the private bucket, unreachable by anyone, and is reported in the count.
 Migration 0065 must be applied to production before this ships.
+
+## ADR-057 — Businesses pay the platform owner directly; access is switched by hand
+
+**Supersedes:** ADR-024 (Stripe self-serve subscription) and the self-serve billing in
+`onboarding.md` §7, for now.
+
+**Context.** Businesses are onboarded after a conversation and prices are discussed, not published
+(ADR-029, ADR-047, ADR-052). Milestone 13 still described Stripe Checkout, a customer portal,
+trials and dunning, which assumed a business subscribes, adds seats and cancels on its own.
+
+**Decision.** A business pays the platform owner directly, by bank transfer, on terms agreed in
+person. Meroidea takes no payment and issues no invoice for it. The platform owner gives and
+withdraws access by hand with the controls the console already has: onboarding opens the business
+once its admin accepts the service agreement, **Suspend** closes it to its people while keeping
+every record, and **Reactivate** opens it again. Both are written to the business's audit log.
+Nothing is built for billing now; `tenant_subscriptions` stays as it is, unused.
+
+**Why.** With a handful of clients met in person, a bank transfer and a switch are all that is
+needed, and anything more would be built before anyone has asked for it. ADR-019 already keeps
+invoicing in an accounting system.
+
+**Consequences.** Nothing is charged or chased automatically: the platform owner notices a missed
+payment and suspends by hand. A business opens as soon as its admin accepts the agreement, so
+onboard once the first payment has arrived, or suspend straight after onboarding. Taking payment
+by Stripe later is still open: it would add a record of each business's plan and payment status,
+and could drive the same suspend and reactivate steps automatically. That would be a new decision
+when it is wanted.

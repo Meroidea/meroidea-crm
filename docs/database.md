@@ -180,7 +180,9 @@ index (token_hash)
 ```
 Single use. Accepting creates/activates the membership in the same transaction and writes an audit row.
 
-### tenant_subscriptions 🟢 (billing state; Stripe is the source of truth)
+### tenant_subscriptions 🟢 (unused while billing is manual, ADR-057)
+Businesses pay the platform owner directly and access is switched with `tenants.status`. The row
+provisioning writes is kept for if online payment comes back.
 ```sql
 id, tenant_id unique,
 plan_code            text not null default 'trial'   -- trial | starter | team | business
