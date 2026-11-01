@@ -13,7 +13,7 @@ Built as working vertical slices ahead of milestones 3–5, so the whole sidebar
 
 | Area | Built | Still to do for "Done when" |
 |---|---|---|
-| M2 tenancy & access | `withRls`, `scopeFilter`/`assertCanAccess`, `audit()`, `authedAction`, audit insert policy, every-table isolation test, feature switches enforced in the database (ADR-038), per-sender limits on public forms (ADR-039), staff-details key rotation (ADR-040) | Deactivated-membership test |
+| M2 tenancy & access | `withRls`, `scopeFilter`/`assertCanAccess`, `audit()`, `authedAction`, audit insert policy, every-table isolation test, feature switches enforced in the database (ADR-038), per-sender limits on public forms (ADR-039), staff-details key rotation (ADR-040), deactivated-membership test over every table, the database functions and the Data API | — |
 | M6 people & organisations | Contacts, organizations, links, duplicate warning and merge, custom fields (contacts, organizations, opportunities), Excel/CSV upload batches with skip/merge/create and a per-row report, households, erase on request | Undo of an upload, saved views |
 | M7 pipeline | Several pipelines, stages, lost reasons, opportunities, stage history, board (drag + mobile) with pipeline switcher, list, record page; stage owners, required fields, checklists and approvals; contact roles on opportunities | Weighted forecast by probability |
 | M8 items & partners | Partners with commission terms, referral stats | Opportunity items (applications) |
