@@ -1721,9 +1721,13 @@ Wrapping calls in `(select …)` lets Postgres evaluate them once per statement,
 
 **Policies are not privileges.** Because the Data API's auto-grant is switched off, every table
 also needs `grant … to authenticated` in the same migration — RLS then narrows which rows those
-verbs may touch. `tenants` and `tenant_subscriptions` are `select` only (changed by services
-through `adminDb`), `users` is `select, update`, and `audit_logs` is `select, insert` so it stays
-append-only. Business records with soft delete (`contacts`, `organizations`, …) get
+verbs may touch. `tenant_subscriptions` is `select` only (changed by the platform console).
+`tenants` is `select`, plus `update` of only `timezone`, `default_currency`, `default_country`,
+`settings`, `labels` and `updated_at`, behind the `tenant_settings` policy that requires
+`settings.manage` in the active business; who the business is, its features, status and location
+stay with the platform console (migration `0067`, ADR-059). `users` is `select`, plus `update` of
+only `full_name`, `phone`, `avatar_path` and `updated_at` on one's own row: `email` is the login's
+and never writable from a session. `audit_logs` is `select, insert` so it stays append-only. Business records with soft delete (`contacts`, `organizations`, …) get
 `select, insert, update` only — no `delete`.
 A hosted project may have been created with the auto-grant on; migration `0054` resets every
 `public` table to exactly the grants the migrations give (`anon` gets nothing) and revokes those

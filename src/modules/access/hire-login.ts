@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
-import { auditLogs, employees, roles, tenantMemberships, tenants, users } from '@/db/schema';
+import { auditLogs, employees, roles, tenantMemberships, tenants } from '@/db/schema';
 import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
 import { renderEmail } from '@/server/email-template';
@@ -41,20 +41,26 @@ function record(tenantId: string, employeeId: string, context: Record<string, un
 
 /**
  * Links the staff record to an active login in the same business with the same email, unless
- * that login already belongs to another staff record. True when linked.
+ * that login already belongs to another staff record. True when linked. The email compared is
+ * the login's own, confirmed one in auth.users, never the profile copy in public.users: a match
+ * hands over the staff record and its payslips (ADR-059).
  */
 async function linkExistingMember(tenantId: string, employeeId: string, email: string) {
   return adminDb().transaction(async (tx) => {
     const [member] = await tx
       .select({ userId: tenantMemberships.userId, membershipId: tenantMemberships.id })
       .from(tenantMemberships)
-      .innerJoin(users, eq(users.id, tenantMemberships.userId))
       .where(
         and(
           eq(tenantMemberships.tenantId, tenantId),
           eq(tenantMemberships.status, 'active'),
           eq(tenantMemberships.isSupport, false),
-          sql`lower(${users.email}) = ${email}`,
+          sql`exists (
+            select 1 from auth.users login
+            where login.id = ${tenantMemberships.userId}
+              and lower(login.email) = ${email}
+              and login.email_confirmed_at is not null
+          )`,
         ),
       )
       .limit(1);

@@ -335,6 +335,28 @@ describe('a login when a hire accepts their offer', () => {
     expect((await membershipOf(alphaTenant, existing))?.role_key).toBe('member');
   });
 
+  // ADR-059: public.users.email is a profile copy. Matching on it let a member who rewrote theirs
+  // (through the Data API, before migration 0067) receive the staff record and payslips of a new
+  // hire who already had a login elsewhere.
+  it('does not hand a staff record to someone who only changed their profile email', async () => {
+    const { userId: insider } = await inviteMember(
+      admin,
+      inviteMemberSchema.parse({
+        fullName: 'Ira Insider',
+        email: mail('ira'),
+        roleId: staffRoleId,
+      }),
+    );
+    alphaUsers.push(insider);
+    const elsewhere = await createAuthUser(mail('rosa'), 'Rosa Elsewhere');
+    betaUsers.push(elsewhere);
+    await adminDb().execute(sql`update users set email = ${mail('rosa')} where id = ${insider}`);
+
+    const { employeeId, userId } = await hireAndAccept('Rosa', { loginRoleId: staffRoleId });
+    expect(userId).toBeNull();
+    expect(await employeeLogin(employeeId)).toBeNull();
+  });
+
   it('keeps the acceptance when the email already has a login, and makes none', async () => {
     const existing = await createAuthUser(mail('quinn'), 'Quinn Elsewhere');
     betaUsers.push(existing);
