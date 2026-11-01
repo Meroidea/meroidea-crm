@@ -28,7 +28,12 @@ export const CUSTOM_FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
   url: 'Web address',
 };
 
-export const CUSTOM_ENTITIES = ['contact', 'organization', 'opportunity'] as const;
+export const CUSTOM_ENTITIES = [
+  'contact',
+  'organization',
+  'opportunity',
+  'opportunity_item',
+] as const;
 export type CustomEntity = (typeof CUSTOM_ENTITIES)[number];
 
 export type CustomFieldDefinition = {

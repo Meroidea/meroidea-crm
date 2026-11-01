@@ -96,6 +96,68 @@ export const decideApprovalSchema = z.object({
 
 export const approvalIdSchema = z.object({ approvalId: z.uuid() });
 
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform((value) => value || null);
+
+/** A percentage with up to four decimals, kept as a string like the amounts. */
+const optionalRate = z
+  .union([
+    z.literal(''),
+    z
+      .string()
+      .trim()
+      .regex(/^\d{1,3}(\.\d{1,4})?$/, 'Use a percentage like 15 or 12.5')
+      .refine((value) => Number(value) <= 100, 'Use a percentage up to 100'),
+  ])
+  .optional()
+  .transform((value) => value || null);
+
+/** An opportunity item (ADR-018): an application, an offer, a submission. */
+export const itemFieldsSchema = z.object({
+  organizationId: z.uuid('Choose who it is with'),
+  title: z.string().trim().min(1, 'Give it a title').max(200),
+  externalReference: optionalText(100),
+  baseAmount: optionalAmount,
+  revenueRate: optionalRate,
+  expectedRevenue: optionalAmount,
+  currency: z
+    .union([
+      z.literal(''),
+      z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z]{3}$/, 'Use a code like AUD'),
+    ])
+    .optional()
+    .transform((value) => value || null),
+  ownerUserId: optionalId,
+  customFields: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const createItemSchema = itemFieldsSchema.extend({
+  opportunityId: z.uuid(),
+  stageId: optionalId,
+});
+export const updateItemSchema = itemFieldsSchema.extend({ id: z.uuid() });
+export const moveItemStageSchema = z.object({
+  id: z.uuid(),
+  stageId: z.uuid(),
+  lostReasonId: optionalId,
+  lostReasonNote: optionalText(1000),
+});
+export const itemIdSchema = z.object({ id: z.uuid() });
+
+export type ItemFormValues = z.input<typeof createItemSchema>;
+export type CreateItemInput = z.output<typeof createItemSchema>;
+export type UpdateItemInput = z.output<typeof updateItemSchema>;
+export type MoveItemStageInput = z.output<typeof moveItemStageSchema>;
+
 export type ChecklistInput = z.output<typeof checklistSchema>;
 export type OpportunityContactInput = z.output<typeof opportunityContactSchema>;
 

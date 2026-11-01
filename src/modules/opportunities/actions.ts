@@ -2,20 +2,27 @@
 
 import { authedAction } from '@/server/action';
 
+import * as itemService from './item-service';
 import {
   approvalIdSchema,
   checklistSchema,
+  createItemSchema,
   createOpportunitySchema,
   decideApprovalSchema,
+  itemIdSchema,
+  moveItemStageSchema,
   moveStageSchema,
   opportunityContactSchema,
   opportunityIdSchema,
   removeOpportunityContactSchema,
+  updateItemSchema,
   updateOpportunitySchema,
 } from './schemas';
 import * as opportunitiesService from './service';
 
 const PATHS = ['/opportunities', '/pipeline', '/contacts', '/dashboard', '/reports'];
+// An item's stage can move its opportunity, so the same pages refresh, plus organizations.
+const ITEM_PATHS = [...PATHS, '/organizations'];
 
 export const createOpportunityAction = authedAction(
   { permission: 'opportunities.create', input: createOpportunitySchema, revalidate: PATHS },
@@ -60,4 +67,24 @@ export const decideApprovalAction = authedAction(
 export const withdrawApprovalAction = authedAction(
   { permission: 'opportunities.edit', input: approvalIdSchema, revalidate: PATHS },
   (ctx, input) => opportunitiesService.withdrawApproval(ctx, input.approvalId),
+);
+
+export const createItemAction = authedAction(
+  { permission: 'opportunities.edit', input: createItemSchema, revalidate: ITEM_PATHS },
+  (ctx, input) => itemService.createItem(ctx, input),
+);
+
+export const updateItemAction = authedAction(
+  { permission: 'opportunities.edit', input: updateItemSchema, revalidate: ITEM_PATHS },
+  (ctx, input) => itemService.updateItem(ctx, input),
+);
+
+export const moveItemStageAction = authedAction(
+  { permission: 'opportunities.edit', input: moveItemStageSchema, revalidate: ITEM_PATHS },
+  (ctx, input) => itemService.moveItemStage(ctx, input),
+);
+
+export const deleteItemAction = authedAction(
+  { permission: 'opportunities.delete', input: itemIdSchema, revalidate: ITEM_PATHS },
+  (ctx, input) => itemService.deleteItem(ctx, input.id),
 );

@@ -215,7 +215,7 @@ const LABEL_NAMES: Record<LabelKey, string> = {
   contact: 'Contact (a person)',
   organization: 'Organization (an account or company)',
   opportunity: 'Opportunity (a deal, case or application)',
-  opportunityItem: 'Opportunity item',
+  opportunityItem: 'Opportunity item (an application, an offer)',
   partner: 'Partner',
   product: 'Product',
 };
@@ -224,7 +224,7 @@ export function LabelsForm({ labels }: { labels: Labels }) {
   const { run, error, isPending } = useActionRunner();
   const [values, setValues] = useState(labels);
   const [saved, setSaved] = useState(false);
-  const shown: LabelKey[] = LABEL_KEYS.filter((key) => key !== 'opportunityItem');
+  const shown: readonly LabelKey[] = LABEL_KEYS;
   return (
     <form
       className="flex max-w-2xl flex-col gap-4"

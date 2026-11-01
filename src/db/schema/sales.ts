@@ -49,6 +49,8 @@ export const pipelines = pgTable(
     objectType: pipelineObject().notNull().default('opportunity'),
     /** Converted B2B or B2C leads start here; null means any. */
     leadType: leadType(),
+    /** Opportunity pipelines only: the item pipeline their items use; null means the default. */
+    itemPipelineId: uuid(),
     isDefault: boolean().notNull().default(false),
     isActive: boolean().notNull().default(true),
     position: integer().notNull().default(0),
@@ -59,6 +61,11 @@ export const pipelines = pgTable(
     index('pipelines_one_default_idx')
       .on(table.tenantId, table.objectType)
       .where(sql`${table.isDefault}`),
+    foreignKey({
+      columns: [table.tenantId, table.itemPipelineId],
+      foreignColumns: [table.tenantId, table.id],
+      name: 'pipelines_tenant_item_pipeline_fk',
+    }),
   ],
 );
 
@@ -93,6 +100,8 @@ export const pipelineStages = pgTable(
     checklist: jsonb().notNull().default([]),
     /** Entering this stage needs a manager's approval. */
     requiresApproval: boolean().notNull().default(false),
+    /** Item stages only: an item entering it moves its opportunity forward to this stage. */
+    advancesParentToStageId: uuid(),
     ...timestamps,
   },
   (table) => [
@@ -113,6 +122,11 @@ export const pipelineStages = pgTable(
       foreignColumns: [pipelines.tenantId, pipelines.id],
       name: 'pipeline_stages_tenant_pipeline_fk',
     }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.tenantId, table.advancesParentToStageId],
+      foreignColumns: [table.tenantId, table.id],
+      name: 'pipeline_stages_tenant_advances_parent_fk',
+    }),
   ],
 );
 
@@ -349,7 +363,96 @@ export const stageApprovals = pgTable(
   ],
 );
 
-/** One row per visit to a stage; written only by moveStage(), in the same transaction. */
+/**
+ * One thing pursued inside an opportunity, with its own stage track and value (ADR-018): an
+ * application to one institution, an offer on one property. Access follows the opportunity.
+ */
+export const opportunityItems = pgTable(
+  'opportunity_items',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    opportunityId: uuid().notNull(),
+    /** The counterparty: the institution, the vendor, the employer. */
+    organizationId: uuid().notNull(),
+    title: text().notNull(),
+    pipelineId: uuid().notNull(),
+    stageId: uuid().notNull(),
+    status: opportunityStatus().notNull().default('open'),
+    stageEnteredAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp({ withTimezone: true }),
+    lostReasonId: uuid(),
+    lostReasonNote: text(),
+    /** The counterparty's own reference, e.g. an application or student number. */
+    externalReference: text(),
+    /** What the item's revenue is worked out from, e.g. a tuition fee. */
+    baseAmount: numeric({ precision: 14, scale: 2 }),
+    /** Percentage of the base amount, e.g. a commission rate of 15.0000. */
+    revenueRate: numeric({ precision: 7, scale: 4 }),
+    /** Defaults to base × rate / 100; editable for bonuses and flat fees. */
+    expectedRevenue: numeric({ precision: 14, scale: 2 }),
+    currency: char({ length: 3 }),
+    ownerUserId: uuid(),
+    customFields: jsonb().notNull().default({}),
+    /** The customer's order of preference. */
+    position: integer().notNull().default(0),
+    ...timestamps,
+    createdBy: uuid(),
+    updatedBy: uuid(),
+    deletedAt: timestamp({ withTimezone: true }),
+  },
+  (table) => [
+    unique('opportunity_items_tenant_id_id_key').on(table.tenantId, table.id),
+    index('opportunity_items_opportunity_idx')
+      .on(table.tenantId, table.opportunityId)
+      .where(sql`${table.deletedAt} is null`),
+    index('opportunity_items_organization_idx').on(
+      table.tenantId,
+      table.organizationId,
+      table.status,
+    ),
+    index('opportunity_items_stage_idx')
+      .on(table.tenantId, table.pipelineId, table.stageId)
+      .where(sql`${table.deletedAt} is null`),
+    foreignKey({
+      columns: [table.tenantId, table.opportunityId],
+      foreignColumns: [opportunities.tenantId, opportunities.id],
+      name: 'opportunity_items_tenant_opportunity_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.organizationId],
+      foreignColumns: [organizations.tenantId, organizations.id],
+      name: 'opportunity_items_tenant_organization_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.pipelineId],
+      foreignColumns: [pipelines.tenantId, pipelines.id],
+      name: 'opportunity_items_tenant_pipeline_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.stageId],
+      foreignColumns: [pipelineStages.tenantId, pipelineStages.id],
+      name: 'opportunity_items_tenant_stage_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.lostReasonId],
+      foreignColumns: [lostReasons.tenantId, lostReasons.id],
+      name: 'opportunity_items_tenant_lost_reason_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.ownerUserId],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+      name: 'opportunity_items_tenant_owner_fk',
+    }),
+  ],
+);
+
+/**
+ * One row per visit to a stage, by an opportunity (item id null) or one of its items; written
+ * only by moveStage() and moveItemStage(), in the same transaction.
+ */
 export const stageHistory = pgTable(
   'stage_history',
   {
@@ -358,6 +461,7 @@ export const stageHistory = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
     opportunityId: uuid().notNull(),
+    opportunityItemId: uuid(),
     stageId: uuid().notNull(),
     enteredAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     exitedAt: timestamp({ withTimezone: true }),
@@ -366,6 +470,14 @@ export const stageHistory = pgTable(
   (table) => [
     index('stage_history_opportunity_idx').on(table.tenantId, table.opportunityId, table.enteredAt),
     index('stage_history_stage_idx').on(table.tenantId, table.stageId, table.enteredAt),
+    index('stage_history_item_idx')
+      .on(table.tenantId, table.opportunityItemId, table.enteredAt)
+      .where(sql`${table.opportunityItemId} is not null`),
+    foreignKey({
+      columns: [table.tenantId, table.opportunityItemId],
+      foreignColumns: [opportunityItems.tenantId, opportunityItems.id],
+      name: 'stage_history_tenant_item_fk',
+    }).onDelete('cascade'),
     foreignKey({
       columns: [table.tenantId, table.opportunityId],
       foreignColumns: [opportunities.tenantId, opportunities.id],

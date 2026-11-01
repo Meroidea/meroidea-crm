@@ -8,7 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AppError } from '@/lib/errors';
-import { formatDateTime, initials } from '@/lib/format';
+import { formatDate, formatDateTime, formatMoney, initials } from '@/lib/format';
+import { StageBadge } from '@/modules/opportunities/components/stage-badge';
+import { listItemsForOrganization } from '@/modules/opportunities/item-queries';
 import { OrganizationActions } from '@/modules/organizations/components/organization-actions';
 import { getOrganization } from '@/modules/organizations/queries';
 import { hasPermission, requireTenantContext } from '@/server/context';
@@ -36,6 +38,10 @@ export default async function OrganizationPage({ params }: PageProps<'/organizat
   });
   const labels = ctx.tenant.labels;
   const canManage = hasPermission(ctx, 'organizations.manage');
+  // Items are part of the sales pipeline: shown to people who may see opportunities.
+  const items = hasPermission(ctx, 'opportunities.view')
+    ? await listItemsForOrganization(ctx, org.id)
+    : [];
   const address = [org.addressLine, org.city, org.region, org.country].filter(Boolean).join(', ');
 
   return (
@@ -179,6 +185,44 @@ export default async function OrganizationPage({ params }: PageProps<'/organizat
           </CardContent>
         </Card>
       </div>
+
+      {items.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{labels.opportunityItem.plural}</CardTitle>
+            <CardDescription>
+              Every {labels.opportunityItem.singular.toLowerCase()} with {org.name} that you can
+              see, newest first.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col divide-y">
+              {items.map((item) => (
+                <li key={item.id}>
+                  <Link
+                    href={`/opportunities/${item.opportunityId}`}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 hover:text-primary"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{item.title}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {item.contactName} · {item.opportunityName} · added{' '}
+                        {formatDate(ctx, item.createdAt)}
+                      </span>
+                    </span>
+                    {item.expectedRevenue !== null && (
+                      <span className="text-sm text-muted-foreground tabular-nums">
+                        {formatMoney(item.expectedRevenue, item.currency ?? ctx.tenant.currency)}
+                      </span>
+                    )}
+                    <StageBadge name={item.stageName} color={item.stageColor} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -31,7 +31,11 @@ import {
   StatusesEditor,
 } from '@/modules/crm-config/components/lead-lists-editor';
 import { SequencesEditor, TemplatesEditor } from '@/modules/crm-config/components/outreach-editor';
-import { PipelineList, StageRulesList } from '@/modules/crm-config/components/pipelines-editor';
+import {
+  ItemStageAdvanceList,
+  PipelineList,
+  StageRulesList,
+} from '@/modules/crm-config/components/pipelines-editor';
 import { RoutingEditor } from '@/modules/crm-config/components/routing-editor';
 import {
   getEmailTemplates,
@@ -95,24 +99,33 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   const tab = tabs.find((candidate) => candidate.key === params.tab)?.key ?? 'general';
   const pipelineParam = typeof params.pipeline === 'string' ? params.pipeline : null;
   const entityParam =
-    params.entity === 'organization' || params.entity === 'opportunity' ? params.entity : 'contact';
+    params.entity === 'organization' ||
+    params.entity === 'opportunity' ||
+    params.entity === 'opportunity_item'
+      ? params.entity
+      : 'contact';
   const needsPeople = ['routing', 'pipeline'].includes(tab);
-  const [lists, agreement, leadConfig, pipelines, members, teams] = await Promise.all([
-    getSettingsLists(ctx),
-    getAcceptedAgreement(ctx),
-    crm && ['leads', 'sources', 'routing'].includes(tab) ? getLeadConfig(ctx) : null,
-    crm && tab === 'pipeline' ? getPipelineSummaries(ctx) : [],
-    needsPeople ? listActiveMembers(ctx) : [],
-    needsPeople ? getTeams(ctx) : [],
-  ]);
+  const [lists, agreement, leadConfig, pipelines, itemPipelines, members, teams] =
+    await Promise.all([
+      getSettingsLists(ctx),
+      getAcceptedAgreement(ctx),
+      crm && ['leads', 'sources', 'routing'].includes(tab) ? getLeadConfig(ctx) : null,
+      crm && tab === 'pipeline' ? getPipelineSummaries(ctx) : [],
+      crm && tab === 'pipeline' ? getPipelineSummaries(ctx, 'opportunity_item') : [],
+      needsPeople ? listActiveMembers(ctx) : [],
+      needsPeople ? getTeams(ctx) : [],
+    ]);
   const selectedPipelineId =
-    pipelines.find((candidate) => candidate.id === pipelineParam)?.id ??
+    [...pipelines, ...itemPipelines].find((candidate) => candidate.id === pipelineParam)?.id ??
     pipelines.find((candidate) => candidate.isDefault)?.id ??
     null;
+  const selectedIsItemPipeline = itemPipelines.some(
+    (candidate) => candidate.id === selectedPipelineId,
+  );
   const [pipeline, routingRules, customFields, templates, sequenceRows, webForms, roleRows] =
     await Promise.all([
       crm && tab === 'pipeline' && selectedPipelineId
-        ? getPipelineConfig(ctx, selectedPipelineId)
+        ? getPipelineConfig(ctx, selectedPipelineId, 'any')
         : null,
       crm && tab === 'routing' ? getRoutingRules(ctx) : [],
       crm && ['fields', 'pipeline', 'leads'].includes(tab)
@@ -127,6 +140,23 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
       tab === 'roles' ? getRolesWithGrants(ctx) : [],
     ]);
   const people = members.map((member) => ({ value: member.userId, label: member.fullName }));
+  // Where an item stage can move its opportunity: open and won stages of each active pipeline.
+  const advanceTargets = selectedIsItemPipeline
+    ? await Promise.all(
+        pipelines
+          .filter((candidate) => candidate.isActive)
+          .map(async (candidate) => ({
+            pipeline: candidate.name,
+            stages: (await getPipelineConfig(ctx, candidate.id)).stages
+              .filter((stage) => stage.isActive && stage.category !== 'lost')
+              .map((stage) => ({ value: stage.id, label: stage.name })),
+          })),
+      )
+    : [];
+  const itemPipelineOptions = itemPipelines.map((candidate) => ({
+    value: candidate.id,
+    label: candidate.name,
+  }));
   const teamOptions = teams.map((team) => ({ value: team.id, label: team.name }));
   const business = readBusinessDetails(ctx.tenant.settings);
 
@@ -330,7 +360,31 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <PipelineList pipelines={pipelines} selectedId={selectedPipelineId ?? ''} />
+                <PipelineList
+                  pipelines={pipelines}
+                  selectedId={selectedPipelineId ?? ''}
+                  itemPipelines={itemPipelineOptions}
+                />
+              </CardContent>
+              <CardHeader className="border-t pt-6">
+                <CardTitle>
+                  Pipelines for {ctx.tenant.labels.opportunityItem.plural.toLowerCase()}
+                </CardTitle>
+                <CardDescription>
+                  When one {ctx.tenant.labels.opportunity.singular.toLowerCase()} holds several{' '}
+                  {ctx.tenant.labels.opportunityItem.plural.toLowerCase()} (applications to
+                  different places, offers on different properties), each moves through its own
+                  stages here. Rename what they are called under Fields and names.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PipelineList
+                  kind="opportunity_item"
+                  pipelines={itemPipelines}
+                  selectedId={selectedPipelineId ?? ''}
+                  addLabel={`Add a pipeline for ${ctx.tenant.labels.opportunityItem.plural.toLowerCase()}`}
+                  placeholder="e.g. Applications"
+                />
               </CardContent>
               {pipeline && (
                 <>
@@ -344,21 +398,46 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
                   <CardContent>
                     <StageEditor stages={pipeline.stages} pipelineId={pipeline.id} />
                   </CardContent>
-                  <CardHeader className="border-t pt-6">
-                    <CardTitle>{pipeline.name}: stage owners and gates</CardTitle>
-                    <CardDescription>
-                      Who is responsible in each stage, what must be filled in or ticked off to move
-                      on, and which moves need a manager’s approval.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <StageRulesList
-                      stages={pipeline.stages.filter((stage) => stage.isActive)}
-                      people={people}
-                      teams={teamOptions}
-                      customFields={customFields.filter((field) => field.isActive)}
-                    />
-                  </CardContent>
+                  {selectedIsItemPipeline ? (
+                    <>
+                      <CardHeader className="border-t pt-6">
+                        <CardTitle>
+                          {pipeline.name}: moving the{' '}
+                          {ctx.tenant.labels.opportunity.singular.toLowerCase()} forward
+                        </CardTitle>
+                        <CardDescription>
+                          {ctx.tenant.labels.opportunityItem.plural} entering a stage can move their{' '}
+                          {ctx.tenant.labels.opportunity.singular.toLowerCase()} forward: never
+                          back, and only through that stage’s own rules.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ItemStageAdvanceList
+                          stages={pipeline.stages.filter((stage) => stage.isActive)}
+                          targets={advanceTargets}
+                          opportunityNoun={ctx.tenant.labels.opportunity.singular.toLowerCase()}
+                        />
+                      </CardContent>
+                    </>
+                  ) : (
+                    <>
+                      <CardHeader className="border-t pt-6">
+                        <CardTitle>{pipeline.name}: stage owners and gates</CardTitle>
+                        <CardDescription>
+                          Who is responsible in each stage, what must be filled in or ticked off to
+                          move on, and which moves need a manager’s approval.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <StageRulesList
+                          stages={pipeline.stages.filter((stage) => stage.isActive)}
+                          people={people}
+                          teams={teamOptions}
+                          customFields={customFields.filter((field) => field.isActive)}
+                        />
+                      </CardContent>
+                    </>
+                  )}
                 </>
               )}
             </>
@@ -373,22 +452,28 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
-                <nav aria-label="Record type" className="flex gap-2">
-                  {(['contact', 'organization', 'opportunity'] as const).map((entity) => (
-                    <Link
-                      key={entity}
-                      href={`/settings?tab=fields&entity=${entity}`}
-                      aria-current={entityParam === entity ? 'page' : undefined}
-                      className={cn(
-                        'rounded-lg px-3 py-1.5 text-sm',
-                        entityParam === entity
-                          ? 'bg-accent font-medium'
-                          : 'text-muted-foreground hover:bg-muted',
-                      )}
-                    >
-                      {ctx.tenant.labels[entity].plural}
-                    </Link>
-                  ))}
+                <nav aria-label="Record type" className="flex flex-wrap gap-2">
+                  {(['contact', 'organization', 'opportunity', 'opportunity_item'] as const).map(
+                    (entity) => (
+                      <Link
+                        key={entity}
+                        href={`/settings?tab=fields&entity=${entity}`}
+                        aria-current={entityParam === entity ? 'page' : undefined}
+                        className={cn(
+                          'rounded-lg px-3 py-1.5 text-sm',
+                          entityParam === entity
+                            ? 'bg-accent font-medium'
+                            : 'text-muted-foreground hover:bg-muted',
+                        )}
+                      >
+                        {
+                          ctx.tenant.labels[
+                            entity === 'opportunity_item' ? 'opportunityItem' : entity
+                          ].plural
+                        }
+                      </Link>
+                    ),
+                  )}
                 </nav>
                 <CustomFieldsEditor key={entityParam} entity={entityParam} fields={customFields} />
               </CardContent>

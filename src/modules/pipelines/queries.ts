@@ -9,6 +9,9 @@ import { withRls, type Tx } from '@/server/db/with-rls';
 
 export type StageCategory = 'open' | 'won' | 'lost';
 
+/** What a pipeline's stages track: opportunities, or the items inside them (ADR-018). */
+export type PipelineObject = 'opportunity' | 'opportunity_item';
+
 export type ChecklistItem = { id: string; label: string };
 
 export type Stage = {
@@ -26,14 +29,29 @@ export type Stage = {
   requiredFields: string[];
   checklist: ChecklistItem[];
   requiresApproval: boolean;
+  /** Item stages: entering moves the opportunity forward to this stage, never back. */
+  advancesParentToStageId: string | null;
 };
 
 export type PipelineSummary = {
   id: string;
   name: string;
+  objectType: PipelineObject;
   leadType: 'b2b' | 'b2c' | null;
+  /** Opportunity pipelines: the item pipeline their items use; null means the default one. */
+  itemPipelineId: string | null;
   isDefault: boolean;
   isActive: boolean;
+};
+
+const summaryColumns = {
+  id: pipelines.id,
+  name: pipelines.name,
+  objectType: pipelines.objectType,
+  leadType: pipelines.leadType,
+  itemPipelineId: pipelines.itemPipelineId,
+  isDefault: pipelines.isDefault,
+  isActive: pipelines.isActive,
 };
 
 export type PipelineConfig = PipelineSummary & {
@@ -55,46 +73,46 @@ function parseChecklist(raw: unknown): ChecklistItem[] {
 
 const ON_ENTER = ['notify', 'reassign', 'task'] as const;
 
-export async function listPipelineSummaries(tx: Tx, tenantId: string): Promise<PipelineSummary[]> {
+export async function listPipelineSummaries(
+  tx: Tx,
+  tenantId: string,
+  objectType: PipelineObject = 'opportunity',
+): Promise<PipelineSummary[]> {
   return tx
-    .select({
-      id: pipelines.id,
-      name: pipelines.name,
-      leadType: pipelines.leadType,
-      isDefault: pipelines.isDefault,
-      isActive: pipelines.isActive,
-    })
+    .select(summaryColumns)
     .from(pipelines)
-    .where(and(eq(pipelines.tenantId, tenantId), eq(pipelines.objectType, 'opportunity')))
+    .where(and(eq(pipelines.tenantId, tenantId), eq(pipelines.objectType, objectType)))
     .orderBy(asc(pipelines.position), asc(pipelines.createdAt));
 }
 
-export async function getPipelineSummaries(ctx: TenantContext): Promise<PipelineSummary[]> {
-  return withRls(ctx, (tx) => listPipelineSummaries(tx, ctx.tenantId));
+export async function getPipelineSummaries(
+  ctx: TenantContext,
+  objectType: PipelineObject = 'opportunity',
+): Promise<PipelineSummary[]> {
+  return withRls(ctx, (tx) => listPipelineSummaries(tx, ctx.tenantId, objectType));
 }
 
 /**
  * One pipeline with its stages (active and inactive) and the lost reasons: the named one, or the
- * workspace's default when none is named.
+ * workspace's default of that kind when none is named. `any` finds a named pipeline of either
+ * kind, for the settings screens that edit stages by id.
  */
 export async function loadPipelineConfig(
   tx: Tx,
   ctx: Pick<TenantContext, 'tenantId'>,
   pipelineId?: string | null,
+  objectType: PipelineObject | 'any' = 'opportunity',
 ): Promise<PipelineConfig> {
+  if (objectType === 'any' && !pipelineId) {
+    throw new AppError('NOT_FOUND', 'That pipeline was not found.');
+  }
   const [pipeline] = await tx
-    .select({
-      id: pipelines.id,
-      name: pipelines.name,
-      leadType: pipelines.leadType,
-      isDefault: pipelines.isDefault,
-      isActive: pipelines.isActive,
-    })
+    .select(summaryColumns)
     .from(pipelines)
     .where(
       and(
         eq(pipelines.tenantId, ctx.tenantId),
-        eq(pipelines.objectType, 'opportunity'),
+        objectType === 'any' ? undefined : eq(pipelines.objectType, objectType),
         pipelineId ? eq(pipelines.id, pipelineId) : eq(pipelines.isDefault, true),
       ),
     )
@@ -140,6 +158,7 @@ export async function loadPipelineConfig(
       requiredFields: stage.requiredFields,
       checklist: parseChecklist(stage.checklist),
       requiresApproval: stage.requiresApproval,
+      advancesParentToStageId: stage.advancesParentToStageId,
     })),
     lostReasons: reasons,
   };
@@ -149,8 +168,33 @@ export async function loadPipelineConfig(
 export async function getPipelineConfig(
   ctx: TenantContext,
   pipelineId?: string | null,
+  objectType: PipelineObject | 'any' = 'opportunity',
 ): Promise<PipelineConfig> {
-  return withRls(ctx, (tx) => loadPipelineConfig(tx, ctx, pipelineId));
+  return withRls(ctx, (tx) => loadPipelineConfig(tx, ctx, pipelineId, objectType));
+}
+
+/**
+ * The item pipeline an opportunity pipeline's items use: the one it names, else the workspace's
+ * default item pipeline. Null when the business tracks no items, or that pipeline is switched off.
+ */
+export async function loadItemPipelineFor(
+  tx: Tx,
+  ctx: Pick<TenantContext, 'tenantId'>,
+  opportunityPipelineId: string,
+): Promise<PipelineConfig | null> {
+  const [parent] = await tx
+    .select({ itemPipelineId: pipelines.itemPipelineId })
+    .from(pipelines)
+    .where(and(eq(pipelines.tenantId, ctx.tenantId), eq(pipelines.id, opportunityPipelineId)))
+    .limit(1);
+  if (!parent) return null;
+  const config = await loadPipelineConfig(tx, ctx, parent.itemPipelineId, 'opportunity_item').catch(
+    (error: unknown) => {
+      if (error instanceof AppError && error.code === 'NOT_FOUND') return null;
+      throw error;
+    },
+  );
+  return config?.isActive ? config : null;
 }
 
 /** Where converted leads of a type start: the first active pipeline set for that type, else the default. */
@@ -178,3 +222,10 @@ export async function pipelineIdForLeadType(
 }
 
 export { stageColorVar } from '@/lib/stage-color';
+
+export async function getItemPipelineFor(
+  ctx: TenantContext,
+  opportunityPipelineId: string,
+): Promise<PipelineConfig | null> {
+  return withRls(ctx, (tx) => loadItemPipelineFor(tx, ctx, opportunityPipelineId));
+}

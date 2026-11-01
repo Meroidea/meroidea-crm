@@ -111,6 +111,7 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
     'stage_approvals',
     'opportunity_contacts',
     'stage_history',
+    'opportunity_items',
     'opportunities',
     'partners',
     'pipeline_stages',

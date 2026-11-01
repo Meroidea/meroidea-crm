@@ -91,7 +91,15 @@ export const routingRuleSchema = z
 export const pipelineSchema = z.object({
   id: z.uuid().optional(),
   name: name(60),
+  /** Chosen when the pipeline is added; never changed afterwards. */
+  objectType: z.enum(['opportunity', 'opportunity_item']).default('opportunity'),
   leadType: optionalLeadType,
+  /** Opportunity pipelines: the item pipeline their items use. Empty means the default one;
+   * left out means unchanged. */
+  itemPipelineId: z
+    .union([z.literal(''), z.uuid()])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value || null)),
   description: z
     .string()
     .trim()
@@ -122,6 +130,12 @@ export const stageRulesSchema = z
   });
 
 export const addPipelineStageSchema = z.object({ pipelineId: z.uuid(), name: name(40) });
+
+export const itemStageAdvanceSchema = z.object({
+  id: z.uuid(),
+  advancesParentToStageId: optionalUuid,
+});
+export type ItemStageAdvanceInput = z.infer<typeof itemStageAdvanceSchema>;
 
 export const customFieldSchema = z.object({
   id: z.uuid().optional(),

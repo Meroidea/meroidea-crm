@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, inArray, isNull, min } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, min, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import {
@@ -8,6 +8,7 @@ import {
   lostReasons,
   opportunities,
   opportunityContacts,
+  opportunityItems,
   partners,
   pipelineStages,
   rolePermissions,
@@ -45,7 +46,7 @@ import type {
   UpdateOpportunityInput,
 } from './schemas';
 
-function assertCanAssign(ctx: TenantContext, ownerUserId: string | null): void {
+export function assertCanAssign(ctx: TenantContext, ownerUserId: string | null): void {
   if (ownerUserId === ctx.userId) return;
   const decision = scopeDecision(ctx, 'opportunities.assign');
   const allowed =
@@ -58,7 +59,8 @@ function assertCanAssign(ctx: TenantContext, ownerUserId: string | null): void {
   }
 }
 
-async function loadForWrite(tx: Tx, ctx: TenantContext, id: string) {
+/** The live opportunity, locked for the rest of the transaction. Items lock it the same way. */
+export async function loadForWrite(tx: Tx, ctx: TenantContext, id: string) {
   const [row] = await tx
     .select()
     .from(opportunities)
@@ -138,6 +140,30 @@ async function assertRequiredFields(
     `Before moving to ${stage.name}, fill in: ${names.join(', ')}.`,
     Object.fromEntries(missing.map((ref) => [ref.replace('custom:', 'custom.'), ['Required']])),
   );
+}
+
+/**
+ * An opportunity whose outcome rides on its items (docs/database.md §10) is won only once one of
+ * them is: a case is not enrolled until an application is. One with no items is unaffected.
+ */
+async function assertAnItemWon(tx: Tx, ctx: TenantContext, opportunityId: string): Promise<void> {
+  const [tally] = await tx
+    .select({
+      total: count(),
+      won: sql<number>`count(*) filter (where ${opportunityItems.status} = 'won')::int`,
+    })
+    .from(opportunityItems)
+    .where(
+      and(
+        eq(opportunityItems.tenantId, ctx.tenantId),
+        eq(opportunityItems.opportunityId, opportunityId),
+        isNull(opportunityItems.deletedAt),
+      ),
+    );
+  if (tally && tally.total > 0 && tally.won === 0) {
+    const item = ctx.tenant.labels.opportunityItem.plural.toLowerCase();
+    throw new AppError('VALIDATION', `Mark one of its ${item} won first.`);
+  }
 }
 
 function assertChecklistDone(stage: Stage, state: unknown): void {
@@ -599,6 +625,7 @@ async function performMove(
         assertChecklistDone(current, existing.checklistState);
       await assertRequiredFields(tx, ctx, target, existing);
     }
+    if (target.category === 'won') await assertAnItemWon(tx, ctx, existing.id);
     if (
       target.requiresApproval &&
       !options.approved &&
@@ -669,6 +696,7 @@ async function performMove(
       and(
         eq(stageHistory.tenantId, ctx.tenantId),
         eq(stageHistory.opportunityId, existing.id),
+        isNull(stageHistory.opportunityItemId),
         isNull(stageHistory.exitedAt),
       ),
     );
@@ -730,6 +758,60 @@ async function performMove(
   if (target.onEnter === 'task') await refreshNextTaskDue(tx, ctx, existing.id);
   const emails = await notify(tx, ctx, entry.notices);
   return { result: { id: existing.id, pendingApproval: false }, emails };
+}
+
+/** What an item's stage did to its opportunity (ADR-018). */
+export type ParentAdvance = {
+  outcome: 'moved' | 'requested' | 'blocked';
+  stageName: string;
+  message: string | null;
+};
+
+/**
+ * An item entered a stage that moves its opportunity forward. The move follows the same rules as
+ * a person's: forward only, never out of won or lost, and through the stage gates. A gate that is
+ * not met leaves the opportunity where it is and says why, rather than refusing the item's move;
+ * a stage that needs approval becomes a request. The gates throw before anything is written.
+ */
+export async function advanceFromItem(
+  tx: Tx,
+  ctx: TenantContext,
+  opportunityId: string,
+  stageId: string,
+): Promise<{ advance: ParentAdvance | null; emails: PendingEmail[] }> {
+  const existing = await loadForWrite(tx, ctx, opportunityId);
+  if (existing.status !== 'open') return { advance: null, emails: [] };
+  const pipeline = await loadPipelineConfig(tx, ctx, existing.pipelineId);
+  const target = pipeline.stages.find((stage) => stage.id === stageId && stage.isActive);
+  const current = pipeline.stages.find((stage) => stage.id === existing.stageId);
+  if (!target || target.category === 'lost') return { advance: null, emails: [] };
+  if (current && target.position <= current.position) return { advance: null, emails: [] };
+  try {
+    const moved = await performMove(
+      tx,
+      ctx,
+      existing,
+      pipeline,
+      { id: existing.id, stageId: target.id, lostReasonId: null, lostReasonNote: null },
+      { approved: false },
+    );
+    return {
+      advance: {
+        outcome: moved.result.pendingApproval ? 'requested' : 'moved',
+        stageName: target.name,
+        message: null,
+      },
+      emails: moved.emails,
+    };
+  } catch (error) {
+    if (error instanceof AppError && (error.code === 'VALIDATION' || error.code === 'CONFLICT')) {
+      return {
+        advance: { outcome: 'blocked', stageName: target.name, message: error.message },
+        emails: [],
+      };
+    }
+    throw error;
+  }
 }
 
 export async function moveStage(ctx: TenantContext, input: MoveStageInput): Promise<MoveResult> {

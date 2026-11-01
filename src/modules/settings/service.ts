@@ -6,6 +6,7 @@ import {
   leadSources,
   lostReasons,
   opportunities,
+  opportunityItems,
   pipelineStages,
   roles,
   tenantMemberships,
@@ -75,7 +76,12 @@ export async function addStage(
 ): Promise<Result> {
   requirePermission(ctx, 'settings.manage');
   return withRls(ctx, async (tx) => {
-    const pipeline = await loadPipelineConfig(tx, ctx, pipelineId);
+    const pipeline = await loadPipelineConfig(
+      tx,
+      ctx,
+      pipelineId,
+      pipelineId ? 'any' : 'opportunity',
+    );
     const firstClosed = pipeline.stages.find((stage) => stage.category !== 'open');
     const position = firstClosed ? firstClosed.position : pipeline.stages.length;
     for (const stage of [...pipeline.stages].reverse()) {
@@ -112,7 +118,12 @@ export async function moveStagePosition(
 ): Promise<Result> {
   requirePermission(ctx, 'settings.manage');
   return withRls(ctx, async (tx) => {
-    const pipeline = await loadPipelineConfig(tx, ctx, await pipelineOfStage(tx, ctx, input.id));
+    const pipeline = await loadPipelineConfig(
+      tx,
+      ctx,
+      await pipelineOfStage(tx, ctx, input.id),
+      'any',
+    );
     const open = pipeline.stages.filter((stage) => stage.category === 'open');
     const index = open.findIndex((stage) => stage.id === input.id);
     if (index < 0) throw new AppError('VALIDATION', 'Only open stages can be reordered.');
@@ -147,7 +158,12 @@ export async function toggleStage(
 ): Promise<Result> {
   requirePermission(ctx, 'settings.manage');
   return withRls(ctx, async (tx) => {
-    const pipeline = await loadPipelineConfig(tx, ctx, await pipelineOfStage(tx, ctx, input.id));
+    const pipeline = await loadPipelineConfig(
+      tx,
+      ctx,
+      await pipelineOfStage(tx, ctx, input.id),
+      'any',
+    );
     const stage = pipeline.stages.find((candidate) => candidate.id === input.id);
     if (!stage) throw new AppError('NOT_FOUND', 'That stage was not found.');
     if (!input.isActive) {
@@ -161,21 +177,26 @@ export async function toggleStage(
           `The pipeline needs at least one active ${stage.category} stage.`,
         );
       }
+      const records = pipeline.objectType === 'opportunity' ? opportunities : opportunityItems;
       const [held] = await tx
         .select({ total: count() })
-        .from(opportunities)
+        .from(records)
         .where(
           and(
-            eq(opportunities.tenantId, ctx.tenantId),
-            eq(opportunities.stageId, stage.id),
-            eq(opportunities.status, 'open'),
-            isNull(opportunities.deletedAt),
+            eq(records.tenantId, ctx.tenantId),
+            eq(records.stageId, stage.id),
+            eq(records.status, 'open'),
+            isNull(records.deletedAt),
           ),
         );
       if ((held?.total ?? 0) > 0) {
+        const plural =
+          pipeline.objectType === 'opportunity'
+            ? ctx.tenant.labels.opportunity.plural
+            : ctx.tenant.labels.opportunityItem.plural;
         throw new AppError(
           'CONFLICT',
-          `Move the ${held?.total} open opportunities out of ${stage.name} first.`,
+          `Move the ${held?.total} open ${plural.toLowerCase()} out of ${stage.name} first.`,
         );
       }
     }

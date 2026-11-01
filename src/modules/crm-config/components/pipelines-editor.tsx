@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   makeDefaultPipelineAction,
+  saveItemStageAdvanceAction,
   savePipelineAction,
   saveStageRulesAction,
   togglePipelineAction,
@@ -33,22 +34,40 @@ export type PipelineRow = {
   id: string;
   name: string;
   leadType: 'b2b' | 'b2c' | null;
+  itemPipelineId: string | null;
   isDefault: boolean;
   isActive: boolean;
 };
 
+/**
+ * Opportunity pipelines, or item pipelines (ADR-018). An opportunity pipeline chooses which item
+ * pipeline its items use; leaving it on the default follows whichever item pipeline is default.
+ */
 export function PipelineList({
   pipelines,
   selectedId,
+  kind = 'opportunity',
+  itemPipelines = [],
+  addLabel = 'Add pipeline',
+  placeholder = 'e.g. Rentals',
 }: {
   pipelines: PipelineRow[];
   selectedId: string;
+  kind?: 'opportunity' | 'opportunity_item';
+  /** For opportunity pipelines: the item pipelines they may use. */
+  itemPipelines?: Option[];
+  addLabel?: string;
+  placeholder?: string;
 }) {
   const { run, error, isPending } = useActionRunner();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [leadType, setLeadType] = useState('');
+  const [itemPipelineId, setItemPipelineId] = useState('');
+  const forOpportunities = kind === 'opportunity';
+  const itemPipelineName = (id: string | null) =>
+    id ? itemPipelines.find((option) => option.value === id)?.label : null;
 
   return (
     <div className={cn('flex flex-col gap-3', isPending && 'opacity-80')}>
@@ -64,7 +83,14 @@ export function PipelineList({
                 onSubmit={(event) => {
                   event.preventDefault();
                   run(
-                    () => savePipelineAction({ id: pipeline.id, name, leadType, description: '' }),
+                    () =>
+                      savePipelineAction({
+                        id: pipeline.id,
+                        name,
+                        leadType,
+                        description: '',
+                        ...(forOpportunities ? { itemPipelineId } : {}),
+                      }),
                     () => setEditing(null),
                   );
                 }}
@@ -75,16 +101,33 @@ export function PipelineList({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
-                <NativeSelect
-                  aria-label="Used for"
-                  className="h-8 w-auto"
-                  value={leadType}
-                  onChange={(e) => setLeadType(e.target.value)}
-                >
-                  <option value="">Any lead</option>
-                  <option value="b2b">B2B leads</option>
-                  <option value="b2c">B2C leads</option>
-                </NativeSelect>
+                {forOpportunities && (
+                  <NativeSelect
+                    aria-label="Used for"
+                    className="h-8 w-auto"
+                    value={leadType}
+                    onChange={(e) => setLeadType(e.target.value)}
+                  >
+                    <option value="">Any lead</option>
+                    <option value="b2b">B2B leads</option>
+                    <option value="b2c">B2C leads</option>
+                  </NativeSelect>
+                )}
+                {forOpportunities && itemPipelines.length > 0 && (
+                  <NativeSelect
+                    aria-label="Items use"
+                    className="h-8 w-auto"
+                    value={itemPipelineId}
+                    onChange={(e) => setItemPipelineId(e.target.value)}
+                  >
+                    <option value="">Items: the default pipeline</option>
+                    {itemPipelines.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        Items: {option.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                )}
                 <Button type="submit" size="sm">
                   Save
                 </Button>
@@ -107,6 +150,11 @@ export function PipelineList({
                   {pipeline.leadType && (
                     <Badge variant="outline">{pipeline.leadType.toUpperCase()} leads</Badge>
                   )}
+                  {itemPipelineName(pipeline.itemPipelineId) && (
+                    <Badge variant="outline">
+                      Items: {itemPipelineName(pipeline.itemPipelineId)}
+                    </Badge>
+                  )}
                 </Link>
                 <span className="flex items-center gap-1">
                   <Button
@@ -115,6 +163,7 @@ export function PipelineList({
                     onClick={() => {
                       setName(pipeline.name);
                       setLeadType(pipeline.leadType ?? '');
+                      setItemPipelineId(pipeline.itemPipelineId ?? '');
                       setEditing(pipeline.id);
                     }}
                   >
@@ -154,7 +203,7 @@ export function PipelineList({
           onSubmit={(event) => {
             event.preventDefault();
             run(
-              () => savePipelineAction({ name, leadType, description: '' }),
+              () => savePipelineAction({ name, leadType, description: '', objectType: kind }),
               () => {
                 setAdding(false);
                 setName('');
@@ -164,21 +213,23 @@ export function PipelineList({
         >
           <Input
             aria-label="New pipeline name"
-            placeholder="e.g. Rentals"
+            placeholder={placeholder}
             className="w-56"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <NativeSelect
-            aria-label="Used for"
-            className="w-auto"
-            value={leadType}
-            onChange={(e) => setLeadType(e.target.value)}
-          >
-            <option value="">Any lead</option>
-            <option value="b2b">B2B leads</option>
-            <option value="b2c">B2C leads</option>
-          </NativeSelect>
+          {forOpportunities && (
+            <NativeSelect
+              aria-label="Used for"
+              className="w-auto"
+              value={leadType}
+              onChange={(e) => setLeadType(e.target.value)}
+            >
+              <option value="">Any lead</option>
+              <option value="b2b">B2B leads</option>
+              <option value="b2c">B2C leads</option>
+            </NativeSelect>
+          )}
           <Button type="submit" disabled={!name.trim()}>
             Add
           </Button>
@@ -196,7 +247,7 @@ export function PipelineList({
             setAdding(true);
           }}
         >
-          <Plus aria-hidden /> Add pipeline
+          <Plus aria-hidden /> {addLabel}
         </Button>
       )}
       <ErrorNote error={error} />
@@ -460,6 +511,70 @@ export function StageRulesList({
           customFields={customFields}
         />
       )}
+    </div>
+  );
+}
+
+export type AdvanceStageRow = {
+  id: string;
+  name: string;
+  category: 'open' | 'won' | 'lost';
+  advancesParentToStageId: string | null;
+};
+
+/**
+ * Item stages that move their opportunity forward (ADR-018): e.g. the first application
+ * submitted moves the case to "Application submitted". Forward only, and never to a lost stage.
+ */
+export function ItemStageAdvanceList({
+  stages,
+  targets,
+  opportunityNoun,
+}: {
+  stages: AdvanceStageRow[];
+  /** Open and won stages of each active opportunity pipeline. */
+  targets: { pipeline: string; stages: Option[] }[];
+  opportunityNoun: string;
+}) {
+  const { run, error, isPending } = useActionRunner();
+  return (
+    <div className={cn('flex flex-col gap-2', isPending && 'opacity-80')}>
+      <ul className="flex flex-col divide-y rounded-xl border bg-card">
+        {stages.map((stage) => (
+          <li
+            key={stage.id}
+            className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+          >
+            <span className="text-sm font-medium">{stage.name}</span>
+            <NativeSelect
+              aria-label={`When an item enters ${stage.name}`}
+              className="h-8 w-auto max-w-full"
+              value={stage.advancesParentToStageId ?? ''}
+              disabled={isPending}
+              onChange={(event) =>
+                run(() =>
+                  saveItemStageAdvanceAction({
+                    id: stage.id,
+                    advancesParentToStageId: event.target.value,
+                  }),
+                )
+              }
+            >
+              <option value="">{`Leaves the ${opportunityNoun} where it is`}</option>
+              {targets.map((group) => (
+                <optgroup key={group.pipeline} label={group.pipeline}>
+                  {group.stages.map((target) => (
+                    <option key={target.value} value={target.value}>
+                      {`Moves the ${opportunityNoun} to ${target.label}`}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </NativeSelect>
+          </li>
+        ))}
+      </ul>
+      <ErrorNote error={error} />
     </div>
   );
 }
