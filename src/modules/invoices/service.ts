@@ -5,6 +5,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { invoiceLines, invoices } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { formatCalendarDate, formatMoney } from '@/lib/format';
+import { recordInvoiceInBooks } from '@/modules/books/hooks';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
@@ -196,6 +197,9 @@ async function setStatus(
       .update(invoices)
       .set({ status: next, updatedBy: ctx.userId, ...extra })
       .where(and(eq(invoices.tenantId, ctx.tenantId), eq(invoices.id, id)));
+    // The books follow in the same transaction: issued, paid, or the issue reversed (ADR-060).
+    const event = next === 'sent' ? 'issued' : next === 'paid' ? 'paid' : 'voided';
+    await recordInvoiceInBooks(tx, id, event);
     await audit(tx, ctx, {
       action: 'update',
       entityType: 'invoice',

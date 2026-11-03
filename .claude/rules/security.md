@@ -137,6 +137,16 @@ change as touching sensitive personal data.
 - Writing or assigning training needs `training.manage`; a learner sees a course only when it is
   published and assigned to them, enforced by RLS.
 
+## Bookkeeping (ADR-060)
+
+- Only the `app.ledger_*` functions write `ledger_entries` and `ledger_lines`. Never grant
+  `authenticated` insert, update or delete on them, never write them through `adminDb`, and never
+  weaken the balance, immutability or lock-date checks.
+- Entries posted from an invoice or payslip change only through that document. Call the hooks in
+  `src/modules/books/hooks.ts` inside the document's own transaction.
+- Entries from payroll stay `payroll = true` and hidden without `books.view_payroll`. Never show
+  pay amounts from the books in a query that skips RLS.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

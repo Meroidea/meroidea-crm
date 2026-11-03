@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { PrintButton } from '@/components/data/print-button';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime } from '@/lib/format';
+import { SourceEntries } from '@/modules/books/components/source-entries';
 import { InvoiceDocument } from '@/modules/invoices/components/invoice-document';
 import { InvoiceActions, InvoiceEditor } from '@/modules/invoices/components/invoice-tools';
 import { getInvoice } from '@/modules/invoices/queries';
@@ -77,6 +78,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<'/
         <>
           <InvoiceActions id={invoice.id} status={invoice.status} />
           <InvoiceDocument invoice={invoice} sellerName={ctx.tenant.name} />
+          <SourceEntries ctx={ctx} sourceType="invoice" sourceId={invoice.id} />
         </>
       )}
     </div>

@@ -178,6 +178,8 @@ couldn't track per-institution offers or commissions.
 submitted to several jobs. The code name stays neutral; labels make it "Application".
 
 ### ADR-019 · Two revenue streams: expected values in MVP, ledger in Phase 2, invoicing stays in accounting
+> **Partly superseded by ADR-060:** Meroidea now keeps its own double-entry ledger under invoices and payroll. Expected revenue on opportunities is unchanged.
+
 **Decision:** Direct revenue (service fee) on `opportunities.amount`; item revenue (institution
 commission = tuition × rate, editable) on `opportunity_items.expected_revenue`. Phase 2 adds
 `revenue_entries` (per-instalment expected → invoiced → received) and `partner_commissions`
@@ -1151,3 +1153,65 @@ editing service and the training video hosts); revoking PUBLIC execute on `app` 
 public route handler's input limits beyond what ADR-039 already tests; dependency audit; backup
 restore drill; Playwright journeys; the audit log viewer.
 
+
+## ADR-060 — Bookkeeping: a double-entry ledger under invoices and payroll (supersedes part of ADR-019)
+
+**Context.** Investors asked for a bookkeeping module ("Bookkeeping Module – Requirements for
+Developer"): a chart of accounts, automatic posting from receivables, payables and payroll, money
+in and out, bank reconciliation, GST and the core reports, resold to other businesses and
+countries. ADR-019 had kept accounting in the customer's accounting system, and the roadmap listed
+"replacing the customer's accounting ledger" as a non-goal. The business owner chose to build the
+ledger, starting with its core, for Australia first.
+
+**Decision.**
+1. *A real double-entry ledger, never a simplified income/expense register.* `ledger_entries` and
+   `ledger_lines` hold every movement as debits and credits in `numeric(14,2)` with the business's
+   currency. People see plain words ("Money in", "Money out"); an accountant view shows the debits,
+   credits and codes. Changing this later would have meant re-deriving every business's history.
+2. *Only the database writes the ledger.* Signed-in users hold `select` on the two ledger tables
+   and nothing else. Every entry goes through an `app.ledger_*` function, which checks the
+   permission for that kind of entry, the lock date, that every account and tax code belongs to
+   the business, and that amounts are whole cents. A deferred constraint trigger refuses, at
+   commit, any entry whose debits and credits differ or that has fewer than two lines.
+3. *Entries are never edited.* A trigger refuses every update except linking the reversal.
+   Voiding posts a reversing entry: on the original date while it is open, otherwise the first
+   open day after the lock date. Both stay on record. Deleting is left to the platform owner's
+   removal of a whole test business (ADR-056).
+4. *Documents post themselves, in their own transaction.* Marking an invoice sent posts
+   receivables, income and GST; paid posts the bank and clears receivables; voiding reverses the
+   issue. Releasing a payslip posts wages and super as expenses and what is owed for net pay, PAYG
+   withheld and super. Each entry keeps its source and event, unique per document and event, so
+   re-sending or re-running never posts twice, and every document shows the entries it made.
+   Entries from a document change only through that document. Nothing posts while the books are
+   switched off or not set up; setting up (and "bring in missing") posts documents dated from the
+   start date.
+5. *Pay is private inside the books.* Entries from payroll carry `payroll = true` and are hidden by
+   RLS from anyone without `books.view_payroll`. Whole entries are hidden, so every report still
+   balances, and says what it leaves out.
+6. *Reports compute the year end.* Income and expenses count from the start of the financial year;
+   earlier years' profit is added to retained earnings and this year's appears as "Current year
+   earnings", so the Balance Sheet balances without anyone posting a closing entry.
+7. *Country packs.* The chart and tax codes come from a pack (`src/modules/books/packs.ts`);
+   Australia is first (GST 10%, July–June year, PAYG and super accounts). A business renames,
+   adds and archives its own. Accounts and tax codes that posting relies on carry a `system_key`
+   and cannot be archived or re-purposed; an account with transactions keeps its type.
+8. *A feature of its own (`books`)*, switched on per business like the others (ADR-029, ADR-038),
+   with six permissions: `books.view`, `books.view_payroll`, `books.record`, `books.journal`,
+   `books.export`, `books.manage`. Role templates Bookkeeper, Accountant or tax agent, and Books
+   viewer match the requirements' roles.
+
+**Not in this milestone** (next, in this order): supplier bills (accounts payable does not exist
+yet) and supplier credit notes; customer payments as records (part payments, several invoices per
+payment) and credit notes; bank statement import (CSV/OFX) with suggested matches,
+reconciliation, bank rules and duplicate detection; the GST/BAS report with drill-down and tax
+payments; aged receivables and payables; cash-basis reports; tracking categories; recurring
+transactions; attachments on entries; comments for accountants; PDF/Excel exports and the
+accountant export pack; monthly columns on the Profit and Loss; merging accounts; payroll
+remittances of PAYG and super.
+
+**Consequences.** The ledger is the source of the financial reports, so a wrong posting rule is a
+wrong report: the chart, tax codes and posting rules need review by a qualified Australian
+accountant before businesses rely on them, as the requirements themselves ask. Invoices still
+carry one tax rate per invoice, so invoice income posts to one income account (chosen in the
+books settings). Businesses with the feature off are unaffected: the posting functions return
+before touching anything.

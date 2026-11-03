@@ -91,6 +91,12 @@ export const FEATURES = [
     label: 'Payroll and payslips',
     description: 'Authorising rosters for pay and payslips for staff.',
   },
+  {
+    key: 'books',
+    label: 'Bookkeeping',
+    description:
+      'A chart of accounts and double-entry ledger: money in and out, journals, GST, and the Profit and Loss, Balance Sheet and Trial Balance, posted from invoices and payroll.',
+  },
 ] as const;
 
 export type FeatureKey = (typeof FEATURES)[number]['key'];
@@ -125,6 +131,7 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
   payroll: 'payroll',
   concerns: 'concerns',
   training: 'training',
+  books: 'books',
 };
 
 /** The feature a permission needs, or null for workspace basics such as settings and users. */

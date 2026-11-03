@@ -11,6 +11,7 @@ import { RaiseConcernButton } from '@/modules/concerns/components/concern-tools'
 import { PayslipDocument } from '@/modules/payroll/components/payslip-document';
 import { getPayslip } from '@/modules/payroll/queries';
 import { hasPermission, requireTenantContext } from '@/server/context';
+import { SourceEntries } from '@/modules/books/components/source-entries';
 
 export const metadata: Metadata = { title: 'Payslip' };
 
@@ -60,6 +61,7 @@ export default async function PayslipPage({ params }: PageProps<'/payslips/[id]'
         printedOn={zonedToday(ctx.tenant.timezone)}
         businessNumberLabel={ctx.tenant.country === 'AU' ? 'ABN' : 'Business no.'}
       />
+      <SourceEntries ctx={ctx} sourceType="payslip" sourceId={payslip.id} />
     </div>
   );
 }

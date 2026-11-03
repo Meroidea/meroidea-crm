@@ -65,6 +65,11 @@ export async function contextFor(userId: string, tenantId: string): Promise<Tena
 export async function destroyWorkspace(tenantId: string, userIds: string[]): Promise<void> {
   const db = adminDb();
   for (const table of [
+    'ledger_lines',
+    'ledger_entries',
+    'ledger_settings',
+    'ledger_accounts',
+    'ledger_tax_codes',
     'tenant_agreements',
     'concern_messages',
     'concerns',

@@ -21,6 +21,7 @@ import {
 } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { awardInterpreter } from '@/modules/awards';
+import { recordPayslipsInBooks } from '@/modules/books/hooks';
 import { dayLoadings } from '@/modules/hiring/award-rates';
 import { getRosterRules } from '@/modules/roster/queries';
 import { centsToAmount, ORDINARY_LOADINGS } from '@/modules/roster/rules';
@@ -475,6 +476,11 @@ export async function releasePayslips(
       .returning({ id: payslips.id });
     if (released.length === 0)
       throw new AppError('CONFLICT', 'There are no draft payslips to release.');
+    // Wages, tax withheld and super reach the books in the same transaction (ADR-060).
+    await recordPayslipsInBooks(
+      tx,
+      released.map((row) => row.id),
+    );
     await audit(tx, ctx, {
       action: 'update',
       entityType: 'roster',
