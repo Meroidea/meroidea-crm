@@ -1215,3 +1215,30 @@ accountant before businesses rely on them, as the requirements themselves ask. I
 carry one tax rate per invoice, so invoice income posts to one income account (chosen in the
 books settings). Businesses with the feature off are unaffected: the posting functions return
 before touching anything.
+
+## ADR-061 — Invoice payments and credit notes are records of their own
+
+**Context.** An invoice was either unpaid or paid ("Mark as paid"). The bookkeeping requirements
+need part payments, one payment settling several invoices, and credit notes, each posting to the
+books (ADR-060).
+
+**Decision.**
+1. `invoice_payments` holds money received (date, amount, payer, reference, and the bank account in
+   the books when they are on); `invoice_payment_allocations` splits it across invoices. A credit
+   note (`invoice_credit_notes`, CN-0001…) is against one invoice, entered including tax, with the
+   tax worked out at the invoice's own rate.
+2. What is owed is `app.invoice_balance`: the total less live payments and live credit notes. An
+   invoice is `paid` exactly when that reaches zero, and returns to `sent` if a payment or credit
+   is voided. "Mark as paid" now records a payment of the whole balance.
+3. The database keeps the money honest whoever writes: deferred constraint triggers refuse, at
+   commit, any payment or credit on a draft or void invoice, any invoice paid or credited beyond
+   its total, and any payment not split exactly across its invoices. Payments and credit notes are
+   never edited or deleted: `authenticated` may update only `voided_at`/`voided_by`, once.
+4. Each payment and credit note posts its own entry (receivables against the bank; income and GST
+   against receivables) and a reversal when voided. An invoice's "Ledger entries" lists them all.
+   An invoice cannot be voided while a live payment or credit note is on it.
+5. Migration `0069` gives every invoice already marked paid the payment it stood for, dated the day
+   it was marked in the business's timezone, so balances are unchanged.
+
+**Not covered.** Refunds of money already received, and credit left over after an invoice is
+settled (a credit cannot exceed what is owed); overpayments.

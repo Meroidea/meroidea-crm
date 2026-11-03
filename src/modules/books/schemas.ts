@@ -179,6 +179,7 @@ export const ENTRY_KINDS = [
   'opening_balance',
   'invoice',
   'invoice_payment',
+  'credit_note',
   'payslip',
   'payslip_payment',
   'reversal',

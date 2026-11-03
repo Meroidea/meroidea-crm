@@ -8,7 +8,7 @@ import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
 import type { InvoiceFilter } from './schemas';
-import type { InvoiceDetail, InvoiceRow } from './types';
+import type { CreditNoteRow, InvoiceDetail, InvoicePaymentRow, InvoiceRow } from './types';
 
 const row = (today: string) => ({
   id: invoices.id,
@@ -20,6 +20,8 @@ const row = (today: string) => ({
   total: invoices.total,
   currency: invoices.currency,
   overdue: sql<boolean>`${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}::date`,
+  balance: sql<string>`case when ${invoices.status} in ('sent', 'paid')
+    then app.invoice_balance(${invoices.tenantId}, ${invoices.id}) else ${invoices.total} end::text`,
 });
 
 export const INVOICE_PAGE_SIZE = 50;
@@ -68,8 +70,8 @@ export async function getInvoiceTotals(
   const [totals] = await withRls(ctx, (tx) =>
     tx
       .select({
-        outstanding: sql<string>`coalesce(sum(${invoices.total}) filter (where ${invoices.status} = 'sent'), 0)::text`,
-        overdue: sql<string>`coalesce(sum(${invoices.total}) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}::date), 0)::text`,
+        outstanding: sql<string>`coalesce(sum(app.invoice_balance(${invoices.tenantId}, ${invoices.id})) filter (where ${invoices.status} = 'sent'), 0)::text`,
+        overdue: sql<string>`coalesce(sum(app.invoice_balance(${invoices.tenantId}, ${invoices.id})) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}::date), 0)::text`,
         paid: sql<string>`coalesce(sum(${invoices.total}) filter (where ${invoices.status} = 'paid'), 0)::text`,
       })
       .from(invoices)
@@ -110,7 +112,23 @@ export async function getInvoice(ctx: TenantContext, id: string): Promise<Invoic
       .from(invoiceLines)
       .where(and(eq(invoiceLines.tenantId, ctx.tenantId), eq(invoiceLines.invoiceId, id)))
       .orderBy(asc(invoiceLines.position));
-    return { ...invoice, lines };
+    const payments = (await tx.execute(sql`
+      select p.id, p.date::text as date, a.amount::text as amount, p.amount::text as "paymentTotal",
+             p.reference, p.payer_name as "payerName", p.voided_at is not null as voided,
+             (select count(*)::int from invoice_payment_allocations o
+              where o.tenant_id = p.tenant_id and o.payment_id = p.id and o.invoice_id <> ${id})
+               as "otherInvoices"
+      from invoice_payment_allocations a
+      join invoice_payments p on p.tenant_id = a.tenant_id and p.id = a.payment_id
+      where a.tenant_id = ${ctx.tenantId} and a.invoice_id = ${id}
+      order by p.date, p.created_at`)) as unknown as InvoicePaymentRow[];
+    const creditNotes = (await tx.execute(sql`
+      select id, number, date::text as date, reason, subtotal::text as subtotal,
+             tax_total::text as "taxTotal", total::text as total, voided_at is not null as voided
+      from invoice_credit_notes
+      where tenant_id = ${ctx.tenantId} and invoice_id = ${id}
+      order by date, number`)) as unknown as CreditNoteRow[];
+    return { ...invoice, lines, payments, creditNotes };
   });
 }
 
@@ -126,4 +144,27 @@ export async function getLastFromDetails(ctx: TenantContext): Promise<string | n
       .limit(1),
   );
   return last?.fromDetails ?? null;
+}
+
+export type OutstandingInvoice = {
+  id: string;
+  number: number;
+  customerName: string;
+  dueDate: string;
+  balance: string;
+};
+
+/** Every sent invoice with money still owed, oldest due first: what one payment can settle. */
+export async function listOutstandingInvoices(ctx: TenantContext): Promise<OutstandingInvoice[]> {
+  requirePermission(ctx, 'invoices.manage');
+  return (await withRls(ctx, (tx) =>
+    tx.execute(sql`
+      select id, number, customer_name as "customerName", due_date::text as "dueDate",
+             app.invoice_balance(tenant_id, id)::text as balance
+      from invoices
+      where tenant_id = ${ctx.tenantId} and status = 'sent'
+        and app.invoice_balance(tenant_id, id) > 0
+      order by due_date, number
+      limit 500`),
+  )) as unknown as OutstandingInvoice[];
 }

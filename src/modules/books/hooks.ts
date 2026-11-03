@@ -13,7 +13,7 @@ import { ledgerCall } from './ledger-call';
  * together. While the books are switched off or not set up, nothing is posted.
  */
 
-export type InvoiceBooksEvent = 'issued' | 'paid' | 'voided';
+export type InvoiceBooksEvent = 'issued' | 'voided';
 
 export async function recordInvoiceInBooks(
   tx: Tx,
@@ -21,6 +21,22 @@ export async function recordInvoiceInBooks(
   event: InvoiceBooksEvent,
 ): Promise<void> {
   await ledgerCall(tx, sql`select app.ledger_post_invoice(${invoiceId}::uuid, ${event})`);
+}
+
+export async function recordPaymentInBooks(
+  tx: Tx,
+  paymentId: string,
+  event: 'received' | 'voided',
+): Promise<void> {
+  await ledgerCall(tx, sql`select app.ledger_post_invoice_payment(${paymentId}::uuid, ${event})`);
+}
+
+export async function recordCreditNoteInBooks(
+  tx: Tx,
+  creditNoteId: string,
+  event: 'issued' | 'voided',
+): Promise<void> {
+  await ledgerCall(tx, sql`select app.ledger_post_credit_note(${creditNoteId}::uuid, ${event})`);
 }
 
 export async function recordPayslipsInBooks(tx: Tx, payslipIds: string[]): Promise<void> {

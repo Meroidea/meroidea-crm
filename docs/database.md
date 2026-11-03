@@ -1174,6 +1174,25 @@ index on `(tenant_id, user_id)` so one login maps to one employee.
 
 ---
 
+### invoice_payments 🟢 (ADR-061)
+`id`, `tenant_id`, `date`, `amount numeric(14,2)` (> 0), `currency`, `payer_name`, `reference`,
+`account_id` → `ledger_accounts` (composite FK; null means the books' receipts account),
+`voided_at`, `voided_by`, `created_at`, `created_by`. Never edited except voiding once (trigger
+`invoice_payments_immutable`, column grant); never deleted.
+
+### invoice_payment_allocations 🟢
+`id`, `tenant_id`, `payment_id` → `invoice_payments`, `invoice_id` → `invoices`, `amount` (> 0);
+unique per payment and invoice. Insert and select only.
+
+### invoice_credit_notes 🟢
+`id`, `tenant_id`, `number` (CN-0001, unique per business), `invoice_id` → `invoices`, `date`,
+`reason`, `subtotal` + `tax_total` = `total` (> 0), `currency`, `voided_at`, `voided_by`, timestamps.
+
+Rules, checked at commit by constraint triggers (`app.invoice_money_check`): payments and credits
+only on sent or paid invoices; `app.invoice_balance(tenant, invoice)` (total less live payments
+and credits) never below zero; a payment's allocations add up to its amount. RLS: `invoices.manage`
+plus the `invoices` feature switch.
+
 ## 7f. Document library 🟢
 
 Files live in the private `documents` storage bucket (no storage policies; server access only)
@@ -1425,7 +1444,7 @@ trigger `ledger_settings_guard`. RLS: read `books.view`; insert/update `books.ma
 `id`, `tenant_id`, `number` (per business, from 1), `date`, `kind` (`money_in` · `money_out` ·
 `transfer` · `journal` · `opening_balance` · `invoice` · `invoice_payment` · `payslip` ·
 `payslip_payment` · `reversal`), `description`, `reference`, `contact_name`, `is_adjustment` (journals
-only), `source_type` (`invoice` · `payslip`) + `source_id` + `source_event` (all or none; unique
+only), `source_type` (`invoice` · `invoice_payment` · `credit_note` · `payslip`) + `source_id` + `source_event` (all or none; unique
 together, so a document event posts once), `payroll`, `currency char(3)`, `reverses_entry_id` (set
 exactly when `kind = 'reversal'`; unique) and `reversed_by_entry_id` (self composite FKs),
 `created_at`, `created_by`.

@@ -63,3 +63,37 @@ export const invoiceParamsSchema = z.object({
 
 export type InvoiceFormValues = z.input<typeof saveInvoiceSchema>;
 export type SaveInvoiceInput = z.output<typeof saveInvoiceSchema>;
+
+const money = z
+  .string()
+  .trim()
+  .regex(/^\d{1,12}(\.\d{1,2})?$/, 'Use an amount like 120.00')
+  .refine((value) => Number(value) > 0, 'Enter more than zero');
+
+/** One payment, split across one or more invoices (ADR-061). */
+export const recordPaymentSchema = z.object({
+  date: isoDate,
+  payerName: optionalText(160),
+  reference: optionalText(100),
+  /** A bank account in the books; empty means the books' default for receipts. */
+  accountId: z
+    .union([z.literal(''), z.null(), z.uuid()])
+    .optional()
+    .transform((value) => value || null),
+  allocations: z
+    .array(z.object({ invoiceId: z.uuid(), amount: money }))
+    .min(1, 'Choose at least one invoice')
+    .max(100),
+});
+
+export const creditNoteSchema = z.object({
+  invoiceId: z.uuid(),
+  date: isoDate,
+  /** Including tax, as the customer sees it. */
+  amount: money,
+  reason: required(300, 'Say why you are giving this credit'),
+});
+
+export type RecordPaymentInput = z.output<typeof recordPaymentSchema>;
+export type RecordPaymentValues = z.input<typeof recordPaymentSchema>;
+export type CreditNoteInput = z.output<typeof creditNoteSchema>;

@@ -102,7 +102,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `files.view` | | See the document library, open documents read-only, download any version |
 | `files.edit` | | Edit documents in the browser editor |
 | `files.manage` | | Upload, rename, move and delete documents. Enforced again by RLS on `library_documents` |
-| `invoices.manage` | | Create, edit, send, mark paid and void invoices. Enforced again by RLS on `invoices` / `invoice_lines` |
+| `invoices.manage` | | Create, edit, send and void invoices; record and void payments (part payments, one payment across several invoices) and credit notes (ADR-061). Enforced again by RLS on `invoices`, `invoice_lines`, `invoice_payments`, `invoice_payment_allocations`, `invoice_credit_notes` |
 | `timeoff.request` | | Ask for leave, see and withdraw your own requests |
 | `timeoff.manage` | | See everyone's requests, approve or decline, cancel approved leave, enter leave for someone else, manage leave types. Enforced again by RLS on `leave_requests` |
 | `timesheets.clock` | | Clock in and out, add your own time by hand, see your own entries |

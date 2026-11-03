@@ -9,6 +9,7 @@ export const ENTRY_KIND_LABELS: Record<EntryKind, string> = {
   opening_balance: 'Opening balances',
   invoice: 'Invoice',
   invoice_payment: 'Invoice payment',
+  credit_note: 'Credit note',
   payslip: 'Pay run',
   payslip_payment: 'Wages paid',
   reversal: 'Reversal',

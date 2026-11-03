@@ -3,7 +3,7 @@ import 'server-only';
 import { sql } from 'drizzle-orm';
 
 import { zonedToday } from '@/lib/dates';
-import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
+import { hasFeature, hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
 import { financialYearStart, formatCents, toCents } from './money';
@@ -231,7 +231,10 @@ export async function getEntry(ctx: TenantContext, id: string): Promise<EntryDet
   });
 }
 
-/** The entries a document created: the "view entries" behind an invoice or a payslip. */
+/**
+ * The entries a document created: the "view entries" behind an invoice (with its payments and
+ * credit notes, ADR-061) or a payslip.
+ */
 export async function entriesForSource(
   ctx: TenantContext,
   sourceType: 'invoice' | 'payslip',
@@ -242,8 +245,20 @@ export async function entriesForSource(
     tx.execute(sql`
       select ${ENTRY_COLUMNS}
       from ledger_entries e
-      where e.tenant_id = ${ctx.tenantId} and e.source_type = ${sourceType}
-        and e.source_id = ${sourceId}
+      where e.tenant_id = ${ctx.tenantId}
+        and (
+          (e.source_type = ${sourceType} and e.source_id = ${sourceId})
+          ${
+            sourceType === 'invoice'
+              ? sql`or (e.source_type = 'invoice_payment' and e.source_id in (
+                      select a.payment_id from invoice_payment_allocations a
+                      where a.tenant_id = e.tenant_id and a.invoice_id = ${sourceId}))
+                    or (e.source_type = 'credit_note' and e.source_id in (
+                      select c.id from invoice_credit_notes c
+                      where c.tenant_id = e.tenant_id and c.invoice_id = ${sourceId}))`
+              : sql``
+          }
+        )
       order by e.date, e.number`),
   )) as unknown as EntryRow[];
 }
@@ -691,4 +706,18 @@ export async function booksOverview(ctx: TenantContext): Promise<BooksOverview> 
     profitThisYear: formatCents(profitOf(thisYear)),
     entries: counted[0]?.n ?? 0,
   };
+}
+
+/**
+ * The books' bank accounts as choices for another module's form (an invoice payment), or null
+ * when the books are off, not set up, or not this person's to see.
+ */
+export async function listBankOptions(
+  ctx: TenantContext,
+): Promise<{ id: string; label: string }[] | null> {
+  if (!hasFeature(ctx, 'books') || !hasPermission(ctx, 'books.view')) return null;
+  if (!(await getBooksSettings(ctx))) return null;
+  return (await listAccounts(ctx))
+    .filter((account) => account.isBank)
+    .map((account) => ({ id: account.id, label: `${account.code} · ${account.name}` }));
 }
