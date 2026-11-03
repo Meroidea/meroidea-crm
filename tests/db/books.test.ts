@@ -43,6 +43,7 @@ import {
   markInvoicePaid,
   markInvoiceSent,
   saveInvoice,
+  sendInvoice,
   voidInvoice,
 } from '@/modules/invoices/service';
 import { releasePayslips } from '@/modules/payroll/service';
@@ -433,6 +434,31 @@ describe('the lock date', () => {
     });
     await expectCode(() => recordMoney(bookkeeper, money), 'CONFLICT');
     const { id } = await recordMoney(owner, money);
+
+    // Someone who may send invoices but not manage the books cannot issue into the locked
+    // period, and an email is never sent for an invoice the books would refuse.
+    const invoicerId = await createAuthUser(mail('books-invoicer'), 'Ivy Invoicer');
+    const db = adminDb();
+    const [role] = (await db.execute(sql`
+      insert into roles (tenant_id, key, name) values (${alphaTenant}, 'invoicer', 'Invoicer')
+      returning id`)) as unknown as { id: string }[];
+    await db.execute(sql`
+      insert into role_permissions (tenant_id, role_id, permission, scope)
+      values (${alphaTenant}, ${role!.id}, 'invoices.manage', null)`);
+    await db.execute(sql`
+      insert into tenant_memberships (tenant_id, user_id, role_id, status)
+      values (${alphaTenant}, ${invoicerId}, ${role!.id}, 'active')`);
+    alphaUsers.push(invoicerId);
+    const invoicer = await contextFor(invoicerId, alphaTenant);
+    const locked = (
+      await saveInvoice(
+        invoicer,
+        invoice(addDaysToDate(start, 18), { customerEmail: 'a@example.com' }),
+      )
+    ).id;
+    await expectCode(() => sendInvoice(invoicer, locked), 'CONFLICT');
+    await expectCode(() => markInvoiceSent(invoicer, locked), 'CONFLICT');
+    expect(await entriesForSource(owner, 'invoice', locked)).toEqual([]);
 
     // A locked entry is corrected by a reversal dated after the lock, never inside it.
     const { reversalId } = await voidEntry(bookkeeper, { id, reason: null });

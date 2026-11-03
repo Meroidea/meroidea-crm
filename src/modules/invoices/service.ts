@@ -5,7 +5,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { invoiceLines, invoices } from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { formatCalendarDate, formatMoney } from '@/lib/format';
-import { recordInvoiceInBooks } from '@/modules/books/hooks';
+import { assertBooksOpenOn, recordInvoiceInBooks } from '@/modules/books/hooks';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
@@ -223,6 +223,8 @@ export async function sendInvoice(
   if (invoice.status !== 'draft' && invoice.status !== 'sent') {
     throw new AppError('CONFLICT', `An invoice that is ${invoice.status} cannot be sent.`);
   }
+  // An email cannot be called back: if the books would refuse this invoice's date, say so first.
+  await withRls(ctx, (tx) => assertBooksOpenOn(tx, invoice.issueDate));
   if (!invoice.customerEmail) {
     return { sent: false, reason: 'Add the customer’s email address to send this invoice.' };
   }
