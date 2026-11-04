@@ -1174,6 +1174,25 @@ index on `(tenant_id, user_id)` so one login maps to one employee.
 
 ---
 
+### invoice_payments 🟢 (ADR-061)
+`id`, `tenant_id`, `date`, `amount numeric(14,2)` (> 0), `currency`, `payer_name`, `reference`,
+`account_id` → `ledger_accounts` (composite FK; null means the books' receipts account),
+`voided_at`, `voided_by`, `created_at`, `created_by`. Never edited except voiding once (trigger
+`invoice_payments_immutable`, column grant); never deleted.
+
+### invoice_payment_allocations 🟢
+`id`, `tenant_id`, `payment_id` → `invoice_payments`, `invoice_id` → `invoices`, `amount` (> 0);
+unique per payment and invoice. Insert and select only.
+
+### invoice_credit_notes 🟢
+`id`, `tenant_id`, `number` (CN-0001, unique per business), `invoice_id` → `invoices`, `date`,
+`reason`, `subtotal` + `tax_total` = `total` (> 0), `currency`, `voided_at`, `voided_by`, timestamps.
+
+Rules, checked at commit by constraint triggers (`app.invoice_money_check`): payments and credits
+only on sent or paid invoices; `app.invoice_balance(tenant, invoice)` (total less live payments
+and credits) never below zero; a payment's allocations add up to its amount. RLS: `invoices.manage`
+plus the `invoices` feature switch.
+
 ## 7f. Document library 🟢
 
 Files live in the private `documents` storage bucket (no storage policies; server access only)
@@ -1393,6 +1412,90 @@ their course. Question keys: `training.manage` only, for every operation. Assign
 `app.submit_training_module(module, answers jsonb)` (security definer). `app.training_progress()`
 returns (user, course, modules, passed) for the caller, or for every active member with
 `view_all`. `app.training_is_assigned` is internal (no execute grant).
+
+## 7p. Bookkeeping 🟢 (ADR-060)
+
+Feature `books`. Every table has the standard tenant policy plus a restrictive `feature_switch`
+policy. Business deletion (ADR-056) removes them in foreign-key order like any other table.
+
+### ledger_tax_codes 🟢
+`id`, `tenant_id`, `code` (unique per business), `name`, `rate numeric(5,2)` (0–100), `kind`
+(`taxable` · `gst_free` · `input_taxed` · `export` · `capital` · `out_of_scope`), `applies_to`
+(`sales` · `purchases` · `both`), `system_key` (unique; set by the country pack, never changes; such
+codes cannot be archived), `archived_at`, timestamps, `created_by`/`updated_by`.
+RLS: read `books.view`; insert/update `books.manage`; no delete.
+
+### ledger_accounts 🟢
+`id`, `tenant_id`, `code` (unique per business), `name`, `type` (`asset` · `liability` · `equity` ·
+`income` · `expense`), `subtype` (report section, checked against the type), `is_bank` (assets and
+liabilities only), `system_key` (unique; accounts posting relies on), `default_tax_code_id` →
+`ledger_tax_codes` (composite FK), `description`, `archived_at`, timestamps.
+Trigger `ledger_accounts_guard`: a `system_key` never changes; a system account, or one chosen in
+`ledger_settings`, cannot be archived; an account with lines keeps its `type` and `is_bank`.
+RLS: read `books.view`; insert/update `books.manage`; no delete (archive instead).
+
+### ledger_settings 🟢
+One row per business; its presence means the books are set up. `tenant_id` (PK), `country_pack`,
+`financial_year_start_month` (1–12), `start_date`, `lock_date`, `receipts_account_id` (a bank
+account) and `invoice_income_account_id` (an income account), both composite FKs, checked by
+trigger `ledger_settings_guard`. RLS: read `books.view`; insert/update `books.manage`.
+
+### ledger_entries 🟢
+`id`, `tenant_id`, `number` (per business, from 1), `date`, `kind` (`money_in` · `money_out` ·
+`transfer` · `journal` · `opening_balance` · `invoice` · `invoice_payment` · `payslip` ·
+`payslip_payment` · `reversal`), `description`, `reference`, `contact_name`, `is_adjustment` (journals
+only), `source_type` (`invoice` · `invoice_payment` · `credit_note` · `payslip` · `bill` · `bill_payment` · `bill_credit`) + `source_id` + `source_event` (all or none; unique
+together, so a document event posts once), `payroll`, `currency char(3)`, `reverses_entry_id` (set
+exactly when `kind = 'reversal'`; unique) and `reversed_by_entry_id` (self composite FKs),
+`created_at`, `created_by`.
+Trigger `ledger_entries_immutable`: the only update allowed is setting `reversed_by_entry_id` once.
+Constraint trigger `ledger_entries_balanced` (deferred): at commit the entry has ≥ 2 lines and equal
+debits and credits. RLS: read `books.view`, and `books.view_payroll` for `payroll` rows. Grant:
+`select` only.
+
+### ledger_lines 🟢
+`id`, `tenant_id`, `entry_id` → `ledger_entries`, `account_id` → `ledger_accounts`, `date` and
+`payroll` (copies of the entry's, checked by the balance trigger), `debit`/`credit numeric(14,2)`
+(≥ 0, exactly one positive), `description`, `tax_code_id` → `ledger_tax_codes`, `tax_amount` (the
+GST on this line, for the BAS), `position`. Index `(tenant_id, account_id, date)` for reports.
+Trigger `ledger_lines_immutable` refuses every update; constraint trigger `ledger_lines_balanced`
+as above. RLS and grant as for entries.
+
+### ledger_bills 🟢 (ADR-062)
+`id`, `tenant_id`, `number` (BILL-0001, unique per business), `supplier_name`, `supplier_reference`,
+`date`, `due_date` (≥ date), `amounts_are` (`inclusive` · `exclusive` · `no_tax`), `subtotal` +
+`tax_total` = `total` (> 0), `currency`, `notes`, `voided_at`, `voided_by`, `created_at`,
+`created_by`. Totals equal the sum of `ledger_bill_lines` (checked at commit).
+
+### ledger_bill_lines 🟢
+`id`, `tenant_id`, `bill_id`, `account_id` → `ledger_accounts`, `description`, `amount` (> 0,
+before tax), `tax_code_id` → `ledger_tax_codes`, `tax_amount`, `position`. Insert and select only.
+
+### ledger_bill_payments, ledger_bill_payment_allocations, ledger_bill_credits 🟢
+Payments: `date`, `amount`, `currency`, `account_id` (must be `is_bank`), `payee_name`,
+`reference`, `voided_at`/`voided_by`; allocations split a payment exactly across bills. Credits:
+`bill_id`, `date`, `reason`, `supplier_reference`, `account_id`, `tax_code_id`, `subtotal` +
+`tax_total` = `total`, `voided_at`/`voided_by`. `app.bill_balance(tenant, bill)` is the total less
+live payments and credits, never below zero (constraint triggers `app.bill_money_check`).
+Bills, payments and credits change only by voiding once (`app.bill_money_immutable`, column grants);
+a bill with a live payment or credit cannot be voided. RLS: read `books.view`, write
+`books.record`, plus the `books` feature switch. Posted by `app.ledger_post_bill_document(kind, id,
+event)`.
+
+### Functions (all `security definer`, `search_path = ''`)
+Callable by `authenticated`, each checking membership of the active business first
+(`app.ledger_caller`): `ledger_post_entry(kind, …, lines jsonb)` (money in/out and transfers need
+`books.record` and a bank line; journals `books.journal`; opening balances `books.manage`),
+`ledger_void_entry(id, reason)` (manual kinds only), `ledger_post_invoice(id, event)`
+(`invoices.manage`; a no-op while `books` is off or not set up), `ledger_post_payslip(id)`
+(`payroll.manage`; same), `ledger_pay_payslip(id, account, date)` (`books.record` +
+`books.view_payroll`), `ledger_catch_up()` (`books.manage`). Internal only:
+`ledger_insert_entry` (the single writer: lock date unless the caller holds `books.manage`, accounts
+and tax codes of this business, whole cents, running number, immediate balance check),
+`ledger_reverse_internal`, `ledger_invoice_event`, `ledger_payslip_released`, `ledger_today`,
+`ledger_system_account`, `ledger_system_tax_code`, `ledger_entry_permission`. Errors use SQLSTATE
+`MB001` (locked), `MB002` (invalid), `MB003` (not set up), `42501` and `P0002`; the app maps them in
+`src/modules/books/ledger-call.ts`.
 
 ## 8. Platform tables
 

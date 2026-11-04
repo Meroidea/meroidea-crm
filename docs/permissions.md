@@ -51,7 +51,7 @@ Each permission family belongs to a feature the platform owner switches on per b
 (`src/lib/features.ts`): `contacts`, `opportunities`, `revenue`, `activities`, `documents`,
 `partners`, `organizations`, `products`, `reports` → **crm**; `tasks` → **tasks**; `rosters` →
 **roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses`, `concerns`, `training` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
-of the same name. `settings`, `users`, `roles` and `audit` are always available. A grant whose
+of the same name; `books` → **books** (ADR-060). `settings`, `users`, `roles` and `audit` are always available. A grant whose
 feature is off is dropped when the context is built, for every role including Admin, and the
 database enforces the same rule: `app.has_permission` refuses it and the feature's own tables
 hide their rows (ADR-038). The SQL copy of this map is `app.permission_feature`; a DB test keeps
@@ -102,7 +102,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `files.view` | | See the document library, open documents read-only, download any version |
 | `files.edit` | | Edit documents in the browser editor |
 | `files.manage` | | Upload, rename, move and delete documents. Enforced again by RLS on `library_documents` |
-| `invoices.manage` | | Create, edit, send, mark paid and void invoices. Enforced again by RLS on `invoices` / `invoice_lines` |
+| `invoices.manage` | | Create, edit, send and void invoices; record and void payments (part payments, one payment across several invoices) and credit notes (ADR-061). Enforced again by RLS on `invoices`, `invoice_lines`, `invoice_payments`, `invoice_payment_allocations`, `invoice_credit_notes` |
 | `timeoff.request` | | Ask for leave, see and withdraw your own requests |
 | `timeoff.manage` | | See everyone's requests, approve or decline, cancel approved leave, enter leave for someone else, manage leave types. Enforced again by RLS on `leave_requests` |
 | `timesheets.clock` | | Clock in and out, add your own time by hand, see your own entries |
@@ -122,6 +122,12 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `training.view_all` | | See everyone's training progress, per person and per course. Enforced again by RLS and `app.training_progress` |
 | `training.manage` | | Write courses, modules and quizzes (including the right answers), publish and archive them, and assign them by role, department or person |
 | `payroll.manage` | | Authorise a roster for pay, check and correct tax withheld (worked out only with `employees.view_sensitive`, ADR-055), release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
+| `books.view` | | See the books: accounts, transactions, the reports, and the entries behind an invoice or payslip. Enforced again by RLS on every `ledger_*` table (ADR-060) |
+| `books.view_payroll` | | See entries posted from payroll (wages, PAYG withheld, super). Without it those whole entries are hidden by RLS, so reports still balance and say so |
+| `books.record` | | Record money in, money out and transfers, void them, and record net pay as paid (with `books.view_payroll`); enter, pay, credit and void supplier bills (ADR-062). Checked again inside `app.ledger_post_entry` and by RLS on the `ledger_bill*` tables |
+| `books.journal` | | Post manual journals, flagged as adjusting journals if wanted (accountant level) |
+| `books.export` | | Download reports and account transactions as CSV (audited) |
+| `books.manage` | | Set up the books, edit the chart of accounts and tax codes, opening balances, financial year, posting accounts and the lock date; post on or before the lock date |
 | `purchasing.manage` | | See and manage suppliers and their price lists, and place, re-send and cancel orders. Enforced again by RLS on `suppliers`, `supplier_items`, `purchase_orders`, `purchase_order_lines` |
 | `inventory.view` | | See stock items, quantities, values and each item's history |
 | `inventory.manage` | | Add and edit items, archive them, and record stock changes. Enforced again by RLS on the `inventory_*` tables |
@@ -237,6 +243,17 @@ and every permission stays editable. Templates live in `ROLE_TEMPLATES`
 
 A lead counts as the responsibility of its owner, its originator (the SDR who handed it over) and
 the rep it was handed to; `own` and `team` scopes include all three.
+
+## Bookkeeping role templates (ADR-060)
+
+Not created automatically; an admin adds one from Settings → Roles. Admin holds every `books.*`
+permission. Manager and Staff hold none: managers do not see pay, and the books show it.
+
+| Template | Grants |
+|---|---|
+| Bookkeeper | `books.view`, `books.record`, `books.export` |
+| Accountant or tax agent | `books.view`, `books.view_payroll`, `books.journal`, `books.export` |
+| Books viewer | `books.view` |
 
 ## Required tests (tests/db/permissions.test.ts)
 

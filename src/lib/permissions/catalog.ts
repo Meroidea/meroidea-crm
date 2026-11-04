@@ -47,6 +47,18 @@ export const PERMISSIONS = {
   'files.manage': { scoped: false },
   'invoices.manage': { scoped: false },
   'payroll.manage': { scoped: false },
+  /** Bookkeeping (ADR-060): accounts, entries and reports. */
+  'books.view': { scoped: false },
+  /** See entries posted from payroll: wages, tax withheld and super. */
+  'books.view_payroll': { scoped: false },
+  /** Record money in, money out and transfers, and void them. */
+  'books.record': { scoped: false },
+  /** Manual and adjusting journals (accountant level). */
+  'books.journal': { scoped: false },
+  /** Download reports and the ledger as files (audited). */
+  'books.export': { scoped: false },
+  /** Set up the books, the chart of accounts, tax codes, opening balances and the lock date. */
+  'books.manage': { scoped: false },
   'purchasing.manage': { scoped: false },
   'inventory.view': { scoped: false },
   'inventory.manage': { scoped: false },
@@ -302,6 +314,35 @@ export const ROLE_TEMPLATES: {
       'tasks.manage': 'own',
       'documents.view': true,
     },
+  },
+  {
+    key: 'bookkeeper',
+    name: 'Bookkeeper',
+    description:
+      'Day-to-day bookkeeping: records money in and out and reads the reports. Cannot change the chart, settings or lock date.',
+    grants: {
+      'books.view': true,
+      'books.record': true,
+      'books.export': true,
+    },
+  },
+  {
+    key: 'accountant',
+    name: 'Accountant or tax agent',
+    description:
+      'An outside accountant: reads the books and reports, adds adjusting journals and exports for tax time.',
+    grants: {
+      'books.view': true,
+      'books.view_payroll': true,
+      'books.journal': true,
+      'books.export': true,
+    },
+  },
+  {
+    key: 'books-viewer',
+    name: 'Books viewer',
+    description: 'Reads the books and reports, changes nothing.',
+    grants: { 'books.view': true },
   },
   {
     key: 'read-only',

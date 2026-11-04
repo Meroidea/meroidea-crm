@@ -22,6 +22,9 @@ function StatusBadge({ invoice }: { invoice: InvoiceRow }) {
   if (invoice.overdue) {
     return <Badge variant="destructive">Overdue</Badge>;
   }
+  if (invoice.status === 'sent' && invoice.balance !== invoice.total) {
+    return <Badge variant="outline">Part paid</Badge>;
+  }
   const label = { draft: 'Draft', sent: 'Sent', paid: 'Paid', void: 'Void' }[invoice.status];
   return <Badge variant={invoice.status === 'paid' ? 'default' : 'outline'}>{label}</Badge>;
 }
@@ -63,11 +66,16 @@ export default async function InvoicesPage({ searchParams }: PageProps<'/invoice
         title="Invoices"
         description="Bill your customers and keep track of what is owed."
         actions={
-          <Button asChild>
-            <Link href="/invoices/new">
-              <FilePlus2 aria-hidden /> New invoice
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/invoices/payments/new">Record a payment</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/invoices/new">
+                <FilePlus2 aria-hidden /> New invoice
+              </Link>
+            </Button>
+          </>
         }
       />
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -142,8 +150,13 @@ export default async function InvoicesPage({ searchParams }: PageProps<'/invoice
                         {formatCalendarDate(invoice.dueDate)}
                       </span>
                     </span>
-                    <span className="tabular-nums">
+                    <span className="text-right tabular-nums">
                       {formatMoney(invoice.total, invoice.currency)}
+                      {invoice.status === 'sent' && invoice.balance !== invoice.total && (
+                        <span className="block text-xs text-muted-foreground">
+                          {formatMoney(invoice.balance, invoice.currency)} owed
+                        </span>
+                      )}
                     </span>
                     <StatusBadge invoice={invoice} />
                   </Link>

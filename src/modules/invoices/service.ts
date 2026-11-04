@@ -2,16 +2,30 @@ import 'server-only';
 
 import { and, eq, sql } from 'drizzle-orm';
 
-import { invoiceLines, invoices } from '@/db/schema';
+import {
+  invoiceCreditNotes,
+  invoiceLines,
+  invoicePaymentAllocations,
+  invoicePayments,
+  invoices,
+} from '@/db/schema';
 import { AppError } from '@/lib/errors';
+import { zonedToday } from '@/lib/dates';
 import { formatCalendarDate, formatMoney } from '@/lib/format';
+import {
+  assertBooksOpenOn,
+  recordCreditNoteInBooks,
+  recordInvoiceInBooks,
+  recordPaymentInBooks,
+} from '@/modules/books/hooks';
+import { formatCents, parseCents } from '@/modules/books/money';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 import { isEmailConfigured, sendEmail } from '@/server/email';
 
 import { getInvoice } from './queries';
-import type { SaveInvoiceInput } from './schemas';
+import type { CreditNoteInput, RecordPaymentInput, SaveInvoiceInput } from './schemas';
 import { invoiceNumber, type InvoiceDetail, type InvoiceStatus } from './types';
 import { renderEmail } from '@/server/email-template';
 
@@ -196,6 +210,10 @@ async function setStatus(
       .update(invoices)
       .set({ status: next, updatedBy: ctx.userId, ...extra })
       .where(and(eq(invoices.tenantId, ctx.tenantId), eq(invoices.id, id)));
+    // The books follow in the same transaction: issued, paid, or the issue reversed (ADR-060).
+    if (next === 'sent' || next === 'void') {
+      await recordInvoiceInBooks(tx, id, next === 'sent' ? 'issued' : 'voided');
+    }
     await audit(tx, ctx, {
       action: 'update',
       entityType: 'invoice',
@@ -219,6 +237,8 @@ export async function sendInvoice(
   if (invoice.status !== 'draft' && invoice.status !== 'sent') {
     throw new AppError('CONFLICT', `An invoice that is ${invoice.status} cannot be sent.`);
   }
+  // An email cannot be called back: if the books would refuse this invoice's date, say so first.
+  await withRls(ctx, (tx) => assertBooksOpenOn(tx, invoice.issueDate));
   if (!invoice.customerEmail) {
     return { sent: false, reason: 'Add the customer’s email address to send this invoice.' };
   }
@@ -245,14 +265,269 @@ export async function markInvoiceSent(ctx: TenantContext, id: string): Promise<{
   return { id };
 }
 
+/** The whole balance, paid today: the one-click "Mark paid", now a payment of its own. */
 export async function markInvoicePaid(ctx: TenantContext, id: string): Promise<{ id: string }> {
   requirePermission(ctx, 'invoices.manage');
-  await setStatus(ctx, id, 'paid', ['sent'], { paidAt: new Date() });
+  const balance = await withRls(ctx, async (tx) => {
+    const [row] = (await tx.execute(sql`
+      select status, customer_name as "customerName",
+             app.invoice_balance(tenant_id, id)::text as balance
+      from invoices where tenant_id = ${ctx.tenantId} and id = ${id}`)) as unknown as {
+      status: InvoiceStatus;
+      customerName: string;
+      balance: string;
+    }[];
+    if (!row) throw new AppError('NOT_FOUND', 'That invoice was not found.');
+    if (row.status !== 'sent') {
+      throw new AppError('CONFLICT', `An invoice that is ${row.status} cannot be marked paid.`);
+    }
+    return row;
+  });
+  await recordPayment(ctx, {
+    date: zonedToday(ctx.tenant.timezone),
+    payerName: balance.customerName,
+    reference: null,
+    accountId: null,
+    allocations: [{ invoiceId: id, amount: balance.balance }],
+  });
   return { id };
+}
+
+/** Sets each invoice to paid when nothing is owed, and back to sent when something is again. */
+async function settleStatuses(tx: Tx, ctx: TenantContext, invoiceIds: string[]): Promise<void> {
+  for (const invoiceId of invoiceIds) {
+    await tx.execute(sql`
+      update invoices set
+        status = case when app.invoice_balance(tenant_id, id) = 0 then 'paid' else 'sent' end::invoice_status,
+        paid_at = case when app.invoice_balance(tenant_id, id) = 0 then coalesce(paid_at, now()) end,
+        updated_by = ${ctx.userId}
+      where tenant_id = ${ctx.tenantId} and id = ${invoiceId} and status in ('sent', 'paid')`);
+  }
+}
+
+/**
+ * Money received: one payment, split across the invoices it pays. Each must be sent and still
+ * owe at least its share; the database checks the split adds up and nothing is overpaid.
+ */
+export async function recordPayment(
+  ctx: TenantContext,
+  input: RecordPaymentInput,
+): Promise<{ id: string }> {
+  requirePermission(ctx, 'invoices.manage');
+  const ids = input.allocations.map((allocation) => allocation.invoiceId);
+  if (new Set(ids).size !== ids.length) {
+    throw new AppError('VALIDATION', 'Each invoice appears once in a payment.');
+  }
+  const total = input.allocations.reduce(
+    (sum, allocation) => sum + (parseCents(allocation.amount) ?? 0n),
+    0n,
+  );
+  return withRls(ctx, async (tx) => {
+    const owed = (await tx.execute(sql`
+      select id, status, number, app.invoice_balance(tenant_id, id)::text as balance
+      from invoices where tenant_id = ${ctx.tenantId}
+        and id in (${sql.join(
+          ids.map((value) => sql`${value}::uuid`),
+          sql`, `,
+        )})
+      for update`)) as unknown as {
+      id: string;
+      status: InvoiceStatus;
+      number: number;
+      balance: string;
+    }[];
+    for (const allocation of input.allocations) {
+      const invoice = owed.find((row) => row.id === allocation.invoiceId);
+      if (!invoice) throw new AppError('NOT_FOUND', 'That invoice was not found.');
+      if (invoice.status !== 'sent') {
+        throw new AppError(
+          'CONFLICT',
+          `${invoiceNumber(invoice.number)} is not waiting for payment.`,
+        );
+      }
+      if ((parseCents(allocation.amount) ?? 0n) > (parseCents(invoice.balance) ?? 0n)) {
+        throw new AppError(
+          'VALIDATION',
+          `That is more than the ${formatMoney(invoice.balance, ctx.tenant.currency)} owed on ${invoiceNumber(invoice.number)}.`,
+        );
+      }
+    }
+    const [payment] = await tx
+      .insert(invoicePayments)
+      .values({
+        tenantId: ctx.tenantId,
+        date: input.date,
+        amount: formatCents(total),
+        currency: ctx.tenant.currency,
+        payerName: input.payerName,
+        reference: input.reference,
+        accountId: input.accountId,
+        createdBy: ctx.userId,
+      })
+      .returning({ id: invoicePayments.id });
+    if (!payment) throw new AppError('INTERNAL', 'Could not record the payment.');
+    await tx.insert(invoicePaymentAllocations).values(
+      input.allocations.map((allocation) => ({
+        tenantId: ctx.tenantId,
+        paymentId: payment.id,
+        invoiceId: allocation.invoiceId,
+        amount: allocation.amount,
+      })),
+    );
+    await settleStatuses(tx, ctx, ids);
+    await recordPaymentInBooks(tx, payment.id, 'received');
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'invoice_payment',
+      entityId: payment.id,
+      context: { amount: formatCents(total), invoices: ids.length },
+    });
+    return payment;
+  });
+}
+
+/** A payment recorded by mistake: kept on record, no longer counted, reversed in the books. */
+export async function voidPayment(ctx: TenantContext, id: string): Promise<{ id: string }> {
+  requirePermission(ctx, 'invoices.manage');
+  return withRls(ctx, async (tx) => {
+    const voided = await tx
+      .update(invoicePayments)
+      .set({ voidedAt: new Date(), voidedBy: ctx.userId })
+      .where(
+        and(
+          eq(invoicePayments.tenantId, ctx.tenantId),
+          eq(invoicePayments.id, id),
+          sql`${invoicePayments.voidedAt} is null`,
+        ),
+      )
+      .returning({ id: invoicePayments.id });
+    if (voided.length === 0) throw new AppError('NOT_FOUND', 'That payment was not found.');
+    const allocations = await tx
+      .select({ invoiceId: invoicePaymentAllocations.invoiceId })
+      .from(invoicePaymentAllocations)
+      .where(
+        and(
+          eq(invoicePaymentAllocations.tenantId, ctx.tenantId),
+          eq(invoicePaymentAllocations.paymentId, id),
+        ),
+      );
+    await settleStatuses(
+      tx,
+      ctx,
+      allocations.map((row) => row.invoiceId),
+    );
+    await recordPaymentInBooks(tx, id, 'voided');
+    await audit(tx, ctx, {
+      action: 'update',
+      entityType: 'invoice_payment',
+      entityId: id,
+      changes: { status: ['recorded', 'voided'] },
+    });
+    return { id };
+  });
+}
+
+/**
+ * A credit against a sent invoice, including tax at the invoice's own rate, up to what is still
+ * owed. Numbered CN-0001 onwards.
+ */
+export async function issueCreditNote(
+  ctx: TenantContext,
+  input: CreditNoteInput,
+): Promise<{ id: string; number: number }> {
+  requirePermission(ctx, 'invoices.manage');
+  return withRls(ctx, async (tx) => {
+    const [invoice] = (await tx.execute(sql`
+      select status, tax_rate::text as "taxRate", app.invoice_balance(tenant_id, id)::text as balance
+      from invoices where tenant_id = ${ctx.tenantId} and id = ${input.invoiceId}
+      for update`)) as unknown as { status: InvoiceStatus; taxRate: string; balance: string }[];
+    if (!invoice) throw new AppError('NOT_FOUND', 'That invoice was not found.');
+    if (invoice.status !== 'sent') {
+      throw new AppError('CONFLICT', 'Only an invoice that is still owed can be credited.');
+    }
+    if ((parseCents(input.amount) ?? 0n) > (parseCents(invoice.balance) ?? 0n)) {
+      throw new AppError(
+        'VALIDATION',
+        `A credit can be up to the ${formatMoney(invoice.balance, ctx.tenant.currency)} still owed.`,
+        { amount: ['More than is owed'] },
+      );
+    }
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`credit:${ctx.tenantId}`}))`);
+    const [next] = await tx
+      .select({ number: sql<number>`coalesce(max(${invoiceCreditNotes.number}), 0) + 1` })
+      .from(invoiceCreditNotes)
+      .where(eq(invoiceCreditNotes.tenantId, ctx.tenantId));
+    // The tax inside the credit, at the invoice's rate, on exact decimals.
+    const [credit] = await tx
+      .insert(invoiceCreditNotes)
+      .values({
+        tenantId: ctx.tenantId,
+        number: next?.number ?? 1,
+        invoiceId: input.invoiceId,
+        date: input.date,
+        reason: input.reason,
+        total: input.amount,
+        taxTotal: sql`round(${input.amount}::numeric * ${invoice.taxRate}::numeric / (100 + ${invoice.taxRate}::numeric), 2)`,
+        subtotal: sql`${input.amount}::numeric - round(${input.amount}::numeric * ${invoice.taxRate}::numeric / (100 + ${invoice.taxRate}::numeric), 2)`,
+        currency: ctx.tenant.currency,
+        createdBy: ctx.userId,
+      })
+      .returning({ id: invoiceCreditNotes.id, number: invoiceCreditNotes.number });
+    if (!credit) throw new AppError('INTERNAL', 'Could not issue the credit note.');
+    await settleStatuses(tx, ctx, [input.invoiceId]);
+    await recordCreditNoteInBooks(tx, credit.id, 'issued');
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'credit_note',
+      entityId: credit.id,
+      context: { invoiceId: input.invoiceId, amount: input.amount },
+    });
+    return credit;
+  });
+}
+
+export async function voidCreditNote(ctx: TenantContext, id: string): Promise<{ id: string }> {
+  requirePermission(ctx, 'invoices.manage');
+  return withRls(ctx, async (tx) => {
+    const voided = await tx
+      .update(invoiceCreditNotes)
+      .set({ voidedAt: new Date(), voidedBy: ctx.userId })
+      .where(
+        and(
+          eq(invoiceCreditNotes.tenantId, ctx.tenantId),
+          eq(invoiceCreditNotes.id, id),
+          sql`${invoiceCreditNotes.voidedAt} is null`,
+        ),
+      )
+      .returning({ invoiceId: invoiceCreditNotes.invoiceId });
+    const invoiceId = voided[0]?.invoiceId;
+    if (!invoiceId) throw new AppError('NOT_FOUND', 'That credit note was not found.');
+    await settleStatuses(tx, ctx, [invoiceId]);
+    await recordCreditNoteInBooks(tx, id, 'voided');
+    await audit(tx, ctx, {
+      action: 'update',
+      entityType: 'credit_note',
+      entityId: id,
+      changes: { status: ['issued', 'voided'] },
+    });
+    return { id };
+  });
 }
 
 export async function voidInvoice(ctx: TenantContext, id: string): Promise<{ id: string }> {
   requirePermission(ctx, 'invoices.manage');
+  const [live] = (await withRls(ctx, (tx) =>
+    tx.execute(sql`
+      select (select count(*)::int from invoice_payment_allocations a
+              join invoice_payments p on p.tenant_id = a.tenant_id and p.id = a.payment_id
+              where a.tenant_id = ${ctx.tenantId} and a.invoice_id = ${id} and p.voided_at is null)
+           + (select count(*)::int from invoice_credit_notes c
+              where c.tenant_id = ${ctx.tenantId} and c.invoice_id = ${id} and c.voided_at is null)
+             as n`),
+  )) as unknown as { n: number }[];
+  if ((live?.n ?? 0) > 0) {
+    throw new AppError('CONFLICT', 'Void the payments and credit notes on this invoice first.');
+  }
   await setStatus(ctx, id, 'void', ['draft', 'sent']);
   return { id };
 }

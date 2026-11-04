@@ -17,6 +17,7 @@ import {
 import type { PayslipLine } from '@/modules/payroll/lines';
 import type { EmployerSnapshot } from '@/modules/settings/business';
 
+import { ledgerAccounts } from './books';
 import { employees } from './hiring';
 import { rosters } from './roster';
 import { tenants } from './tenancy';
@@ -149,6 +150,107 @@ export const payslips = pgTable(
       columns: [table.tenantId, table.employeeId],
       foreignColumns: [employees.tenantId, employees.id],
       name: 'payslips_tenant_employee_fk',
+    }),
+  ],
+);
+
+/**
+ * Money received from a customer (ADR-061). One payment can settle several invoices and one
+ * invoice can be paid by several payments; the split is in `invoice_payment_allocations`.
+ * Payments are voided, never deleted, so the books can reverse them.
+ */
+export const invoicePayments = pgTable(
+  'invoice_payments',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    date: date({ mode: 'string' }).notNull(),
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+    currency: char({ length: 3 }).notNull(),
+    payerName: text(),
+    reference: text(),
+    /** The bank account it went into, when the books are on; otherwise their default. */
+    accountId: uuid(),
+    voidedAt: timestamp({ withTimezone: true }),
+    voidedBy: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid(),
+  },
+  (table) => [
+    unique('invoice_payments_tenant_id_id_key').on(table.tenantId, table.id),
+    index('invoice_payments_date_idx').on(table.tenantId, table.date),
+    foreignKey({
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [ledgerAccounts.tenantId, ledgerAccounts.id],
+      name: 'invoice_payments_account_fk',
+    }),
+  ],
+);
+
+export const invoicePaymentAllocations = pgTable(
+  'invoice_payment_allocations',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    paymentId: uuid().notNull(),
+    invoiceId: uuid().notNull(),
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+  },
+  (table) => [
+    unique('invoice_payment_allocations_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('invoice_payment_allocations_pair_key').on(
+      table.tenantId,
+      table.paymentId,
+      table.invoiceId,
+    ),
+    index('invoice_payment_allocations_invoice_idx').on(table.tenantId, table.invoiceId),
+    foreignKey({
+      columns: [table.tenantId, table.paymentId],
+      foreignColumns: [invoicePayments.tenantId, invoicePayments.id],
+      name: 'invoice_payment_allocations_payment_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.invoiceId],
+      foreignColumns: [invoices.tenantId, invoices.id],
+      name: 'invoice_payment_allocations_invoice_fk',
+    }),
+  ],
+);
+
+/** A credit against one invoice: reduces what is owed, with its GST, at the invoice's rate. */
+export const invoiceCreditNotes = pgTable(
+  'invoice_credit_notes',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    /** Counts up per workspace; shown as CN-0001. */
+    number: integer().notNull(),
+    invoiceId: uuid().notNull(),
+    date: date({ mode: 'string' }).notNull(),
+    reason: text().notNull(),
+    subtotal: numeric({ precision: 14, scale: 2 }).notNull(),
+    taxTotal: numeric({ precision: 14, scale: 2 }).notNull(),
+    total: numeric({ precision: 14, scale: 2 }).notNull(),
+    currency: char({ length: 3 }).notNull(),
+    voidedAt: timestamp({ withTimezone: true }),
+    voidedBy: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid(),
+  },
+  (table) => [
+    unique('invoice_credit_notes_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('invoice_credit_notes_number_key').on(table.tenantId, table.number),
+    index('invoice_credit_notes_invoice_idx').on(table.tenantId, table.invoiceId),
+    foreignKey({
+      columns: [table.tenantId, table.invoiceId],
+      foreignColumns: [invoices.tenantId, invoices.id],
+      name: 'invoice_credit_notes_invoice_fk',
     }),
   ],
 );
