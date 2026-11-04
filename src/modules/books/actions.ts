@@ -2,8 +2,12 @@
 
 import { authedAction } from '@/server/action';
 
+import * as bills from './bills';
 import {
   archiveAccountSchema,
+  billCreditSchema,
+  billPaymentSchema,
+  billSchema,
   booksSettingsSchema,
   exportReportSchema,
   journalSchema,
@@ -69,4 +73,32 @@ export const payPayslipAction = authedAction(
 export const recordBooksExportAction = authedAction(
   { permission: 'books.export', input: exportReportSchema },
   (ctx, input) => books.recordBooksExport(ctx, input),
+);
+
+const idSchema = z.object({ id: z.uuid() });
+const BILL_PATHS = ['/books'];
+
+export const enterBillAction = authedAction(
+  { permission: 'books.record', input: billSchema, revalidate: BILL_PATHS },
+  (ctx, input) => bills.enterBill(ctx, input),
+);
+export const voidBillAction = authedAction(
+  { permission: 'books.record', input: idSchema, revalidate: BILL_PATHS },
+  (ctx, input) => bills.voidBill(ctx, input.id),
+);
+export const payBillsAction = authedAction(
+  { permission: 'books.record', input: billPaymentSchema, revalidate: BILL_PATHS },
+  (ctx, input) => bills.payBills(ctx, input),
+);
+export const voidBillPaymentAction = authedAction(
+  { permission: 'books.record', input: idSchema, revalidate: BILL_PATHS },
+  (ctx, input) => bills.voidBillPayment(ctx, input.id),
+);
+export const creditBillAction = authedAction(
+  { permission: 'books.record', input: billCreditSchema, revalidate: BILL_PATHS },
+  (ctx, input) => bills.creditBill(ctx, input),
+);
+export const voidBillCreditAction = authedAction(
+  { permission: 'books.record', input: idSchema, revalidate: BILL_PATHS },
+  (ctx, input) => bills.voidBillCredit(ctx, input.id),
 );

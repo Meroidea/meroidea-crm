@@ -1444,7 +1444,7 @@ trigger `ledger_settings_guard`. RLS: read `books.view`; insert/update `books.ma
 `id`, `tenant_id`, `number` (per business, from 1), `date`, `kind` (`money_in` · `money_out` ·
 `transfer` · `journal` · `opening_balance` · `invoice` · `invoice_payment` · `payslip` ·
 `payslip_payment` · `reversal`), `description`, `reference`, `contact_name`, `is_adjustment` (journals
-only), `source_type` (`invoice` · `invoice_payment` · `credit_note` · `payslip`) + `source_id` + `source_event` (all or none; unique
+only), `source_type` (`invoice` · `invoice_payment` · `credit_note` · `payslip` · `bill` · `bill_payment` · `bill_credit`) + `source_id` + `source_event` (all or none; unique
 together, so a document event posts once), `payroll`, `currency char(3)`, `reverses_entry_id` (set
 exactly when `kind = 'reversal'`; unique) and `reversed_by_entry_id` (self composite FKs),
 `created_at`, `created_by`.
@@ -1460,6 +1460,27 @@ debits and credits. RLS: read `books.view`, and `books.view_payroll` for `payrol
 GST on this line, for the BAS), `position`. Index `(tenant_id, account_id, date)` for reports.
 Trigger `ledger_lines_immutable` refuses every update; constraint trigger `ledger_lines_balanced`
 as above. RLS and grant as for entries.
+
+### ledger_bills 🟢 (ADR-062)
+`id`, `tenant_id`, `number` (BILL-0001, unique per business), `supplier_name`, `supplier_reference`,
+`date`, `due_date` (≥ date), `amounts_are` (`inclusive` · `exclusive` · `no_tax`), `subtotal` +
+`tax_total` = `total` (> 0), `currency`, `notes`, `voided_at`, `voided_by`, `created_at`,
+`created_by`. Totals equal the sum of `ledger_bill_lines` (checked at commit).
+
+### ledger_bill_lines 🟢
+`id`, `tenant_id`, `bill_id`, `account_id` → `ledger_accounts`, `description`, `amount` (> 0,
+before tax), `tax_code_id` → `ledger_tax_codes`, `tax_amount`, `position`. Insert and select only.
+
+### ledger_bill_payments, ledger_bill_payment_allocations, ledger_bill_credits 🟢
+Payments: `date`, `amount`, `currency`, `account_id` (must be `is_bank`), `payee_name`,
+`reference`, `voided_at`/`voided_by`; allocations split a payment exactly across bills. Credits:
+`bill_id`, `date`, `reason`, `supplier_reference`, `account_id`, `tax_code_id`, `subtotal` +
+`tax_total` = `total`, `voided_at`/`voided_by`. `app.bill_balance(tenant, bill)` is the total less
+live payments and credits, never below zero (constraint triggers `app.bill_money_check`).
+Bills, payments and credits change only by voiding once (`app.bill_money_immutable`, column grants);
+a bill with a live payment or credit cannot be voided. RLS: read `books.view`, write
+`books.record`, plus the `books` feature switch. Posted by `app.ledger_post_bill_document(kind, id,
+event)`.
 
 ### Functions (all `security definer`, `search_path = ''`)
 Callable by `authenticated`, each checking membership of the active business first

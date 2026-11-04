@@ -43,6 +43,58 @@ const line = (
  * Money in: the bank is debited with everything received, each item's account credited with its
  * amount before tax, and the GST collected credited to the GST account. Money out is the mirror.
  */
+export type TaxedItem = {
+  accountId: string;
+  description: string | null;
+  taxCodeId: string | null;
+  /** Before tax, in cents. */
+  net: bigint;
+  tax: bigint;
+};
+
+/**
+ * Each line's amount before tax and its GST, from what was typed: amounts including GST,
+ * excluding it, or with none. Rounded per line, half up, the way GST is shown on a tax invoice.
+ */
+export function splitTax(
+  items: MoneyItem[],
+  amountsAre: AmountsAre,
+  taxRates: ReadonlyMap<string, string>,
+): TaxedItem[] {
+  if (items.length === 0) throw new PostingError('Add at least one line.');
+  return items.map((item) => {
+    const amount = parseCents(item.amount);
+    if (amount === null || amount <= 0n) throw new PostingError('Each line needs an amount.');
+    const taxCodeId = item.taxCodeId || null;
+    let points = 0n;
+    if (taxCodeId && amountsAre !== 'no_tax') {
+      const rate = taxRates.get(taxCodeId);
+      const parsed = rate === undefined ? null : rateBasisPoints(rate);
+      if (parsed === null) throw new PostingError('That tax code is not available.');
+      points = parsed;
+    }
+    const tax =
+      amountsAre === 'inclusive'
+        ? taxInInclusive(amount, points)
+        : amountsAre === 'exclusive'
+          ? taxOnExclusive(amount, points)
+          : 0n;
+    const net = amountsAre === 'inclusive' ? amount - tax : amount;
+    if (net <= 0n) throw new PostingError('Each line needs an amount after tax.');
+    return {
+      accountId: item.accountId,
+      description: item.description?.trim() || null,
+      taxCodeId,
+      net,
+      tax,
+    };
+  });
+}
+
+/**
+ * Money in: the bank is debited with everything received, each item's account credited with its
+ * amount before tax, and the GST collected credited to the GST account. Money out is the mirror.
+ */
 export function buildBankEntry(input: {
   direction: 'in' | 'out';
   bankAccountId: string;
@@ -52,46 +104,21 @@ export function buildBankEntry(input: {
   /** Tax code id → rate, such as "10.00". */
   taxRates: ReadonlyMap<string, string>;
 }): PostingLine[] {
-  if (input.items.length === 0) throw new PostingError('Add at least one line.');
+  if (input.items.some((item) => item.accountId === input.bankAccountId)) {
+    throw new PostingError('A line cannot go to the same bank account the money moves through.');
+  }
   const itemSide = input.direction === 'in' ? 'credit' : 'debit';
   const bankSide = input.direction === 'in' ? 'debit' : 'credit';
-  const lines: PostingLine[] = [];
-  let totalTax = 0n;
-  let totalGross = 0n;
-
-  for (const item of input.items) {
-    if (item.accountId === input.bankAccountId) {
-      throw new PostingError('A line cannot go to the same bank account the money moves through.');
-    }
-    const amount = parseCents(item.amount);
-    if (amount === null || amount <= 0n) throw new PostingError('Each line needs an amount.');
-    const taxCodeId = item.taxCodeId || null;
-    let points = 0n;
-    if (taxCodeId && input.amountsAre !== 'no_tax') {
-      const rate = input.taxRates.get(taxCodeId);
-      const parsed = rate === undefined ? null : rateBasisPoints(rate);
-      if (parsed === null) throw new PostingError('That tax code is not available.');
-      points = parsed;
-    }
-    const tax =
-      input.amountsAre === 'inclusive'
-        ? taxInInclusive(amount, points)
-        : input.amountsAre === 'exclusive'
-          ? taxOnExclusive(amount, points)
-          : 0n;
-    const net = input.amountsAre === 'inclusive' ? amount - tax : amount;
-    if (net <= 0n) throw new PostingError('Each line needs an amount after tax.');
-    lines.push(
-      line(item.accountId, itemSide, net, {
-        description: item.description?.trim() || null,
-        taxCodeId,
-        taxAmount: taxCodeId ? formatCents(tax) : null,
-      }),
-    );
-    totalTax += tax;
-    totalGross += net + tax;
-  }
-
+  const taxed = splitTax(input.items, input.amountsAre, input.taxRates);
+  const lines: PostingLine[] = taxed.map((item) =>
+    line(item.accountId, itemSide, item.net, {
+      description: item.description,
+      taxCodeId: item.taxCodeId,
+      taxAmount: item.taxCodeId ? formatCents(item.tax) : null,
+    }),
+  );
+  const totalTax = taxed.reduce((sum, item) => sum + item.tax, 0n);
+  const totalGross = taxed.reduce((sum, item) => sum + item.net + item.tax, 0n);
   if (totalTax > 0n) {
     lines.push(
       line(input.gstAccountId, itemSide, totalTax, {
@@ -101,6 +128,37 @@ export function buildBankEntry(input: {
   }
   lines.unshift(line(input.bankAccountId, bankSide, totalGross));
   return lines;
+}
+
+export type BillLine = {
+  accountId: string;
+  description: string | null;
+  amount: string;
+  taxCodeId: string | null;
+  taxAmount: string;
+};
+
+/** A supplier bill's stored lines and totals, worked out exactly from what was typed. */
+export function buildBill(input: {
+  amountsAre: AmountsAre;
+  items: MoneyItem[];
+  taxRates: ReadonlyMap<string, string>;
+}): { lines: BillLine[]; subtotal: string; taxTotal: string; total: string } {
+  const taxed = splitTax(input.items, input.amountsAre, input.taxRates);
+  const subtotal = taxed.reduce((sum, item) => sum + item.net, 0n);
+  const taxTotal = taxed.reduce((sum, item) => sum + item.tax, 0n);
+  return {
+    lines: taxed.map((item) => ({
+      accountId: item.accountId,
+      description: item.description,
+      amount: formatCents(item.net),
+      taxCodeId: item.taxCodeId,
+      taxAmount: formatCents(item.tax),
+    })),
+    subtotal: formatCents(subtotal),
+    taxTotal: formatCents(taxTotal),
+    total: formatCents(subtotal + taxTotal),
+  };
 }
 
 /** Money moved between two of the business's own accounts: bank to bank, or to a credit card. */

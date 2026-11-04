@@ -33,7 +33,9 @@ test('an admin sets up the books, records money in, and sees it in the reports',
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('heading', { name: 'Set up your books' })).toBeVisible();
   await page.getByRole('button', { name: 'Set up the books' }).click();
-  await expect(page.getByRole('status')).toContainText('Done.', { timeout: 30_000 });
+  await expect(page.getByRole('status')).toContainText('Your books are set up', {
+    timeout: 30_000,
+  });
   await page.reload();
   await expect(page.getByRole('navigation', { name: 'Books' })).toBeVisible();
 

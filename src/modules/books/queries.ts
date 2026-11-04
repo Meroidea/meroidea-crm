@@ -237,7 +237,7 @@ export async function getEntry(ctx: TenantContext, id: string): Promise<EntryDet
  */
 export async function entriesForSource(
   ctx: TenantContext,
-  sourceType: 'invoice' | 'payslip',
+  sourceType: 'invoice' | 'payslip' | 'bill',
   sourceId: string,
 ): Promise<EntryRow[]> {
   requirePermission(ctx, 'books.view');
@@ -256,7 +256,14 @@ export async function entriesForSource(
                     or (e.source_type = 'credit_note' and e.source_id in (
                       select c.id from invoice_credit_notes c
                       where c.tenant_id = e.tenant_id and c.invoice_id = ${sourceId}))`
-              : sql``
+              : sourceType === 'bill'
+                ? sql`or (e.source_type = 'bill_payment' and e.source_id in (
+                        select a.payment_id from ledger_bill_payment_allocations a
+                        where a.tenant_id = e.tenant_id and a.bill_id = ${sourceId}))
+                      or (e.source_type = 'bill_credit' and e.source_id in (
+                        select c.id from ledger_bill_credits c
+                        where c.tenant_id = e.tenant_id and c.bill_id = ${sourceId}))`
+                : sql``
           }
         )
       order by e.date, e.number`),
@@ -668,6 +675,7 @@ export type BooksOverview = {
   yearStart: string;
   banks: { id: string; code: string; name: string; balance: string }[];
   receivable: string;
+  payable: string;
   gst: string;
   payrollOwed: string;
   profitThisYear: string;
@@ -696,6 +704,7 @@ export async function booksOverview(ctx: TenantContext): Promise<BooksOverview> 
       .filter((account) => account.isBank)
       .map(({ id, code, name, balance }) => ({ id, code, name, balance })),
     receivable: bySystem('accounts_receivable'),
+    payable: bySystem('accounts_payable'),
     gst: bySystem('gst'),
     payrollOwed: formatCents(
       ['wages_payable', 'payg_withholding', 'super_payable'].reduce(

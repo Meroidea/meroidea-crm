@@ -124,7 +124,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `payroll.manage` | | Authorise a roster for pay, check and correct tax withheld (worked out only with `employees.view_sensitive`, ADR-055), release payslips, and read every payslip. Everyone can read their own released payslips without it (RLS on `payslips`) |
 | `books.view` | | See the books: accounts, transactions, the reports, and the entries behind an invoice or payslip. Enforced again by RLS on every `ledger_*` table (ADR-060) |
 | `books.view_payroll` | | See entries posted from payroll (wages, PAYG withheld, super). Without it those whole entries are hidden by RLS, so reports still balance and say so |
-| `books.record` | | Record money in, money out and transfers, void them, and record net pay as paid (with `books.view_payroll`). Checked again inside `app.ledger_post_entry` |
+| `books.record` | | Record money in, money out and transfers, void them, and record net pay as paid (with `books.view_payroll`); enter, pay, credit and void supplier bills (ADR-062). Checked again inside `app.ledger_post_entry` and by RLS on the `ledger_bill*` tables |
 | `books.journal` | | Post manual journals, flagged as adjusting journals if wanted (accountant level) |
 | `books.export` | | Download reports and account transactions as CSV (audited) |
 | `books.manage` | | Set up the books, edit the chart of accounts and tax codes, opening balances, financial year, posting accounts and the lock date; post on or before the lock date |

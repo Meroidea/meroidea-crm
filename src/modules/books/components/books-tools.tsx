@@ -39,8 +39,8 @@ import {
 import type { AccountOption, TaxOption } from './entry-forms';
 
 export function SetupBooksForm({ defaultStart }: { defaultStart: string }) {
+  const router = useRouter();
   const { run, error, isPending } = useActionRunner();
-  const [done, setDone] = useState<number | null>(null);
   const {
     register,
     handleSubmit,
@@ -55,7 +55,8 @@ export function SetupBooksForm({ defaultStart }: { defaultStart: string }) {
       onSubmit={handleSubmit((values) =>
         run(
           () => setupBooksAction(values),
-          (data) => setDone(data.posted),
+          // The page becomes the overview once the books exist; it carries the confirmation.
+          (data) => router.replace(`/books?setup=${data.posted}`),
         ),
       )}
       className="grid gap-4 sm:grid-cols-3"
@@ -87,12 +88,6 @@ export function SetupBooksForm({ defaultStart }: { defaultStart: string }) {
       </Field>
       <div className="flex flex-col gap-2 sm:col-span-3">
         <ErrorNote error={error} />
-        {done !== null && (
-          <p role="status" className="text-sm">
-            Done. {done} {done === 1 ? 'entry was' : 'entries were'} brought in from invoices and
-            payslips.
-          </p>
-        )}
         <div>
           <Button type="submit" disabled={isPending}>
             {isPending ? 'Setting up…' : 'Set up the books'}

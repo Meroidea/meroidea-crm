@@ -456,13 +456,25 @@ export function JournalForm({
               </NativeSelect>
             </Field>
             <Field name={`lines.${index}.description`} label="Note" className="sm:col-span-3">
-              <Input autoComplete="off" {...register(`lines.${index}.description`)} />
+              <Input
+                autoComplete="off"
+                {...fieldA11y(`lines.${index}.description`)}
+                {...register(`lines.${index}.description`)}
+              />
             </Field>
             <Field name={`lines.${index}.debit`} label="Debit" className="sm:col-span-2">
-              <Input inputMode="decimal" {...register(`lines.${index}.debit`)} />
+              <Input
+                inputMode="decimal"
+                {...fieldA11y(`lines.${index}.debit`)}
+                {...register(`lines.${index}.debit`)}
+              />
             </Field>
             <Field name={`lines.${index}.credit`} label="Credit" className="sm:col-span-2">
-              <Input inputMode="decimal" {...register(`lines.${index}.credit`)} />
+              <Input
+                inputMode="decimal"
+                {...fieldA11y(`lines.${index}.credit`)}
+                {...register(`lines.${index}.credit`)}
+              />
             </Field>
             <div className="sm:col-span-1">
               <Button

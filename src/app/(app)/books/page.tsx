@@ -24,7 +24,7 @@ import { hasPermission, requirePermission, requireTenantContext } from '@/server
 
 export const metadata: Metadata = { title: 'Books' };
 
-export default async function BooksPage() {
+export default async function BooksPage({ searchParams }: PageProps<'/books'>) {
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'books.view');
   const settings = await getBooksSettings(ctx);
@@ -72,6 +72,9 @@ export default async function BooksPage() {
   ]);
   const money = (value: string) => formatAmount(value, ctx.tenant.currency);
   const canRecord = hasPermission(ctx, 'books.record');
+  const justSetUp = /^\d{1,6}$/.test(String((await searchParams).setup ?? ''))
+    ? Number((await searchParams).setup)
+    : null;
   const banks = accounts.filter((account) => account.isBank);
 
   return (
@@ -113,6 +116,12 @@ export default async function BooksPage() {
         )}
       </div>
       <BooksNav current="/books" />
+      {justSetUp !== null && (
+        <p role="status" className="rounded-md bg-primary/5 px-3 py-2 text-sm">
+          Your books are set up. {justSetUp} {justSetUp === 1 ? 'entry was' : 'entries were'}{' '}
+          brought in from invoices and payslips.
+        </p>
+      )}
 
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {overview.banks.map((bank) => (
@@ -128,6 +137,7 @@ export default async function BooksPage() {
           value={money(overview.receivable)}
           href="/books/reports/balance-sheet"
         />
+        <Tile label="You owe suppliers" value={money(overview.payable)} href="/books/bills" />
         <Tile label="GST owing" value={money(overview.gst)} href="/books/reports/balance-sheet" />
         {hasPermission(ctx, 'books.view_payroll') && (
           <Tile

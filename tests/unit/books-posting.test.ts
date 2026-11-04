@@ -259,3 +259,35 @@ describe('the Australian pack', () => {
     expect(pack.taxCodes.find((code) => code.systemKey === 'gst_on_income')?.rate).toBe('10.00');
   });
 });
+
+describe('supplier bills', () => {
+  it('works out lines, GST and totals exactly, as typed including GST', async () => {
+    const { buildBill } = await import('@/modules/books/posting');
+    const bill = buildBill({
+      amountsAre: 'inclusive',
+      items: [
+        { accountId: RENT, amount: '1100', taxCodeId: 'gst10' },
+        { accountId: FEES, amount: '9.99', taxCodeId: 'gst10' },
+        { accountId: FEES, amount: '20', taxCodeId: 'free' },
+      ],
+      taxRates: rates,
+    });
+    expect(bill.lines.map((line) => [line.amount, line.taxAmount])).toEqual([
+      ['1000.00', '100.00'],
+      ['9.08', '0.91'],
+      ['20.00', '0.00'],
+    ]);
+    expect(bill).toMatchObject({ subtotal: '1029.08', taxTotal: '100.91', total: '1129.99' });
+  });
+
+  it('adds GST on top when the amounts exclude it', async () => {
+    const { buildBill } = await import('@/modules/books/posting');
+    expect(
+      buildBill({
+        amountsAre: 'exclusive',
+        items: [{ accountId: RENT, amount: '250', taxCodeId: 'gst10' }],
+        taxRates: rates,
+      }),
+    ).toMatchObject({ subtotal: '250.00', taxTotal: '25.00', total: '275.00' });
+  });
+});

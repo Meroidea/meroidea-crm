@@ -16,7 +16,7 @@ each business gets only the features switched on for it.
 | **Customer voice**      | Review links with QR codes and a review inbox; a helpdesk with tickets, a public contact form and a page where customers follow their request                                                                              |
 | **People**              | Hiring with employment contracts and one-time signing links, staff directory and departments, recruitment with a public apply page, weekly and fortnightly rosters, time off, clock in/out with an optional location check |
 | **Money**               | Invoices, expense claims with receipts, pay runs and payslips from rostered or clocked hours                                                                                                                               |
-| **Bookkeeping**         | A double-entry ledger under invoices and payroll: chart of accounts, money in and out with GST, journals, lock date, Profit and Loss, Balance Sheet and Trial Balance (Australia first)                                    |
+| **Bookkeeping**         | A double-entry ledger under invoices and payroll: chart of accounts, money in and out with GST, supplier bills, journals, lock date, Profit and Loss, Balance Sheet and Trial Balance (Australia first)                    |
 | **Operations**          | Inventory with a stock ledger, suppliers with spreadsheet price lists, purchase orders                                                                                                                                     |
 | **Work**                | Projects, a task board, task timers and a productivity report                                                                                                                                                              |
 | **Documents**           | A document library with in-browser editing of Word, Excel, PowerPoint and PDF files (through a self-hosted OnlyOffice server)                                                                                              |
@@ -109,7 +109,7 @@ Being plain about this matters more than a long feature list:
 - **Customer reviews are unverified** and are not published anywhere.
 - **No incoming email.** Customers reply to tickets on their ticket page, not by email.
 - **Bookkeeping is its first milestone.** The ledger, GST coding and core reports are built; bank
-  reconciliation, supplier bills, the BAS report and lodgement are not. Its chart of accounts and
+  reconciliation, the BAS report and lodgement are not. Its chart of accounts and
   posting rules have not yet been reviewed by a qualified accountant.
 - **No point of sale or online store.**
 - **Productivity reports show recorded time and finished work.** Nothing monitors devices.

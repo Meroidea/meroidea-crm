@@ -1242,3 +1242,34 @@ books (ADR-060).
 
 **Not covered.** Refunds of money already received, and credit left over after an invoice is
 settled (a credit cannot exceed what is owed); overpayments.
+
+## ADR-062 — Supplier bills live in the books
+
+**Context.** The bookkeeping requirements post "bill entered", "bill paid" and "supplier credit
+note" from an accounts payable module. Meroidea had none: purchase orders carry no tax and are not
+bills, and expense claims are staff reimbursements.
+
+**Decision.**
+1. Bills are part of the `books` feature (`ledger_bills`, `ledger_bill_lines`), entered like money
+   out: lines across accounts and tax codes, typed including or excluding GST, worked out on exact
+   cents per line. `books.view` reads them; `books.record` enters, pays, credits and voids them. No
+   new permission family: a bookkeeper's day already covers this.
+2. Payments (`ledger_bill_payments` + allocations) settle one or several bills, in part or in
+   full, from a bank, cash or card account. A supplier credit (`ledger_bill_credits`) is against one
+   bill, up to what it still owes, with its own account and tax code.
+3. The database keeps it honest, as for invoices (ADR-061): a bill's totals equal the sum of its
+   lines; nothing is paid or credited on a void bill or beyond what it owes; a payment is split
+   exactly; nothing is edited or deleted, only voided once, and a bill with a live payment or credit
+   cannot be voided.
+4. Posting: a bill debits each line's account and the GST paid, and credits accounts payable; a
+   payment moves payables against the bank; a credit reverses expense and GST. Voids post
+   reversals. A bill dated before the books' start date is what was already owed then: it posts
+   against Opening balances on the start date, not as an expense of a period these books do not
+   cover. This is how a business brings in the bills it owed when it starts.
+5. A bill that looks already entered (same supplier and reference, or same supplier, date and
+   total when either has no reference) is refused as a duplicate until the person confirms. The
+   supplier's last account and tax code fill in the next bill from them.
+
+**Not covered yet.** Attachments (the bill's PDF or photo), recurring bills, a supplier record of
+its own with payment terms and a default account (suppliers in purchasing are linked by name only),
+aged payables (milestone 5).

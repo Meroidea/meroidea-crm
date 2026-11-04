@@ -180,6 +180,9 @@ export const ENTRY_KINDS = [
   'invoice',
   'invoice_payment',
   'credit_note',
+  'bill',
+  'bill_payment',
+  'bill_credit',
   'payslip',
   'payslip_payment',
   'reversal',
@@ -212,3 +215,65 @@ export type BooksSettingsInput = z.output<typeof booksSettingsSchema>;
 export type BooksSettingsFormValues = z.input<typeof booksSettingsSchema>;
 export type PayPayslipInput = z.output<typeof payPayslipSchema>;
 export type ExportReportInput = z.output<typeof exportReportSchema>;
+
+/** A supplier bill (ADR-062), typed like money out: lines across accounts and tax codes. */
+export const billSchema = z
+  .object({
+    supplierName: required(160, 'Who is the bill from?'),
+    supplierReference: optionalText(100),
+    date: isoDate,
+    dueDate: isoDate,
+    amountsAre: z.enum(['inclusive', 'exclusive', 'no_tax']),
+    notes: optionalText(1000),
+    /** Saves even when it looks like a bill already entered. */
+    allowDuplicate: z.boolean().optional().default(false),
+    items: z
+      .array(
+        z.object({
+          accountId: z.uuid('Choose an account'),
+          description: optionalText(300),
+          amount,
+          taxCodeId: optionalId,
+        }),
+      )
+      .min(1, 'Add at least one line')
+      .max(50),
+  })
+  .refine((value) => value.dueDate >= value.date, {
+    path: ['dueDate'],
+    message: 'The due date is before the bill date',
+  });
+
+export const billPaymentSchema = z.object({
+  date: isoDate,
+  bankAccountId: z.uuid('Choose the account it was paid from'),
+  payeeName: optionalText(160),
+  reference: optionalText(100),
+  allocations: z
+    .array(z.object({ billId: z.uuid(), amount }))
+    .min(1, 'Choose at least one bill')
+    .max(100),
+});
+
+export const billCreditSchema = z.object({
+  billId: z.uuid(),
+  date: isoDate,
+  /** Including GST, as on the supplier's credit note. */
+  amount,
+  reason: required(300, 'Say what the credit is for'),
+  supplierReference: optionalText(100),
+  accountId: z.uuid('Choose the account to credit'),
+  taxCodeId: optionalId,
+});
+
+export const BILL_FILTERS = ['open', 'overdue', 'paid', 'void', 'all'] as const;
+export type BillFilter = (typeof BILL_FILTERS)[number];
+export const billParamsSchema = z.object({
+  status: z.enum(BILL_FILTERS).optional().catch(undefined),
+  q: z.string().trim().max(100).optional().catch(undefined),
+});
+
+export type BillInput = z.output<typeof billSchema>;
+export type BillFormValues = z.input<typeof billSchema>;
+export type BillPaymentInput = z.output<typeof billPaymentSchema>;
+export type BillCreditInput = z.output<typeof billCreditSchema>;

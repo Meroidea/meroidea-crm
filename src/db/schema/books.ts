@@ -226,3 +226,185 @@ export const ledgerLines = pgTable(
     }),
   ],
 );
+
+/**
+ * Supplier bills (ADR-062): what the business owes for goods and services. Entered in the books,
+ * posted as expenses and GST against accounts payable, and voided rather than deleted.
+ */
+export const ledgerBills = pgTable(
+  'ledger_bills',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    /** Counts up per business; shown as BILL-0001. */
+    number: integer().notNull(),
+    supplierName: text().notNull(),
+    /** The supplier's own invoice number. */
+    supplierReference: text(),
+    date: date({ mode: 'string' }).notNull(),
+    dueDate: date({ mode: 'string' }).notNull(),
+    /** inclusive · exclusive · no_tax: how the amounts were typed. */
+    amountsAre: text().notNull(),
+    subtotal: numeric({ precision: 14, scale: 2 }).notNull(),
+    taxTotal: numeric({ precision: 14, scale: 2 }).notNull(),
+    total: numeric({ precision: 14, scale: 2 }).notNull(),
+    currency: char({ length: 3 }).notNull(),
+    notes: text(),
+    voidedAt: timestamp({ withTimezone: true }),
+    voidedBy: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid(),
+  },
+  (table) => [
+    unique('ledger_bills_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('ledger_bills_number_key').on(table.tenantId, table.number),
+    index('ledger_bills_due_idx').on(table.tenantId, table.dueDate),
+    index('ledger_bills_supplier_idx').on(table.tenantId, table.supplierName),
+  ],
+);
+
+export const ledgerBillLines = pgTable(
+  'ledger_bill_lines',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    billId: uuid().notNull(),
+    accountId: uuid().notNull(),
+    description: text(),
+    /** Before tax. */
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+    taxCodeId: uuid(),
+    taxAmount: numeric({ precision: 14, scale: 2 }).notNull().default('0'),
+    position: integer().notNull().default(0),
+  },
+  (table) => [
+    unique('ledger_bill_lines_tenant_id_id_key').on(table.tenantId, table.id),
+    index('ledger_bill_lines_bill_idx').on(table.tenantId, table.billId),
+    foreignKey({
+      columns: [table.tenantId, table.billId],
+      foreignColumns: [ledgerBills.tenantId, ledgerBills.id],
+      name: 'ledger_bill_lines_bill_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [ledgerAccounts.tenantId, ledgerAccounts.id],
+      name: 'ledger_bill_lines_account_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.taxCodeId],
+      foreignColumns: [ledgerTaxCodes.tenantId, ledgerTaxCodes.id],
+      name: 'ledger_bill_lines_tax_code_fk',
+    }),
+  ],
+);
+
+/** Money paid to suppliers: one payment can settle several bills; voided, never deleted. */
+export const ledgerBillPayments = pgTable(
+  'ledger_bill_payments',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    date: date({ mode: 'string' }).notNull(),
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+    currency: char({ length: 3 }).notNull(),
+    /** The bank, cash or card account it was paid from. */
+    accountId: uuid().notNull(),
+    payeeName: text(),
+    reference: text(),
+    voidedAt: timestamp({ withTimezone: true }),
+    voidedBy: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid(),
+  },
+  (table) => [
+    unique('ledger_bill_payments_tenant_id_id_key').on(table.tenantId, table.id),
+    foreignKey({
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [ledgerAccounts.tenantId, ledgerAccounts.id],
+      name: 'ledger_bill_payments_account_fk',
+    }),
+  ],
+);
+
+export const ledgerBillPaymentAllocations = pgTable(
+  'ledger_bill_payment_allocations',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    paymentId: uuid().notNull(),
+    billId: uuid().notNull(),
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+  },
+  (table) => [
+    unique('ledger_bill_payment_allocations_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('ledger_bill_payment_allocations_pair_key').on(
+      table.tenantId,
+      table.paymentId,
+      table.billId,
+    ),
+    index('ledger_bill_payment_allocations_bill_idx').on(table.tenantId, table.billId),
+    foreignKey({
+      columns: [table.tenantId, table.paymentId],
+      foreignColumns: [ledgerBillPayments.tenantId, ledgerBillPayments.id],
+      name: 'ledger_bill_payment_allocations_payment_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.billId],
+      foreignColumns: [ledgerBills.tenantId, ledgerBills.id],
+      name: 'ledger_bill_payment_allocations_bill_fk',
+    }),
+  ],
+);
+
+/** A supplier's credit note against one bill: the expense and GST back, less owed. */
+export const ledgerBillCredits = pgTable(
+  'ledger_bill_credits',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    billId: uuid().notNull(),
+    date: date({ mode: 'string' }).notNull(),
+    reason: text().notNull(),
+    /** The supplier's credit note number. */
+    supplierReference: text(),
+    accountId: uuid().notNull(),
+    taxCodeId: uuid(),
+    subtotal: numeric({ precision: 14, scale: 2 }).notNull(),
+    taxTotal: numeric({ precision: 14, scale: 2 }).notNull(),
+    total: numeric({ precision: 14, scale: 2 }).notNull(),
+    currency: char({ length: 3 }).notNull(),
+    voidedAt: timestamp({ withTimezone: true }),
+    voidedBy: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid(),
+  },
+  (table) => [
+    unique('ledger_bill_credits_tenant_id_id_key').on(table.tenantId, table.id),
+    index('ledger_bill_credits_bill_idx').on(table.tenantId, table.billId),
+    foreignKey({
+      columns: [table.tenantId, table.billId],
+      foreignColumns: [ledgerBills.tenantId, ledgerBills.id],
+      name: 'ledger_bill_credits_bill_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [ledgerAccounts.tenantId, ledgerAccounts.id],
+      name: 'ledger_bill_credits_account_fk',
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.taxCodeId],
+      foreignColumns: [ledgerTaxCodes.tenantId, ledgerTaxCodes.id],
+      name: 'ledger_bill_credits_tax_code_fk',
+    }),
+  ],
+);

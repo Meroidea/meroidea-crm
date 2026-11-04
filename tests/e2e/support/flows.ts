@@ -104,3 +104,21 @@ export async function signInAs(browser: Browser, link: string, password: string)
   await choosePassword(page, password);
   return { context, page };
 }
+
+/** The platform owner, in their own browser, switches a feature on for a business. */
+export async function switchOnFeature(browser: Browser, company: string, feature: RegExp) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await signIn(page, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
+  await expect(page).toHaveURL(/\/platform$/, { timeout: 30_000 });
+  await page.getByRole('link', { name: company }).click();
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('checkbox', { name: feature }).check();
+  const saved = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && response.ok(),
+    { timeout: 30_000 },
+  );
+  await page.getByRole('button', { name: 'Save features' }).click();
+  await saved;
+  await context.close();
+}

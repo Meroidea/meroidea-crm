@@ -17,7 +17,7 @@ export async function SourceEntries({
   sourceId,
 }: {
   ctx: TenantContext;
-  sourceType: 'invoice' | 'payslip';
+  sourceType: 'invoice' | 'payslip' | 'bill';
   sourceId: string;
 }) {
   if (!hasFeature(ctx, 'books') || !hasPermission(ctx, 'books.view')) return null;

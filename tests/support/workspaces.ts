@@ -67,6 +67,11 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
   for (const table of [
     'ledger_lines',
     'ledger_entries',
+    'ledger_bill_payment_allocations',
+    'ledger_bill_payments',
+    'ledger_bill_credits',
+    'ledger_bill_lines',
+    'ledger_bills',
     'ledger_settings',
     'ledger_accounts',
     'ledger_tax_codes',
