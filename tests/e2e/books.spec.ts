@@ -60,7 +60,12 @@ test('an admin sets up the books, records money in, and sees it in the reports',
   await expect(page.getByRole('row', { name: /Net profit/ })).toContainText('$100.00');
   await page.goto('/books/reports/balance-sheet');
   await expect(page.getByRole('row', { name: /Total assets/ })).toContainText('$110.00');
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  // The sheet balances: no warning, and net assets equal total equity ($110 in the bank less
+  // $10 of GST owed). Next.js's own route announcer also has role "alert", so look for ours.
+  await expect(page.getByText('does not balance')).toHaveCount(0);
+  await expect(page.getByRole('row', { name: /Net assets/ })).toContainText('$100.00');
+  await expect(page.getByRole('row', { name: /Total equity/ })).toHaveCount(1);
+  await expect(page.getByRole('row', { name: /Total equity/ })).toContainText('$100.00');
   await page.goto('/books/reports/trial-balance');
   await expect(page.getByRole('row', { name: /Totals/ })).toContainText('$110.00');
 

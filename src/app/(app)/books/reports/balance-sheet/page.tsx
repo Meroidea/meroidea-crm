@@ -122,6 +122,7 @@ export default async function BalanceSheetPage({
               from={from}
               to={asAt}
               showCompare={false}
+              hideTotal
             />
             <tbody>
               <TotalRow

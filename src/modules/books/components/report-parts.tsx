@@ -64,12 +64,15 @@ export function SectionRows({
   from,
   to,
   showCompare,
+  hideTotal = false,
 }: {
   section: ReportSection;
   currency: string;
   from: string;
   to: string;
   showCompare: boolean;
+  /** When the report prints this section's total itself, as a final line. */
+  hideTotal?: boolean;
 }) {
   if (section.lines.length === 0) return null;
   return (
@@ -101,12 +104,14 @@ export function SectionRows({
           )}
         </tr>
       ))}
-      <TotalRow
-        label={`Total ${section.label.toLowerCase()}`}
-        amount={section.total}
-        compare={showCompare ? section.compare : undefined}
-        currency={currency}
-      />
+      {!hideTotal && (
+        <TotalRow
+          label={`Total ${section.label.toLowerCase()}`}
+          amount={section.total}
+          compare={showCompare ? section.compare : undefined}
+          currency={currency}
+        />
+      )}
     </tbody>
   );
 }
