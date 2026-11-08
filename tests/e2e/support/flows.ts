@@ -121,9 +121,9 @@ export async function signInAs(browser: Browser, link: string, password: string)
 
 /** The platform owner, in their own browser, switches a feature on for a business. */
 export async function switchOnFeature(browser: Browser, company: string, feature: RegExp) {
-  const context = await browser.newContext();
+  const context = await browser.newContext({ storageState: PLATFORM_OWNER_STATE });
   const page = await context.newPage();
-  await signIn(page, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
+  await page.goto('/platform');
   await expect(page).toHaveURL(/\/platform$/, { timeout: 30_000 });
   await page.getByRole('link', { name: company }).click();
   await page.waitForLoadState('networkidle');
