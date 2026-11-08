@@ -10,6 +10,13 @@ export const PLATFORM_OWNER = {
   password: process.env.E2E_PLATFORM_PASSWORD ?? 'correct-horse-staple-42',
 };
 
+/**
+ * The platform owner's signed-in session, saved once by global-setup.ts. Tests start from it
+ * rather than signing in again. Nothing may sign this session out: signing out ends every
+ * session the account has, including the one other tests are using.
+ */
+export const PLATFORM_OWNER_STATE = 'playwright/.auth/platform-owner.json';
+
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SECRET_KEY;

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-import { PLATFORM_OWNER } from './support/accounts';
-import { onboardBusiness, signIn } from './support/flows';
+import { PLATFORM_OWNER_STATE } from './support/accounts';
+import { onboardBusiness } from './support/flows';
 
 test('an admin sets up the books, records money in, and sees it in the reports', async ({
   page,
@@ -13,9 +13,9 @@ test('an admin sets up the books, records money in, and sees it in the reports',
   const { company } = await onboardBusiness(page, context, stamp, 'retail');
 
   // Bookkeeping is an add-on: the platform owner switches it on for this business.
-  const consoleContext = await browser.newContext();
+  const consoleContext = await browser.newContext({ storageState: PLATFORM_OWNER_STATE });
   const consolePage = await consoleContext.newPage();
-  await signIn(consolePage, PLATFORM_OWNER.email, PLATFORM_OWNER.password);
+  await consolePage.goto('/platform');
   await expect(consolePage).toHaveURL(/\/platform$/, { timeout: 30_000 });
   await consolePage.getByRole('link', { name: company }).click();
   await consolePage.waitForLoadState('networkidle');

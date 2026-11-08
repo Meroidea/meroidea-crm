@@ -47,7 +47,10 @@ export async function sendEmail(message: {
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
-      console.error('[email] provider refused the message', { status: response.status });
+      console.error('[email] provider refused the message', {
+        status: response.status,
+        ...(await providerError(response)),
+      });
       return { sent: false, reason: 'failed' };
     }
     return { sent: true };
@@ -67,4 +70,26 @@ function withSenderName(from: string, name: string): string {
     .trim()
     .slice(0, 70);
   return safe ? `"${safe}" <${address}>` : from;
+}
+
+/**
+ * Resend's reason for a refusal ("invalid_api_key", "The meroidea.com domain is not verified"),
+ * so the logs name the cause. Its message can quote the recipient, so addresses are blanked.
+ */
+export async function providerError(
+  response: Response,
+): Promise<{ error?: string; detail?: string }> {
+  try {
+    const body: unknown = await response.json();
+    if (typeof body !== 'object' || body === null) return {};
+    const { name, message } = body as { name?: unknown; message?: unknown };
+    return {
+      ...(typeof name === 'string' && /^[a-z_]{1,64}$/.test(name) ? { error: name } : {}),
+      ...(typeof message === 'string'
+        ? { detail: message.replace(/[^\s<>()"',;:]+@[^\s<>()"',;:]+/g, '[address]').slice(0, 200) }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
 }
