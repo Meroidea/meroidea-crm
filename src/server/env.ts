@@ -37,6 +37,26 @@ const serverEnvSchema = z.object({
    * alerts. Without it the scheduled route refuses every call; alerts still run in the app.
    */
   CRON_SECRET: z.string().min(32).optional(),
+  /**
+   * Social inbox (ADR-064): the platform owner's Meta app. Without the id, secret and login
+   * configuration, businesses cannot connect Facebook or Instagram; without the verify token,
+   * Meta cannot confirm the webhook address.
+   */
+  META_APP_ID: z.string().min(1).optional(),
+  META_APP_SECRET: z.string().min(16).optional(),
+  /** The Facebook Login for Business configuration that asks for the messaging permissions. */
+  META_LOGIN_CONFIG_ID: z.string().min(1).optional(),
+  META_WEBHOOK_VERIFY_TOKEN: z.string().min(16).optional(),
+  /** The Graph API version the client calls; change it when Meta retires this one. */
+  META_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d+\.\d+$/)
+    .default('v27.0'),
+  /** The platform owner's TikTok for Business developer app, once approved for messaging. */
+  TIKTOK_APP_ID: z.string().min(1).optional(),
+  TIKTOK_APP_SECRET: z.string().min(16).optional(),
+  /** The "TikTok account holder authorization URL" shown on the developer app's page. */
+  TIKTOK_AUTH_URL: z.url({ protocol: /^https$/ }).optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

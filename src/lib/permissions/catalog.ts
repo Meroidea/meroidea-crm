@@ -80,6 +80,12 @@ export const PERMISSIONS = {
   'training.learn': { scoped: false },
   'training.view_all': { scoped: false },
   'training.manage': { scoped: false },
+  /** Social inbox (ADR-064): read customers' messages from connected accounts. */
+  'social.view': { scoped: false },
+  /** Answer them from Meroidea and link a conversation to a contact. */
+  'social.reply': { scoped: false },
+  /** Connect and disconnect the business's social media accounts. */
+  'social.manage': { scoped: false },
   'reviews.view': { scoped: false },
   'reviews.manage': { scoped: false },
   'tickets.work': { scoped: false },
@@ -176,6 +182,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'recruitment.manage': true,
       'reviews.view': true,
       'reviews.manage': true,
+      'social.view': true,
+      'social.reply': true,
       'tickets.work': true,
       'tickets.manage': true,
       'projects.view': true,

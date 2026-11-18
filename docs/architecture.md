@@ -150,7 +150,7 @@ if several, a `tenant` cookie validated against memberships. In Phase 3 the subd
 | Page data | Server Components call `modules/*/queries.ts` |
 | User mutations | Server Actions via `authedAction` |
 | Client-side refetch (board drag, infinite scroll) | Server Action returning data |
-| Webhooks, public forms, file redirects, cron hooks | Route Handlers under `/api` |
+| Webhooks, public forms, file redirects, cron hooks, OAuth callbacks from a provider's login (`/api/social/oauth/*`, run as the signed-in person) | Route Handlers under `/api` |
 | External developers (Phase 3) | `/api/v1/*`, API keys per tenant, same services |
 
 - Errors: `AppError(code, message)`; codes in `coding-standards.md`.

@@ -113,6 +113,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `productivity.view` | | Read the productivity report for everyone. Hours of a kind appear only if you may also see everyone's records of that kind |
 | `reviews.view` | | Read customer reviews, the summary and the review links |
 | `reviews.manage` | | Create and switch review links, mark reviews read or followed up, keep notes, remove a review |
+| `social.view` | | Read the social inbox: conversations and messages from connected Facebook, Instagram and TikTok accounts. Enforced again by RLS on every `social_*` table (ADR-064) |
+| `social.reply` | | Reply from Meroidea within each platform's reply window, mark conversations done, and link a conversation to a contact the person can see |
+| `social.manage` | | Connect and disconnect the business's social media accounts (log in with Meta or TikTok) |
 | `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee |
 | `tickets.manage` | | Switch the public contact form on or off, delete tickets |
 | `concerns.raise` | | Ask managers or the admin a question (about a payslip of your own, too), follow it, reply, mark it resolved or reopen it (ADR-049) |
@@ -195,6 +198,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | productivity.view | ✓ | ✓ | | |
 | reviews.view | ✓ | ✓ | | |
 | reviews.manage | ✓ | ✓ | | |
+| social.view | ✓ | ✓ | | |
+| social.reply | ✓ | ✓ | | |
+| social.manage | ✓ | | | |
 | tickets.work | ✓ | ✓ | ✓ | ✓ |
 | tickets.manage | ✓ | ✓ | | |
 | concerns.raise | ✓ | ✓ | ✓ | ✓ |

@@ -694,7 +694,7 @@ export function EncryptionKeyPanel({
             {' · '}
             {pending === 0
               ? 'every stored value uses the current key.'
-              : `${pending} staff ${pending === 1 ? 'record' : 'records'} still on an older key.`}
+              : `${pending} ${pending === 1 ? 'record' : 'records'} (staff payroll details or social account tokens) still on an older key.`}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
             To rotate: put the old key in <code>HR_ENCRYPTION_KEYS_PREVIOUS</code>, set the new one

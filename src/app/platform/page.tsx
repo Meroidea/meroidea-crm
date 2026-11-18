@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { BUSINESS_TYPES, FEATURES } from '@/lib/features';
 import { formatCalendarDate } from '@/lib/format';
 import { payrollKeyStatus } from '@/modules/hiring/key-rotation';
+import { socialCredentialsPending } from '@/modules/social/key-rotation';
 import { EncryptionKeyPanel } from '@/modules/platform/components/platform-tools';
 import { listBusinesses } from '@/modules/platform/service';
 import { businessStatus } from '@/modules/platform/status';
@@ -15,7 +16,13 @@ import { requirePlatformAdmin } from '@/server/platform';
 
 export default async function PlatformPage() {
   const admin = await requirePlatformAdmin();
-  const [businesses, keys] = await Promise.all([listBusinesses(admin), payrollKeyStatus(admin)]);
+  const [businesses, payrollKeys, socialPending] = await Promise.all([
+    listBusinesses(admin),
+    payrollKeyStatus(admin),
+    socialCredentialsPending(admin),
+  ]);
+  // Social account tokens share the payroll key (ADR-064); one re-encryption moves both.
+  const keys = { ...payrollKeys, pending: payrollKeys.pending + socialPending };
   const typeLabel = (key: string | null) =>
     BUSINESS_TYPES.find((type) => type.key === key)?.label ?? key ?? 'Not set';
 

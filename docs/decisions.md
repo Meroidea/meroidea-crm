@@ -1316,3 +1316,60 @@ and payroll, whatever the person's other permissions; give it only to someone tr
 it. Sensitive values are masked when written (`diffChanges`) and stay masked here. Not built: a
 retention period and archiving, monthly partitioning (docs/database.md), and platform owners'
 own log (`platform_audit_logs`, ADR-056) in the console.
+
+## ADR-064 — Social inbox: Facebook, Instagram and TikTok direct messages in one place
+
+**Context.** Businesses asked to connect their social media accounts and see customers' direct
+messages inside Meroidea instead of three apps. What each platform allows (checked against their
+documentation in November 2026):
+- *Meta.* One Meta app serves Facebook Pages (Messenger) and Instagram professional accounts.
+  Meta recommends "Instagram API with Unified Login" for new integrations: the business logs in
+  with Facebook or Instagram through Facebook Login for Business with a configuration, no Facebook
+  Page is needed for Instagram, and the app receives a Business Integration System User token
+  that belongs to the business's portfolio and by default does not expire. Serving businesses that
+  have no role on the app needs Advanced Access (App Review) and a verified business. Webhooks are
+  signed with `X-Hub-Signature-256`. Replies: within 24 hours of the customer's last message, or
+  up to 7 days with the Human Agent tag (which needs its own approval). Message content is
+  available only for the 20 most recent messages of a conversation.
+- *TikTok.* The Business Messaging API is in open beta for developers who pass TikTok's data
+  security and privacy review (US accounts need an extra US review; accounts registered in the
+  EEA, Switzerland or the UK cannot be served). Accounts must be Verified Business Accounts (or
+  have Advanced Access), owned by someone over 18, and set to accept messages from everyone.
+  Access tokens last a day, refresh tokens a year. Replies: up to 10 within 48 hours of the
+  customer's message. Only the last 90 days of conversations and 20 most recent messages are
+  readable. The webhook documentation names no signature this app can verify.
+
+**Decision.**
+1. A feature `social` with `social.view`, `social.reply` and `social.manage`. New businesses'
+   Admin gets all three and Manager the first two; existing businesses' Admin gets all three
+   (migration `0072`). Pages: `/social` (inbox), `/social/[id]` (thread, reply, link to contact,
+   done), `/social/accounts` (connect, disconnect, status).
+2. Connecting: a server action sets a ten-minute, http-only state cookie holding a hash of the
+   `state` bound to the person and business, then sends the browser to Meta or TikTok. The
+   callback `/api/social/oauth/[provider]` runs as the signed-in person, checks the state, swaps
+   the code for tokens on the server and saves every account shared: Pages with their Page token,
+   Instagram accounts with the system user token, TikTok with its token pair. Each is subscribed
+   to our webhook and its recent conversations imported (not counted as unread).
+3. Tokens are sealed with `encryptField` and kept in `social_account_credentials`, which sessions
+   cannot read at all; `app.social_*` functions check the permission. They move with the payroll
+   numbers on a key rotation. They travel to providers only in headers or bodies, never in URLs.
+4. One live business per account (a partial unique index), so an incoming message has exactly
+   one destination; a business trying to connect an account that is live elsewhere is told only
+   that it was skipped.
+5. Webhooks: Meta events are stored only after the signature over the raw bytes checks out, and
+   idempotently on Meta's message id. A TikTok notification is never stored as it stands: it
+   only says which conversation to read again through TikTok's API with the account's own token
+   (renewed first if expired), so a forged one costs one read and plants nothing.
+6. Replies are checked against each platform's window before sending, stored as `sending`, then
+   `sent` or `failed` with the provider's reason. An echo of our own reply that arrives before the
+   provider's answer claims the pending row instead of adding a copy. A token the provider rejects
+   marks the account `needs_reconnect`.
+7. Disconnecting unsubscribes, forgets the tokens and keeps the conversations as the business's
+   record; connecting the same account again continues them.
+
+**Consequences.** Nothing works for client businesses until the platform owner has a Meta app
+through App Review with a verified business, and a TikTok developer app through TikTok's review
+(docs/social-inbox.md). Not built: images and files in replies, conversations on a contact's
+timeline, assigning conversations, notifications for new messages, comments and mentions,
+WhatsApp, a data deletion callback for Meta (instructions page instead), and reading TikTok
+messages from EEA, Swiss or UK users, which TikTok does not allow.

@@ -147,6 +147,22 @@ change as touching sensitive personal data.
 - Entries from payroll stay `payroll = true` and hidden without `books.view_payroll`. Never show
   pay amounts from the books in a query that skips RLS.
 
+## Social inbox (ADR-064)
+
+- `src/modules/social/webhooks.ts` (and `key-rotation.ts`, for platform owners) are the only social
+  code that may use `adminDb`. Store a Meta event only after `verifyMetaSignature` passes on the raw
+  bytes. Never store a TikTok notification's content: it only names a conversation to read again
+  through TikTok's API with the account's own token.
+- Account tokens are sealed with `encryptField` and live only in `social_account_credentials`,
+  which `authenticated` has no grants on. Read and write them through the `app.social_*`
+  functions; never log them, put them in a URL (send them in headers or bodies), or return them to
+  the browser.
+- Connecting runs only through the state cookie check in `/api/social/oauth/[provider]`, as the
+  signed-in person with `social.manage`; the code is never logged or redirected onwards.
+- One live business per account (`social_accounts_live_key`): never relax it, or one business's
+  customers' messages could reach another.
+- Message content never goes into `audit_logs`, logs or error messages.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

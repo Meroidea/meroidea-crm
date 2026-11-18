@@ -14,6 +14,7 @@ in Sydney.
 | [terminology.md](terminology.md) | The words the code uses, and per-industry labels |
 | [architecture.md](architecture.md) | Layers, folder structure, request lifecycle, API conventions, custom fields, board, documents, import, lead intake, reporting, notifications, environments, costs |
 | [database.md](database.md) | ERD, every table/column/index/FK, tenant config, business rules, RLS strategy, cron jobs, seed data |
+| [social-inbox.md](social-inbox.md) | Setting up the social inbox: the Meta and TikTok apps, their reviews, the settings and what businesses need |
 | [leads.md](leads.md) | Lead management for B2B and B2C: capture, routing, outreach, handover, conversion, pipelines, SLAs, privacy, reports |
 | [permissions.md](permissions.md) | Permission catalog, scopes, default role matrix, required tests |
 | [decisions.md](decisions.md) | ADRs — including where and why this spec departs from the original stack proposal |

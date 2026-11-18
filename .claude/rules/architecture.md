@@ -17,7 +17,8 @@ Full reference: `docs/architecture.md`.
 - Database access is server-side only. Client components receive data as props or call
   Server Actions. No direct Supabase DB queries from the browser.
 - Route Handlers (`src/app/api/**`) are only for: webhooks, public web-form intake,
-  cron callbacks, file streaming, and (later) the public `/api/v1`.
+  cron callbacks, file streaming, OAuth callbacks from a provider's login (run as the signed-in
+  person, ADR-064), and (later) the public `/api/v1`.
 - UI text that names a CRM object uses the tenant's labels: `labels.contact.singular`,
   never a literal "Student"/"Lead".
 - Mobile: every screen must work at 375px. The pipeline board falls back to a

@@ -41,6 +41,9 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'files.manage': 'Manage the document library',
   'invoices.manage': 'Manage invoices',
   'payroll.manage': 'Run payroll',
+  'social.view': 'See customers’ social media messages',
+  'social.reply': 'Reply to social media messages and link them to contacts',
+  'social.manage': 'Connect and disconnect social media accounts',
   'books.view': 'See the books and reports',
   'books.view_payroll': 'See wages, tax withheld and super in the books',
   'books.record': 'Record money in, money out and transfers',
@@ -98,7 +101,7 @@ const GROUPS: { title: string; families: string[] }[] = [
     ],
   },
   { title: 'Work', families: ['tasks', 'projects', 'files', 'productivity'] },
-  { title: 'Customer care', families: ['reviews', 'tickets'] },
+  { title: 'Customer care', families: ['reviews', 'tickets', 'social'] },
   {
     title: 'People',
     families: [
