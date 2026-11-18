@@ -498,6 +498,13 @@
       "when": 1793765084649,
       "tag": "0070_supplier_bills",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794986312343,
+      "tag": "0071_audit_log_viewer",
+      "breakpoints": true
     }
   ]
 }

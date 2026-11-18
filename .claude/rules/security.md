@@ -177,3 +177,8 @@ change as touching sensitive personal data.
 Call `audit()` inside the transaction for: create/update/delete/restore of business records,
 owner changes, stage changes, permission/role/user changes, settings changes, exports,
 imports, and document downloads.
+
+Reading `audit_logs` needs `audit.view` (policy `audit_read`, ADR-063). A feature that needs part
+of the log without that permission gets a `security definer` function returning only that part
+(as `app.record_field_changes` returns field names, never values); never widen the policy and
+never read the log through `adminDb` in a request.

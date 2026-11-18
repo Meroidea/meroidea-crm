@@ -141,7 +141,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `settings.manage` | | Pipelines, stages, sources, lost reasons, document types, custom fields, labels, branding |
 | `users.manage` | | Invite, deactivate, change role/team |
 | `roles.manage` | | Edit roles and their permissions |
-| `audit.view` | | Audit log viewer and export |
+| `audit.view` | | Audit log viewer and export (`/audit`). Enforced again by RLS on `audit_logs`, and it shows every value the log recorded whatever else the person may see, so give it only to someone trusted with all records (ADR-063) |
 
 ## Default role matrix (seed)
 

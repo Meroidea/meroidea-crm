@@ -18,3 +18,20 @@ export function diffChanges<T extends Record<string, unknown>>(
   }
   return changes;
 }
+
+const FIELD_WORDS: Record<string, string> = {
+  phoneE164: 'phone',
+  dateOfBirth: 'date of birth',
+  linkedinUrl: 'LinkedIn',
+  customFields: 'custom fields',
+  subSourceId: 'sub-source',
+  sourceId: 'source',
+  organizationId: 'organization',
+  contactId: 'contact',
+  partnerId: 'partner',
+};
+
+/** A changed field's name as a person would say it: "companyWebsite" → "company website". */
+export function fieldWords(key: string): string {
+  return FIELD_WORDS[key] ?? key.replace(/([A-Z])/g, ' $1').toLowerCase();
+}

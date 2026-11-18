@@ -1273,3 +1273,46 @@ bills, and expense claims are staff reimbursements.
 **Not covered yet.** Attachments (the bill's PDF or photo), recurring bills, a supplier record of
 its own with payment terms and a default account (suppliers in purchasing are linked by name only),
 aged payables (milestone 5).
+
+## ADR-063 — The audit log viewer, and the log readable only with audit.view
+
+**Context.** Milestone 14 lists an audit log viewer, and `audit.view` ("Audit log viewer and
+export") was in the catalogue with nothing behind it. The log holds more than "who did what": the
+values before and after an edit (a contact's phone and address), figures behind a contract, the
+address and browser of whoever acted. Yet its policy since migration `0001` let every active member
+read every entry in their business. No screen asked, so nothing leaked, but a viewer turns "read
+the whole log" into a real code path, and the next query to touch the table would have inherited
+the open policy.
+
+**Decision.**
+1. `/audit` (Admin menu, `audit.view`): entries newest first with who, what, which record, the
+   changed values and the request details; filters by day range in the business's timezone,
+   person, action, record type and one record ("History of this record"); keyset pages of 50 over
+   `(created_at, id)` carried at microsecond precision, since a millisecond cursor skips entries
+   written together. Ids and dates only in the URL: no free-text search, because what people
+   search an audit log for is names and email addresses (rules/security.md).
+2. Export to CSV under the same filters, up to 10,000 entries, needs `audit.view` and is itself an
+   audit entry recording the filters and row count.
+3. Migration `0071` replaces the select policy with `audit_read`, which needs `audit.view` in the
+   active business. Inserting is unchanged (`audit_append`). Only the Admin role holds
+   `audit.view` by default; a custom role can be given it.
+4. Two features read the log without being the log viewer, and get exactly what they need through
+   `security definer` functions instead of the rows:
+   - a record's timeline ("Changed phone, city") — `app.record_field_changes(type, id, limit)`
+     returns who, when and the field names, never values, for contacts and opportunities, to a
+     member holding that record's view permission. The caller still checks the record's scope
+     first, as before;
+   - erasing a person on request also erases records merged into them, found from the merge
+     entries — `app.contacts_merged_into(contact)` returns record ids to `contacts.anonymize`. A
+     person allowed to erase but not to read the log must still find every merged copy, or the
+     person's details would survive in it without anyone noticing.
+5. `app.audit_actor_names(ids)` names the people behind entries, including those who have left:
+   the `users` policies show former members only to `users.manage`, and an audit is often read
+   about someone who has gone. Names only, of people who are or were members of the active
+   business, to `audit.view`.
+
+**Consequences.** Granting `audit.view` grants every value the log recorded, across all records
+and payroll, whatever the person's other permissions; give it only to someone trusted with all of
+it. Sensitive values are masked when written (`diffChanges`) and stay masked here. Not built: a
+retention period and archiving, monthly partitioning (docs/database.md), and platform owners'
+own log (`platform_audit_logs`, ADR-056) in the console.

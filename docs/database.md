@@ -617,6 +617,9 @@ for a colleague) but not as already read or emailed; only `read_at` is updatable
   `contacts.merge` in the active business itself (docs/leads.md §3.4).
 - `app.erase_contact_traces(contact)` — clears website submissions, ticket and review contact
   details and audit values for an erased person; checks `contacts.anonymize` (§6.5).
+- `app.contacts_merged_into(contact)` — ids of every contact merged into this one, in turn,
+  from the merge entries in `audit_logs`, so erasure reaches them without `audit.view`; checks
+  `contacts.anonymize` (ADR-063).
 - `app.sweep_lead_alerts(tenant)` — writes the SLA alerts (§6.4). Not granted to `authenticated`;
   run by the server for the scheduler and for a signed-in member's own business.
 
@@ -1702,6 +1705,14 @@ index (tenant_id, created_at desc)
 ```
 `UPDATE`/`DELETE` revoked from `authenticated`. When it grows, partition by month.
 
+Read only with `audit.view` in the active business (policy `audit_read`, migration `0071`,
+ADR-063); a member appends their own entries through `audit_append`. Features that need part of the
+log without `audit.view` go through `security definer` functions that return only that part:
+`app.record_field_changes(entity_type, entity_id, limit)` (who, when and field names for a contact's
+or opportunity's timeline, to its view permission), `app.contacts_merged_into(contact)` (§4,
+erasure) and `app.audit_actor_names(user_ids)` (names of present and former members for the viewer,
+to `audit.view`). The viewer is `/audit` (`src/modules/audit`).
+
 ---
 
 ## 9. Tenant configuration (JSONB on `tenants`)
@@ -1839,7 +1850,8 @@ soft-deleted table gains `delete`, or anyone gains `truncate`.
 
 `audit_logs` also has an insert policy (`audit_append`, migration `0006`): a member may append
 rows only for their active tenant, with `actor_user_id` = themselves and `actor_type = 'user'`.
-System, integration and API rows are written through `adminDb`.
+System, integration and API rows are written through `adminDb`. Reading needs `audit.view`
+(`audit_read`, migration `0071`, ADR-063).
 Outside `withRls` the GUC is unset, `active_tenant_id()` is null, and every policy denies —
 so PostgREST access with a user token also sees nothing.
 

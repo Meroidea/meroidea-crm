@@ -208,18 +208,12 @@ export async function anonymizeContact(ctx: TenantContext, id: string): Promise<
 
     const now = new Date();
     // Records merged into this one were folded in, not deleted: they still hold the person's
-    // details, so they are erased with it (and anything merged into them in turn).
-    const merged = (await tx.execute(sql`
-      with recursive folded(id) as (
-        select entity_id from audit_logs
-        where tenant_id = ${ctx.tenantId} and entity_type = 'contact'
-          and context ->> 'mergedInto' = ${contact.id}
-        union
-        select a.entity_id from audit_logs a
-        join folded f on a.context ->> 'mergedInto' = f.id::text
-        where a.tenant_id = ${ctx.tenantId} and a.entity_type = 'contact'
-      )
-      select id from folded where id is not null`)) as unknown as { id: string }[];
+    // details, so they are erased with it (and anything merged into them in turn). The merges
+    // are recorded in the audit log, which needs audit.view, so the database walks them for
+    // whoever may erase (ADR-063).
+    const merged = (await tx.execute(
+      sql`select id from app.contacts_merged_into(${contact.id}::uuid) as id`,
+    )) as unknown as { id: string }[];
     for (const id of [contact.id, ...merged.map((row) => row.id)]) {
       await eraseRecord(tx, ctx, id, now);
     }
