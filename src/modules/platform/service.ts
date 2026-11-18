@@ -26,7 +26,7 @@ import { sendEmail } from '@/server/email';
 import { renderEmail } from '@/server/email-template';
 import { serverEnv } from '@/server/env';
 import { platformOwnerEmails, type PlatformAdmin } from '@/server/platform';
-import { removeObjects } from '@/server/storage';
+import { removeObjects, removeSocialMedia } from '@/server/storage';
 import { createSupabaseAdminClient } from '@/server/supabase/admin';
 
 import { deletionOrder } from './delete-order';
@@ -822,10 +822,17 @@ export async function deleteBusiness(
   // has no recursive delete, so the paths are read from its own table.
   const prefix = `${input.tenantId}/`;
   const stored = (await db.execute(
-    sql`select name from storage.objects
-        where bucket_id = 'documents' and left(name, ${prefix.length}) = ${prefix}`,
-  )) as unknown as { name: string }[];
-  const filesRemoved = await removeObjects(stored.map((row) => row.name));
+    sql`select bucket_id as bucket, name from storage.objects
+        where bucket_id in ('documents', 'social-media') and left(name, ${prefix.length}) = ${prefix}`,
+  )) as unknown as { bucket: string; name: string }[];
+  // The document library and the social inbox's saved media (ADR-065).
+  const filesRemoved =
+    (await removeObjects(
+      stored.filter((row) => row.bucket === 'documents').map((row) => row.name),
+    )) +
+    (await removeSocialMedia(
+      stored.filter((row) => row.bucket === 'social-media').map((row) => row.name),
+    ));
   const files = { removed: filesRemoved, failed: stored.length - filesRemoved };
   const owners = new Set(platformOwnerEmails());
   const supabase = createSupabaseAdminClient();

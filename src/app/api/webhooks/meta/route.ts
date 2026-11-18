@@ -1,7 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
 
-import { parseMetaWebhook, verifyMetaSignature } from '@/modules/social/providers/meta-webhook';
-import { ingestMetaEvents } from '@/modules/social/webhooks';
+import {
+  parseMetaReceipts,
+  parseMetaWebhook,
+  verifyMetaSignature,
+} from '@/modules/social/providers/meta-webhook';
+import { applyMetaReceipts, ingestMetaEvents } from '@/modules/social/webhooks';
 import { serverEnv } from '@/server/env';
 import { PayloadTooLargeError, readBodyWithLimit } from '@/server/request';
 
@@ -62,6 +66,7 @@ export async function POST(request: Request) {
   }
   try {
     await ingestMetaEvents(parseMetaWebhook(body));
+    await applyMetaReceipts(parseMetaReceipts(body));
   } catch (error) {
     // Never the payload: it holds customers' messages.
     console.error(

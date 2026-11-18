@@ -616,7 +616,8 @@ for a colleague) but not as already read or emailed; only `read_at` is updatable
 - `app.merge_contact_references(keep, drop)` — moves everything that points at a contact; checks
   `contacts.merge` in the active business itself (docs/leads.md §3.4).
 - `app.erase_contact_traces(contact)` — clears website submissions, ticket and review contact
-  details and audit values for an erased person; checks `contacts.anonymize` (§6.5).
+  details, linked social conversations' inbound messages and the customer's name and picture,
+  and audit values for an erased person; checks `contacts.anonymize` (§6.5, ADR-065).
 - `app.contacts_merged_into(contact)` — ids of every contact merged into this one, in turn,
   from the merge entries in `audit_logs`, so erasure reaches them without `audit.view`; checks
   `contacts.anonymize` (ADR-063).
@@ -1567,6 +1568,23 @@ index (tenant_id, conversation_id, sent_at)
 RLS: read with `social.view`; insert and update (`external_id`, `status`, `error`) with
 `social.reply` or `social.manage`. Raw webhook payloads are not kept: messages are stored once,
 normalised (data minimisation; the lead-intake replay table is for leads).
+
+**Part two (migration `0073`, ADR-065).** `social_conversations.participant_avatar_path` (the
+customer's picture, saved); `social_messages.delivered_at`, `read_at` and statuses `received |
+sending | sent | delivered | read | failed`; check constraints on every platform, direction and
+status column. `attachments` entries are `{type, state: pending | stored | failed | skipped,
+storagePath?, mimeType?, size?, url?, mediaId?}`: media go to the private `social-media` bucket
+and the provider's link is dropped once stored. Sessions may also update `sent_at`,
+`delivered_at`, `read_at`, `attachments` and `participant_avatar_path`.
+
+Real time: triggers `social_messages_broadcast` and `social_conversations_broadcast` call
+`realtime.send({conversationId}, 'changed', 'social:<tenant>', private)` through `security
+definer` functions that skip where Realtime is absent. Policy `social_inbox_receive` on
+`realtime.messages` (select, `extension = 'broadcast'`) allows a channel only when
+`app.social_channel_allowed(realtime.topic())`: `social.view` in that business, feature on, business
+open. Erasure: `app.social_media_paths_for_contact(contact)` lists the saved files of a person's
+linked conversations (`contacts.anonymize`), and `app.erase_contact_traces` blanks their inbound
+messages, name, handle and picture.
 
 ## 8. Platform tables
 

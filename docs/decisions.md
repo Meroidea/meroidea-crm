@@ -1373,3 +1373,60 @@ through App Review with a verified business, and a TikTok developer app through 
 timeline, assigning conversations, notifications for new messages, comments and mentions,
 WhatsApp, a data deletion callback for Meta (instructions page instead), and reading TikTok
 messages from EEA, Swiss or UK users, which TikTok does not allow.
+
+## ADR-065 — Social inbox, part two: real time, saved media, receipts and rate limits
+
+**Context.** The owner asked for a true instant-messaging experience instead of the 20-second
+refresh of ADR-064, for customers' photos and files to survive the platforms' expiring links,
+and for delivery and read status, rate-limit handling and a two-pane inbox. Facts that shaped it
+(Supabase, Meta and TikTok documentation, November 2026): `realtime.send` inserts a broadcast
+into `realtime.messages`, catches its own errors, and is executable only by `postgres`; private
+channels are authorised by RLS on `realtime.messages`, evaluated when a browser joins and cached
+for the connection. Meta's attachment and profile picture links expire ("in a few days" for
+Instagram). Meta throttles with codes 4, 17, 32, 613 and 80000–80014 and reports the wait in
+`X-Business-Use-Case-Usage`. TikTok's return code 40100 means throttled, 40105 an invalid token
+(ADR-064's client wrongly treated 40100–40105 alike, so throttling would have asked businesses
+to reconnect: fixed). TikTok's media are fetched by media id through
+`/business/message/media/download/` (a 24-hour link).
+
+**Decision.**
+1. *Supabase Realtime is added to the stack* (owner's approval, 18 November 2026), for this use:
+   database triggers on `social_conversations` and `social_messages` call `realtime.send` on
+   the private channel `social:<tenant id>` with **only the conversation id**; the browser then
+   reloads through the ordinary RLS-checked server components. The channel never carries what
+   anyone wrote, so a mistake in channel authorisation cannot leak a message. The policy
+   `social_inbox_receive` lets a browser join only with `social.view` in that business, while the
+   feature is on and the business open (`app.social_channel_allowed`). The triggers are `security
+   definer`, skip quietly where Realtime is not installed and can never stop a message being
+   stored. Without a live channel the page refreshes every 30 seconds. CI now starts Realtime.
+2. *Media are copied into the private `social-media` bucket* (25 MB cap, no storage policies)
+   at `{tenant}/social/{conversation}/{message}/...` and avatars at `{tenant}/social/avatars/...`,
+   after the webhook has been answered (`after()`), or after an import. The download address
+   comes from a payload, so it is fetched only over https from the platforms' media hosts, with
+   redirects followed by hand and checked at every hop, a size cap, and the leading bytes matched
+   to an accepted type (images, mp4/mov, common audio, pdf). A refused file is marked `skipped`, a
+   failure `failed` with its link kept. Files are served by `/api/social/media/...` and
+   `/api/social/avatar/...`, which check `social.view` under RLS on every request and redirect to
+   a one-minute signed link. Viewing a message's media is not audited, as reading its text is not.
+3. *Erasure and deletion reach the media:* erasing a person blanks their inbound messages, name,
+   handle and picture in linked conversations and removes the files; deleting a business empties
+   its folder in both buckets.
+4. *Receipts:* Messenger deliveries and reads, Instagram's `messaging_seen` and TikTok's
+   `im_mark_read_msg` move replies `sent → delivered → read`, never back. TikTok's read receipt
+   cannot be confirmed through the API, so it is applied only from a signed notification.
+5. *TikTok signatures:* `TikTok-Signature: t=…,s=…` (HMAC-SHA256 of `t.body` with the app
+   secret, five minutes) is checked. The scheme is the one TikTok documents for its webhooks but
+   could not be confirmed on the Business Messaging pages, so a notification that fails it is
+   only ever treated as unsigned, never rejected: messages are still read through the API, and
+   unsigned reads are limited to six per conversation a minute.
+6. *Rate limits* become `RATE_LIMITED` with the wait when known; the reply is kept as failed and
+   **Retry** sends the same message again after re-running every check. A throttled account is
+   not marked for reconnecting.
+7. *UI:* two panes from the `lg` breakpoint (list left, thread right), one pane on phones; each
+   message line names its platform; replies appear at once (`useOptimistic`) and then show sent,
+   delivered, read or failed.
+
+**Consequences.** Hosted Realtime must have "Allow public access" switched off so only private
+channels exist (docs/social-inbox.md). Media storage grows with use and is paid by the platform.
+Revoking a person's access stops their Realtime signals only when their session token renews
+(Supabase caches channel authorisation per connection); the signals carry ids alone.

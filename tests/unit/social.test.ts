@@ -142,6 +142,7 @@ describe('TikTok notifications', () => {
       event: 'im_receive_msg',
       businessId: 'biz-1',
       conversationId: 'c+1==',
+      lastReadAt: null,
     });
     expect(parseTikTokWebhook({ event: 'im_receive_msg' })).toBeNull();
     expect(

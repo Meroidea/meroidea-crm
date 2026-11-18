@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 import { serverEnv } from '@/server/env';
 
 import { providerFetch, safeReason } from './http';
@@ -50,13 +52,15 @@ async function tiktokCall(path: string, init: RequestInit & { timeoutMs?: number
   };
   if (body.code !== 0) {
     const code = typeof body.code === 'number' ? body.code : null;
-    // 40100–40105: the access token is missing, invalid, expired or revoked.
-    const reconnect = code !== null && code >= 40100 && code <= 40105;
+    // TikTok's Business Messaging return codes: 40100 requests made too frequently (throttled),
+    // 40105 invalid or incorrect access token. 40100 is not an authorisation failure.
+    const rateLimited = code === 40100;
     throw new ProviderError(
       'tiktok',
-      safeReason(body.message) ?? 'TikTok refused the request.',
-      reconnect,
-      code,
+      rateLimited
+        ? 'TikTok is limiting how often we can call it.'
+        : (safeReason(body.message) ?? 'TikTok refused the request.'),
+      { reconnect: code === 40105, rateLimited, code },
     );
   }
   return (body.data ?? {}) as Record<string, unknown>;
@@ -159,6 +163,8 @@ type TikTokMessage = {
   timestamp?: unknown;
   message_type?: unknown;
   text?: { body?: unknown };
+  image?: { media_id?: unknown };
+  video?: { media_id?: unknown };
   from_user?: { role?: unknown };
 };
 
@@ -187,15 +193,45 @@ export async function fetchTikTokMessages(
     if (!fromBusiness && sender) customerUsername = sender;
     const type =
       typeof message.message_type === 'string' ? message.message_type.toLowerCase() : 'other';
+    // Images and videos are fetched later by their media id (/business/message/media/download/).
+    const mediaId = text(message.image?.media_id) ?? text(message.video?.media_id);
     messages.push({
       externalId: id,
       direction: fromBusiness ? 'outbound' : 'inbound',
       body: type === 'text' && typeof message.text?.body === 'string' ? message.text.body : null,
-      attachments: type === 'text' ? [] : [{ type }],
+      attachments: type === 'text' ? [] : [mediaId ? { type, mediaId } : { type }],
       sentAt: new Date(message.timestamp),
     });
   }
   return { messages, customerUsername };
+}
+
+/**
+ * A short-lived download address for an image or video in a message (valid 24 hours), from
+ * /business/message/media/download/.
+ */
+export async function tiktokMediaUrl(
+  account: AccountRef,
+  token: string,
+  conversationId: string,
+  messageId: string,
+  mediaId: string,
+  mediaType: 'IMAGE' | 'VIDEO',
+): Promise<string> {
+  const data = await tiktokCall('/business/message/media/download/', {
+    method: 'POST',
+    headers: { 'Access-Token': token, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      business_id: account.externalId,
+      conversation_id: conversationId,
+      message_id: messageId,
+      media_id: mediaId,
+      media_type: mediaType,
+    }),
+  });
+  const url = text(data.download_url);
+  if (!url) throw new ProviderError('tiktok', 'TikTok did not return a download address.');
+  return url;
 }
 
 /** Recent conversations (TikTok keeps 90 days), with each one's latest messages. */
@@ -270,12 +306,14 @@ export type TikTokNotification = {
   event: string;
   businessId: string;
   conversationId: string | null;
+  /** im_mark_read_msg: the customer has read everything sent up to this time. */
+  lastReadAt: Date | null;
 };
 
 /**
- * TikTok's Business Messaging webhooks carry no signature this app can check, so a notification
- * is never stored as it stands: it only says which conversation to fetch again, through the API
- * and with the account's own token. A forged one costs one read and plants nothing.
+ * TikTok notifications are acted on through the API, never stored as they stand: they only say
+ * which conversation to fetch again, with the account's own token. A forged one costs one read
+ * and plants nothing. Only a read receipt, which the API cannot confirm, needs a signature.
  */
 export function parseTikTokWebhook(body: unknown): TikTokNotification | null {
   const root = body as {
@@ -289,14 +327,50 @@ export function parseTikTokWebhook(body: unknown): TikTokNotification | null {
   const businessId = text(root?.user_openid);
   if (!appId || !event || !businessId) return null;
   let conversationId: string | null = null;
+  let lastReadAt: Date | null = null;
   if (typeof root.content === 'string' && root.content.length < 100_000) {
     try {
-      conversationId = text(
-        (JSON.parse(root.content) as { conversation_id?: unknown }).conversation_id,
-      );
+      const content = JSON.parse(root.content) as {
+        conversation_id?: unknown;
+        read?: { last_read_timestamp?: unknown };
+      };
+      conversationId = text(content.conversation_id);
+      const last = content.read?.last_read_timestamp;
+      lastReadAt = typeof last === 'number' && last > 0 ? new Date(last) : null;
     } catch {
       conversationId = null;
     }
   }
-  return { appId, event, businessId, conversationId };
+  return { appId, event, businessId, conversationId, lastReadAt };
+}
+
+/** Notifications older or newer than this are refused as replays. */
+const SIGNATURE_TOLERANCE_SECONDS = 300;
+
+/**
+ * Checks a `TikTok-Signature: t=<unix seconds>,s=<hex>` header: HMAC-SHA256 of
+ * `<t>.<raw body>` keyed with the app secret, within five minutes. This is the scheme TikTok
+ * documents for its webhooks; confirm it on the developer portal for Business Messaging, because
+ * a notification that fails it is only ever treated as unverified, never trusted (ADR-065).
+ */
+export function verifyTikTokSignature(
+  rawBody: Uint8Array,
+  header: string | null,
+  secret: string,
+  now = Date.now(),
+): boolean {
+  if (!header || header.length > 512) return false;
+  const parts = Object.fromEntries(
+    header.split(',').map((part) => {
+      const [key, ...rest] = part.trim().split('=');
+      return [key, rest.join('=')];
+    }),
+  );
+  const timestamp = Number(parts.t);
+  const signature = parts.s;
+  if (!Number.isInteger(timestamp) || !signature || !/^[0-9a-f]+$/i.test(signature)) return false;
+  if (Math.abs(now / 1000 - timestamp) > SIGNATURE_TOLERANCE_SECONDS) return false;
+  const expected = createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest();
+  const given = Buffer.from(signature, 'hex');
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }

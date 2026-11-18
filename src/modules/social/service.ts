@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 import { contacts, socialAccounts, socialConversations, socialMessages } from '@/db/schema';
 import { AppError } from '@/lib/errors';
@@ -8,10 +8,11 @@ import { scopeFilter } from '@/lib/permissions/scope';
 import { contactScope } from '@/modules/contacts/access';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
-import { withRls } from '@/server/db/with-rls';
+import { withRls, type Tx } from '@/server/db/with-rls';
 
-import { readCredentials, storeCredentials, usableToken } from './credentials';
+import { readCredentials, storeCredentials, usableToken, type Credentials } from './credentials';
 import { recordImportedConversation } from './ingest';
+import { afterResponse, persistMessageMedia, type MediaAccess } from './media';
 import type { OAuthProvider } from './oauth-state-keys';
 import {
   discoverMetaAccounts,
@@ -180,11 +181,25 @@ export async function connectAccounts(
     try {
       if (found.platform !== 'tiktok') await subscribeMetaAccount(ref, found.accessToken);
       const history = await fetchHistory(ref, found.accessToken);
-      await withRls(ctx, async (tx) => {
+      const withMedia = await withRls(ctx, async (tx) => {
+        const ids: string[] = [];
         for (const conversation of history) {
-          await recordImportedConversation(tx, { tenantId: ctx.tenantId, accountId }, conversation);
+          const result = await recordImportedConversation(
+            tx,
+            { tenantId: ctx.tenantId, accountId },
+            conversation,
+          );
+          ids.push(...result.withMedia);
         }
+        return ids;
       });
+      if (withMedia.length > 0) {
+        // Copying the imported media into storage can take a while: after the person is back
+        // on the accounts page, still as them and under RLS.
+        const access: MediaAccess =
+          found.platform === 'tiktok' ? { account: ref, token: found.accessToken } : null;
+        await afterResponse(() => withRls(ctx, (tx) => persistMessageMedia(tx, withMedia, access)));
+      }
     } catch (error) {
       if (!(error instanceof ProviderError)) throw error;
       lastError = describe(error);
@@ -253,6 +268,93 @@ export async function disconnectAccount(ctx: TenantContext, accountId: string): 
   });
 }
 
+type Prepared = {
+  conversation: typeof socialConversations.$inferSelect;
+  account: typeof socialAccounts.$inferSelect;
+  platform: SocialPlatform;
+  humanAgent: boolean;
+  credentials: Credentials;
+  messageId: string;
+  body: string;
+};
+
+/**
+ * Everything a reply must pass before it goes: a live account, the platform's length and reply
+ * window (and TikTok's ten replies per window), and usable tokens. Runs inside the caller's
+ * transaction; `excluding` leaves a retried message out of TikTok's count.
+ */
+async function checkReply(
+  tx: Tx,
+  ctx: TenantContext,
+  conversationId: string,
+  body: string,
+  now: Date,
+  excluding?: string,
+) {
+  const [row] = await tx
+    .select({ conversation: socialConversations, account: socialAccounts })
+    .from(socialConversations)
+    .innerJoin(
+      socialAccounts,
+      and(
+        eq(socialAccounts.tenantId, socialConversations.tenantId),
+        eq(socialAccounts.id, socialConversations.accountId),
+      ),
+    )
+    .where(
+      and(
+        eq(socialConversations.tenantId, ctx.tenantId),
+        eq(socialConversations.id, conversationId),
+      ),
+    )
+    .limit(1);
+  if (!row) throw new AppError('NOT_FOUND', 'That conversation was not found.');
+  const { conversation, account } = row;
+  const platform = account.platform as SocialPlatform;
+  if (account.disconnectedAt) {
+    throw new AppError('CONFLICT', 'This account is disconnected. Connect it again to reply.');
+  }
+  const rules = REPLY_RULES[platform];
+  if (
+    body.length > rules.maxChars ||
+    (rules.maxBytes && Buffer.byteLength(body) > rules.maxBytes)
+  ) {
+    throw new AppError(
+      'VALIDATION',
+      `Replies on this platform can be at most ${rules.maxChars} characters.`,
+    );
+  }
+  const window = replyWindow(platform, conversation.lastInboundAt, now);
+  if (!window.ok) throw new AppError('CONFLICT', window.reason);
+  if (platform === 'tiktok' && conversation.lastInboundAt) {
+    // TikTok allows ten messages in the 48 hours after each message from the customer.
+    const [sent] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(socialMessages)
+      .where(
+        and(
+          eq(socialMessages.tenantId, ctx.tenantId),
+          eq(socialMessages.conversationId, conversation.id),
+          eq(socialMessages.direction, 'outbound'),
+          inArray(socialMessages.status, ['sending', 'sent', 'delivered', 'read']),
+          gte(socialMessages.sentAt, conversation.lastInboundAt),
+          excluding ? ne(socialMessages.id, excluding) : undefined,
+        ),
+      );
+    if ((sent?.n ?? 0) >= 10) {
+      throw new AppError('CONFLICT', 'TikTok allows ten replies until the customer writes again.');
+    }
+  }
+  const credentials = await readCredentials(tx, ctx.tenantId, account.id);
+  if (!credentials) {
+    throw new AppError(
+      'CONFLICT',
+      'This account needs to be connected again before you can reply.',
+    );
+  }
+  return { conversation, account, platform, humanAgent: window.humanAgent, credentials };
+}
+
 /**
  * Sends a reply from Meroidea. The message is stored as "sending" first, so a webhook echo that
  * arrives before the provider's answer finds it instead of adding a copy; it then becomes sent
@@ -264,77 +366,14 @@ export async function replyToConversation(
   now = new Date(),
 ): Promise<{ messageId: string }> {
   requirePermission(ctx, 'social.reply');
-
-  const prepared = await withRls(ctx, async (tx) => {
-    const [row] = await tx
-      .select({ conversation: socialConversations, account: socialAccounts })
-      .from(socialConversations)
-      .innerJoin(
-        socialAccounts,
-        and(
-          eq(socialAccounts.tenantId, socialConversations.tenantId),
-          eq(socialAccounts.id, socialConversations.accountId),
-        ),
-      )
-      .where(
-        and(
-          eq(socialConversations.tenantId, ctx.tenantId),
-          eq(socialConversations.id, input.conversationId),
-        ),
-      )
-      .limit(1);
-    if (!row) throw new AppError('NOT_FOUND', 'That conversation was not found.');
-    const { conversation, account } = row;
-    const platform = account.platform as SocialPlatform;
-    if (account.disconnectedAt) {
-      throw new AppError('CONFLICT', 'This account is disconnected. Connect it again to reply.');
-    }
-    const rules = REPLY_RULES[platform];
-    if (
-      input.body.length > rules.maxChars ||
-      (rules.maxBytes && Buffer.byteLength(input.body) > rules.maxBytes)
-    ) {
-      throw new AppError(
-        'VALIDATION',
-        `Replies on this platform can be at most ${rules.maxChars} characters.`,
-      );
-    }
-    const window = replyWindow(platform, conversation.lastInboundAt, now);
-    if (!window.ok) throw new AppError('CONFLICT', window.reason);
-    if (platform === 'tiktok' && conversation.lastInboundAt) {
-      // TikTok allows ten messages in the 48 hours after each message from the customer.
-      const [sent] = await tx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(socialMessages)
-        .where(
-          and(
-            eq(socialMessages.tenantId, ctx.tenantId),
-            eq(socialMessages.conversationId, conversation.id),
-            eq(socialMessages.direction, 'outbound'),
-            inArray(socialMessages.status, ['sending', 'sent']),
-            gte(socialMessages.sentAt, conversation.lastInboundAt),
-          ),
-        );
-      if ((sent?.n ?? 0) >= 10) {
-        throw new AppError(
-          'CONFLICT',
-          'TikTok allows ten replies until the customer writes again.',
-        );
-      }
-    }
-    const credentials = await readCredentials(tx, ctx.tenantId, account.id);
-    if (!credentials) {
-      throw new AppError(
-        'CONFLICT',
-        'This account needs to be connected again before you can reply.',
-      );
-    }
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const checked = await checkReply(tx, ctx, input.conversationId, input.body, now);
     const [pending] = await tx
       .insert(socialMessages)
       .values({
         tenantId: ctx.tenantId,
-        conversationId: conversation.id,
-        accountId: account.id,
+        conversationId: checked.conversation.id,
+        accountId: checked.account.id,
         direction: 'outbound',
         body: input.body,
         sentAt: now,
@@ -342,14 +381,62 @@ export async function replyToConversation(
         status: 'sending',
       })
       .returning({ id: socialMessages.id });
-    return { conversation, account, platform, window, credentials, pendingId: pending!.id };
+    return { ...checked, messageId: pending!.id, body: input.body };
   });
+  return deliver(ctx, prepared, now, 'create');
+}
 
-  const { conversation, account, platform, window, credentials, pendingId } = prepared;
+/**
+ * Sends a failed reply again, as the same message, once the reason has passed: a rate limit
+ * lifted, the account reconnected, the customer written again. Every check runs afresh.
+ */
+export async function retryReply(
+  ctx: TenantContext,
+  messageId: string,
+  now = new Date(),
+): Promise<{ messageId: string }> {
+  requirePermission(ctx, 'social.reply');
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const [failed] = await tx
+      .select({
+        id: socialMessages.id,
+        conversationId: socialMessages.conversationId,
+        body: socialMessages.body,
+      })
+      .from(socialMessages)
+      .where(
+        and(
+          eq(socialMessages.tenantId, ctx.tenantId),
+          eq(socialMessages.id, messageId),
+          eq(socialMessages.direction, 'outbound'),
+          eq(socialMessages.status, 'failed'),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!failed || !failed.body) throw new AppError('NOT_FOUND', 'That reply was not found.');
+    const checked = await checkReply(tx, ctx, failed.conversationId, failed.body, now, failed.id);
+    await tx
+      .update(socialMessages)
+      .set({ status: 'sending', error: null })
+      .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.id, failed.id)));
+    return { ...checked, messageId: failed.id, body: failed.body };
+  });
+  return deliver(ctx, prepared, now, 'update');
+}
+
+/** Calls the provider outside any transaction, then records the outcome. */
+async function deliver(
+  ctx: TenantContext,
+  prepared: Prepared,
+  now: Date,
+  action: 'create' | 'update',
+): Promise<{ messageId: string }> {
+  const { conversation, account, platform, humanAgent, credentials, messageId, body } = prepared;
   const ref: AccountRef = { platform, externalId: account.externalId, username: account.username };
   let externalId: string | null = null;
   let failure: ProviderError | null = null;
-  let renewed = null;
+  let renewed: Credentials | null = null;
   try {
     const usable = await usableToken(platform, credentials, now);
     renewed = usable.renewed;
@@ -359,15 +446,9 @@ export async function replyToConversation(
             ref,
             usable.token,
             conversation.externalId ?? conversation.participantId,
-            input.body,
+            body,
           )
-        : await sendMetaMessage(
-            ref,
-            usable.token,
-            conversation.participantId,
-            input.body,
-            window.humanAgent,
-          );
+        : await sendMetaMessage(ref, usable.token, conversation.participantId, body, humanAgent);
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
     failure = error;
@@ -379,7 +460,7 @@ export async function replyToConversation(
       await tx
         .update(socialMessages)
         .set({ status: 'failed', error: failure.message })
-        .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.id, pendingId)));
+        .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.id, messageId)));
       if (failure.reconnect) {
         await tx
           .update(socialAccounts)
@@ -391,11 +472,11 @@ export async function replyToConversation(
     // A webhook echo may already have claimed the row and set its id.
     await tx
       .update(socialMessages)
-      .set({ externalId, status: 'sent' })
+      .set({ externalId, status: 'sent', sentAt: now })
       .where(
         and(
           eq(socialMessages.tenantId, ctx.tenantId),
-          eq(socialMessages.id, pendingId),
+          eq(socialMessages.id, messageId),
           isNull(socialMessages.externalId),
         ),
       );
@@ -403,7 +484,7 @@ export async function replyToConversation(
       .update(socialConversations)
       .set({
         lastMessageAt: now,
-        lastMessagePreview: previewOf({ body: input.body, attachments: [] }),
+        lastMessagePreview: previewOf({ body, attachments: [] }),
         unreadCount: 0,
         updatedAt: now,
       })
@@ -414,21 +495,36 @@ export async function replyToConversation(
         ),
       );
     await audit(tx, ctx, {
-      action: 'create',
+      action,
       entityType: 'social_message',
-      entityId: pendingId,
-      context: { conversationId: conversation.id, platform },
+      entityId: messageId,
+      context: { conversationId: conversation.id, platform, retried: action === 'update' },
     });
   });
-  if (failure) {
-    throw new AppError(
-      'CONFLICT',
-      failure.reconnect
-        ? 'The account needs to be connected again: its authorisation no longer works.'
-        : `Not sent: ${failure.message}`,
+  if (failure) throw replyFailure(failure);
+  return { messageId };
+}
+
+/** The reason a reply was not sent, in words the person can act on. */
+function replyFailure(failure: ProviderError): AppError {
+  if (failure.rateLimited) {
+    const wait = failure.retryAfterMinutes;
+    return new AppError(
+      'RATE_LIMITED',
+      `Not sent yet: the platform is limiting messages right now. ${
+        wait
+          ? `Try again in about ${wait} ${wait === 1 ? 'minute' : 'minutes'}`
+          : 'Try again in a few minutes'
+      } with Retry.`,
     );
   }
-  return { messageId: pendingId };
+  if (failure.reconnect) {
+    return new AppError(
+      'CONFLICT',
+      'The account needs to be connected again: its authorisation no longer works.',
+    );
+  }
+  return new AppError('CONFLICT', `Not sent: ${failure.message}`);
 }
 
 /** Links the customer to a CRM contact the person can see, or unlinks them. */

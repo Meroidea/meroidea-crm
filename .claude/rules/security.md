@@ -162,6 +162,16 @@ change as touching sensitive personal data.
 - One live business per account (`social_accounts_live_key`): never relax it, or one business's
   customers' messages could reach another.
 - Message content never goes into `audit_logs`, logs or error messages.
+- Realtime (ADR-065): broadcasts carry ids only, never content; the browser re-reads through
+  RLS. Channels are private `social:<tenant>`, joined only through `app.social_channel_allowed`.
+  Never broadcast to a public channel or put a message's words in a payload.
+- Media go into the private `social-media` bucket only through `src/modules/social/media.ts`:
+  https, the platforms' media hosts, redirects checked at each hop, size cap, leading bytes
+  matched to an accepted type. Never fetch an address from a payload any other way, and serve
+  files only through `/api/social/media` and `/api/social/avatar` (permission check, one-minute
+  link).
+- A TikTok notification whose signature fails is treated as unsigned, never as verified; read
+  receipts need a valid signature.
 
 ## Location (ADR-033)
 

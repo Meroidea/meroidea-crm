@@ -1,7 +1,8 @@
 export const SOCIAL_PLATFORMS = ['facebook', 'instagram', 'tiktok'] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
-export type ProviderAttachment = { type: string; url?: string };
+/** An attachment as a provider reports it: a link (Meta) or a media id to fetch (TikTok). */
+export type ProviderAttachment = { type: string; url?: string; mediaId?: string };
 
 /** A message as a provider reports it, before it is stored. */
 export type ProviderMessage = {
@@ -43,17 +44,31 @@ export type AccountRef = { platform: SocialPlatform; externalId: string; usernam
 /**
  * A provider refused or failed. `message` is safe to show the business and to log: it never
  * holds a token, a URL with a token, or a message's content. `reconnect` means the stored
- * authorisation no longer works and the business must connect the account again.
+ * authorisation no longer works and the business must connect the account again; `rateLimited`
+ * means the provider is throttling us, with `retryAfterMinutes` when it says how long.
  */
 export class ProviderError extends Error {
+  readonly reconnect: boolean;
+  readonly rateLimited: boolean;
+  readonly retryAfterMinutes: number | null;
+  readonly code: string | number | null;
+
   constructor(
     readonly platform: SocialPlatform | 'meta',
     message: string,
-    readonly reconnect = false,
-    readonly code: string | number | null = null,
+    options: {
+      reconnect?: boolean;
+      rateLimited?: boolean;
+      retryAfterMinutes?: number | null;
+      code?: string | number | null;
+    } = {},
   ) {
     super(message);
     this.name = 'ProviderError';
+    this.reconnect = options.reconnect ?? false;
+    this.rateLimited = options.rateLimited ?? false;
+    this.retryAfterMinutes = options.retryAfterMinutes ?? null;
+    this.code = options.code ?? null;
   }
 }
 

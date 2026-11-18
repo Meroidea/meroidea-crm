@@ -1,19 +1,17 @@
 'use client';
 
-import { CheckCheck, Link2, Plug, RotateCcw, Send, Unplug } from 'lucide-react';
+import { CheckCheck, Link2, Plug, RotateCcw, Unplug } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { SearchSelect, type SearchOption } from '@/components/forms/search-select';
 import { ErrorNote, useActionRunner } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { searchContactOptionsAction } from '@/modules/contacts/actions';
 import {
   disconnectAccountAction,
   linkContactAction,
   markReadAction,
-  replyAction,
   setConversationStatusAction,
   startConnectAction,
 } from '@/modules/social/actions';
@@ -72,65 +70,6 @@ export function DisconnectButton({ accountId, name }: { accountId: string; name:
       </Button>
       <ErrorNote error={error} />
     </div>
-  );
-}
-
-/**
- * The reply box. `window` is worked out on the server from the customer's last message: when
- * the platform no longer allows a reply, the box says why instead of failing on send.
- */
-export function ReplyBox({
-  conversationId,
-  maxChars,
-  blockedReason,
-  humanAgent,
-}: {
-  conversationId: string;
-  maxChars: number;
-  blockedReason: string | null;
-  humanAgent: boolean;
-}) {
-  const [body, setBody] = useState('');
-  const { run, error, isPending } = useActionRunner();
-  if (blockedReason) {
-    return (
-      <p className="rounded-xl border bg-muted/40 p-4 text-sm text-muted-foreground">
-        {blockedReason}
-      </p>
-    );
-  }
-  return (
-    <form
-      className="flex flex-col gap-2 rounded-xl border bg-card p-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        run(
-          () => replyAction({ conversationId, body }),
-          () => setBody(''),
-        );
-      }}
-    >
-      <Textarea
-        aria-label="Reply to the customer"
-        placeholder="Write your reply…"
-        rows={3}
-        required
-        maxLength={maxChars}
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground tabular-nums">
-          {humanAgent
-            ? 'Sent as a reply from a person: more than 24 hours have passed since their last message.'
-            : `${body.length} / ${maxChars}`}
-        </p>
-        <Button type="submit" size="sm" disabled={isPending || body.trim().length === 0}>
-          <Send aria-hidden /> {isPending ? 'Sending…' : 'Send'}
-        </Button>
-      </div>
-      <ErrorNote error={error} />
-    </form>
   );
 }
 
@@ -215,20 +154,5 @@ export function MarkRead({ conversationId, unread }: { conversationId: string; u
     sent.current = true;
     void markReadAction({ conversationId }).then(() => router.refresh());
   }, [conversationId, unread, router]);
-  return null;
-}
-
-/**
- * New messages arrive by webhook; while the page is visible it refreshes its data every so often
- * so they appear without a reload. Nothing is fetched while the tab is in the background.
- */
-export function AutoRefresh({ seconds = 20 }: { seconds?: number }) {
-  const router = useRouter();
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') router.refresh();
-    }, seconds * 1000);
-    return () => window.clearInterval(timer);
-  }, [router, seconds]);
   return null;
 }

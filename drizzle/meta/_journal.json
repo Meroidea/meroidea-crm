@@ -512,6 +512,13 @@
       "when": 1794988624012,
       "tag": "0072_social_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794991541081,
+      "tag": "0073_social_inbox_realtime_media",
+      "breakpoints": true
     }
   ]
 }

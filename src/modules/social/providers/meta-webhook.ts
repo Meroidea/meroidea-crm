@@ -98,3 +98,60 @@ export function parseMetaWebhook(body: unknown): MetaMessageEvent[] {
   }
   return events;
 }
+
+/** A delivery or read receipt for the business's own messages, from a verified webhook. */
+export type MetaReceiptEvent = {
+  platform: Extract<SocialPlatform, 'facebook' | 'instagram'>;
+  accountExternalId: string;
+  participantId: string;
+  kind: 'delivered' | 'read';
+  /** Messenger: every message sent at or before this time. */
+  watermark: Date | null;
+  /** Messenger deliveries list ids; Instagram's "seen" names the one message read. */
+  mids: string[];
+};
+
+/**
+ * Receipts in a verified Meta webhook: Messenger `delivery` (mids and/or watermark) and `read`
+ * (watermark), Instagram `read` (`messaging_seen`, one mid). The customer is the sender.
+ */
+export function parseMetaReceipts(body: unknown): MetaReceiptEvent[] {
+  const root = body as { object?: unknown; entry?: unknown };
+  const platform =
+    root?.object === 'page' ? 'facebook' : root?.object === 'instagram' ? 'instagram' : null;
+  if (!platform || !Array.isArray(root.entry)) return [];
+  const receipts: MetaReceiptEvent[] = [];
+  for (const entry of root.entry.slice(0, 100)) {
+    const accountExternalId = str((entry as { id?: unknown }).id);
+    const messaging = (entry as { messaging?: unknown }).messaging;
+    if (!accountExternalId || !Array.isArray(messaging)) continue;
+    for (const item of messaging.slice(0, 100) as {
+      sender?: { id?: unknown };
+      delivery?: { mids?: unknown; watermark?: unknown };
+      read?: { watermark?: unknown; mid?: unknown };
+    }[]) {
+      const participantId = str(item.sender?.id);
+      if (!participantId) continue;
+      const event = item.delivery ?? item.read;
+      if (!event) continue;
+      const watermark = typeof event.watermark === 'number' ? new Date(event.watermark) : null;
+      const mids = [
+        ...(Array.isArray(item.delivery?.mids) ? item.delivery.mids : []),
+        item.read?.mid,
+      ]
+        .map(str)
+        .filter((mid): mid is string => mid !== null)
+        .slice(0, 100);
+      if (!watermark && mids.length === 0) continue;
+      receipts.push({
+        platform,
+        accountExternalId,
+        participantId,
+        kind: item.delivery ? 'delivered' : 'read',
+        watermark,
+        mids,
+      });
+    }
+  }
+  return receipts;
+}

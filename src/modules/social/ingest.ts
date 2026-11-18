@@ -58,8 +58,8 @@ export async function recordMessage(
   scope: AccountScope & { conversationId: string },
   message: ProviderMessage,
   options: { countUnread: boolean },
-): Promise<boolean> {
-  let stored = false;
+): Promise<{ id: string; hasMedia: boolean } | null> {
+  let storedId: string | null = null;
   if (message.direction === 'outbound') {
     const claimed = await db
       .update(socialMessages)
@@ -78,9 +78,12 @@ export async function recordMessage(
         ),
       )
       .returning({ id: socialMessages.id });
-    stored = claimed.length > 0;
+    storedId = claimed[0]?.id ?? null;
   }
-  if (!stored) {
+  const attachments = message.attachments.map((attachment) =>
+    attachment.url || attachment.mediaId ? { ...attachment, state: 'pending' } : attachment,
+  );
+  if (!storedId) {
     const inserted = await db
       .insert(socialMessages)
       .values({
@@ -90,14 +93,14 @@ export async function recordMessage(
         externalId: message.externalId,
         direction: message.direction,
         body: message.body,
-        attachments: message.attachments,
+        attachments,
         sentAt: message.sentAt,
         status: message.direction === 'inbound' ? 'received' : 'sent',
       })
       .onConflictDoNothing({ target: [socialMessages.accountId, socialMessages.externalId] })
       .returning({ id: socialMessages.id });
-    if (inserted.length === 0) return false;
-    stored = true;
+    if (!inserted[0]) return null;
+    storedId = inserted[0].id;
   }
 
   const at = message.sentAt.toISOString();
@@ -126,26 +129,31 @@ export async function recordMessage(
         eq(socialConversations.id, scope.conversationId),
       ),
     );
-  return stored;
+  return { id: storedId, hasMedia: attachments.some((attachment) => 'state' in attachment) };
 }
 
-/** A whole conversation from an import: the thread, then each message in order. */
+/**
+ * A whole conversation from an import: the thread, then each message in order. Returns how many
+ * messages were new and which of them have media still to copy into storage.
+ */
 export async function recordImportedConversation(
   db: Db,
   scope: AccountScope,
   conversation: ProviderConversation,
-): Promise<number> {
+): Promise<{ stored: number; withMedia: string[] }> {
   const { id } = await recordConversation(db, scope, conversation);
   let stored = 0;
+  const withMedia: string[] = [];
   const ordered = [...conversation.messages].sort(
     (a, b) => a.sentAt.getTime() - b.sentAt.getTime(),
   );
   for (const message of ordered) {
-    if (
-      await recordMessage(db, { ...scope, conversationId: id }, message, { countUnread: false })
-    ) {
-      stored += 1;
-    }
+    const result = await recordMessage(db, { ...scope, conversationId: id }, message, {
+      countUnread: false,
+    });
+    if (!result) continue;
+    stored += 1;
+    if (result.hasMedia) withMedia.push(result.id);
   }
-  return stored;
+  return { stored, withMedia };
 }

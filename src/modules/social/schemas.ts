@@ -25,6 +25,8 @@ export const replySchema = z.object({
 });
 export type ReplyInput = z.output<typeof replySchema>;
 
+export const messageIdSchema = z.object({ messageId: z.uuid() });
+
 export const linkContactSchema = z.object({
   conversationId: z.uuid(),
   contactId: z.uuid().nullable(),

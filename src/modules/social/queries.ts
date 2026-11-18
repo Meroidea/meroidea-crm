@@ -13,6 +13,7 @@ import { withRls } from '@/server/db/with-rls';
 import { metaConfigured } from './providers/meta';
 import { tiktokConfigured } from './providers/tiktok';
 import type { SocialPlatform } from './providers/types';
+import type { StoredAttachment } from './media';
 import type { InboxFilters } from './schemas';
 
 export const INBOX_PAGE_SIZE = 50;
@@ -66,6 +67,7 @@ export type InboxRow = {
   accountName: string;
   contactId: string | null;
   contactName: string | null;
+  hasPicture: boolean;
 };
 
 /** The inbox: conversations across every connected account, newest message first. */
@@ -101,6 +103,7 @@ export async function listConversations(
         accountName: socialAccounts.name,
         contactId: socialConversations.contactId,
         contactName: contacts.fullName,
+        avatarPath: socialConversations.participantAvatarPath,
         sortAt,
       })
       .from(socialConversations)
@@ -134,6 +137,7 @@ export async function listConversations(
       accountName: row.accountName,
       contactId: row.contactId,
       contactName: row.contactName,
+      hasPicture: row.avatarPath !== null,
     })),
     nextCursor:
       rows.length > INBOX_PAGE_SIZE && last
@@ -162,7 +166,7 @@ export type ThreadMessage = {
   id: string;
   direction: 'inbound' | 'outbound';
   body: string | null;
-  attachments: { type: string; url?: string }[];
+  attachments: StoredAttachment[];
   sentAt: Date;
   status: string;
   error: string | null;
@@ -266,4 +270,50 @@ export async function listAccounts(ctx: TenantContext): Promise<{
     })),
     available: { meta: metaConfigured(), tiktok: tiktokConfigured() },
   };
+}
+
+/**
+ * Where one saved attachment is, for a person who may read the conversation (RLS keeps it to
+ * their business). Null when there is none or it is not stored yet.
+ */
+export async function mediaPath(
+  ctx: TenantContext,
+  messageId: string,
+  index: number,
+): Promise<string | null> {
+  requirePermission(ctx, 'social.view');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select({ attachments: socialMessages.attachments })
+      .from(socialMessages)
+      .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.id, messageId)))
+      .limit(1),
+  );
+  const attachment = Array.isArray(row?.attachments)
+    ? (row.attachments[index] as { state?: unknown; storagePath?: unknown } | undefined)
+    : undefined;
+  return attachment?.state === 'stored' && typeof attachment.storagePath === 'string'
+    ? attachment.storagePath
+    : null;
+}
+
+/** Where the customer's saved picture is, for a person who may read the conversation. */
+export async function avatarPath(
+  ctx: TenantContext,
+  conversationId: string,
+): Promise<string | null> {
+  requirePermission(ctx, 'social.view');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select({ path: socialConversations.participantAvatarPath })
+      .from(socialConversations)
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.id, conversationId),
+        ),
+      )
+      .limit(1),
+  );
+  return row?.path ?? null;
 }

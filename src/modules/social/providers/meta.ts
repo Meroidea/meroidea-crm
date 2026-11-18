@@ -164,7 +164,11 @@ export async function discoverMetaAccounts(token: string): Promise<DiscoveredAcc
 
 /** Ask Meta to send this account's messages to our webhook. */
 export async function subscribeMetaAccount(account: AccountRef, token: string): Promise<void> {
-  const fields = account.platform === 'facebook' ? 'messages,message_echoes' : 'messages';
+  // Messages, our own echoes and the customer's delivery and read receipts.
+  const fields =
+    account.platform === 'facebook'
+      ? 'messages,message_echoes,message_deliveries,message_reads'
+      : 'messages,messaging_seen';
   await providerFetch('meta', graph(`/${encodeURIComponent(account.externalId)}/subscribed_apps`), {
     method: 'POST',
     headers: { ...authorized(token), 'content-type': 'application/x-www-form-urlencoded' },
@@ -185,8 +189,34 @@ type GraphMessage = {
   created_time?: unknown;
   message?: unknown;
   from?: { id?: unknown; name?: unknown; username?: unknown };
-  attachments?: { data?: { mime_type?: unknown; image_data?: { url?: unknown } }[] };
+  attachments?: {
+    data?: {
+      mime_type?: unknown;
+      file_url?: unknown;
+      image_data?: { url?: unknown };
+      video_data?: { url?: unknown };
+    }[];
+  };
 };
+
+/** A message's attachments from the Conversations API, as links to fetch and save. */
+function graphAttachments(message: GraphMessage) {
+  return (message.attachments?.data ?? []).slice(0, 10).map((item) => {
+    const mime = typeof item.mime_type === 'string' ? item.mime_type : '';
+    const url = [item.image_data?.url, item.video_data?.url, item.file_url].find(
+      (value): value is string => typeof value === 'string' && value.startsWith('https://'),
+    );
+    const type = mime.startsWith('image/')
+      ? 'image'
+      : mime.startsWith('video/')
+        ? 'video'
+        : mime.startsWith('audio/')
+          ? 'audio'
+          : 'file';
+    return url ? { type, url } : { type };
+  });
+}
+
 type GraphConversation = {
   id?: unknown;
   participants?: { data?: { id?: unknown; name?: unknown; username?: unknown }[] };
@@ -204,7 +234,7 @@ export async function fetchMetaConversations(
 ): Promise<ProviderConversation[]> {
   const platform = account.platform === 'facebook' ? 'messenger' : 'instagram';
   const fields =
-    'id,participants,messages.limit(20){id,created_time,message,from,attachments{mime_type,image_data}}';
+    'id,participants,messages.limit(20){id,created_time,message,from,attachments{mime_type,file_url,image_data,video_data}}';
   const body = (await providerFetch(
     'meta',
     graph(
@@ -225,17 +255,11 @@ export async function fetchMetaConversations(
       const sentAt =
         typeof message.created_time === 'string' ? new Date(message.created_time) : null;
       if (!id || !sentAt || Number.isNaN(sentAt.getTime())) continue;
-      const image = message.attachments?.data?.[0]?.image_data?.url;
       messages.push({
         externalId: id,
         direction: message.from?.id === account.externalId ? 'outbound' : 'inbound',
         body: typeof message.message === 'string' && message.message ? message.message : null,
-        attachments:
-          typeof image === 'string'
-            ? [{ type: 'image', url: image }]
-            : message.attachments?.data?.length
-              ? [{ type: 'file' }]
-              : [],
+        attachments: graphAttachments(message),
         sentAt,
       });
     }
@@ -250,20 +274,34 @@ export async function fetchMetaConversations(
   return conversations;
 }
 
-/** The customer's display name, for a conversation that started with a webhook. */
+/** The customer's name, handle and picture, for a conversation that started with a webhook. */
 export async function fetchMetaProfile(
   account: AccountRef,
   token: string,
   participantId: string,
-): Promise<{ name: string | null; username: string | null }> {
-  const fields = account.platform === 'facebook' ? 'first_name,last_name' : 'name,username';
+): Promise<{ name: string | null; username: string | null; pictureUrl: string | null }> {
+  const fields =
+    account.platform === 'facebook'
+      ? 'first_name,last_name,profile_pic'
+      : 'name,username,profile_pic';
   const body = (await providerFetch(
     'meta',
     graph(`/${encodeURIComponent(participantId)}?fields=${fields}`),
     { headers: authorized(token), timeoutMs: 3_000 },
-  )) as { first_name?: unknown; last_name?: unknown; name?: unknown; username?: unknown };
+  )) as {
+    first_name?: unknown;
+    last_name?: unknown;
+    name?: unknown;
+    username?: unknown;
+    profile_pic?: unknown;
+  };
   const full = [text(body.first_name), text(body.last_name)].filter(Boolean).join(' ');
-  return { name: text(body.name) ?? (full || null), username: text(body.username) };
+  const picture = typeof body.profile_pic === 'string' ? body.profile_pic : null;
+  return {
+    name: text(body.name) ?? (full || null),
+    username: text(body.username),
+    pictureUrl: picture && picture.startsWith('https://') ? picture : null,
+  };
 }
 
 /**

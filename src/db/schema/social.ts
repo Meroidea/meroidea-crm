@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  check,
   foreignKey,
   index,
   integer,
@@ -53,6 +54,14 @@ export const socialAccounts = pgTable(
       .on(table.platform, table.externalId)
       .where(sql`${table.disconnectedAt} is null`),
     index('social_accounts_tenant_idx').on(table.tenantId, table.status),
+    check(
+      'social_accounts_platform_check',
+      sql`${table.platform} in ('facebook', 'instagram', 'tiktok')`,
+    ),
+    check(
+      'social_accounts_status_check',
+      sql`${table.status} in ('active', 'needs_reconnect', 'disconnected')`,
+    ),
   ],
 );
 
@@ -96,6 +105,8 @@ export const socialConversations = pgTable(
     participantId: text().notNull(),
     participantName: text(),
     participantUsername: text(),
+    /** The customer's picture, saved to the private `social-media` bucket (provider links expire). */
+    participantAvatarPath: text(),
     /** The CRM contact this customer is, once someone links them. */
     contactId: uuid(),
     lastMessageAt: timestamp({ withTimezone: true }),
@@ -122,6 +133,7 @@ export const socialConversations = pgTable(
       foreignColumns: [contacts.tenantId, contacts.id],
     }),
     index('social_conversations_inbox_idx').on(table.tenantId, table.lastMessageAt, table.id),
+    check('social_conversations_status_check', sql`${table.status} in ('open', 'done')`),
   ],
 );
 
@@ -140,14 +152,21 @@ export const socialMessages = pgTable(
     /** inbound | outbound */
     direction: text().notNull(),
     body: text(),
-    /** [{ type: 'image' | 'video' | 'audio' | 'file' | 'sticker' | 'share' | 'other', url? }] */
+    /**
+     * [{ type, state: pending | stored | failed | skipped, storagePath?, mimeType?, size?,
+     *    url?, mediaId? }]. Media is copied into the private `social-media` bucket, because
+     * provider links expire; `url`/`mediaId` are kept only until it is stored (ADR-065).
+     */
     attachments: jsonb().notNull().default([]),
     sentAt: timestamp({ withTimezone: true }).notNull(),
     /** Who replied from Meroidea; empty for the customer and for replies made in the app itself. */
     sentByUserId: uuid(),
-    /** received | sending | sent | failed */
+    /** received (inbound) | sending | sent | delivered | read | failed (outbound) */
     status: text().notNull().default('received'),
     error: text(),
+    /** When the customer's app received and read a reply, from the provider's receipts. */
+    deliveredAt: timestamp({ withTimezone: true }),
+    readAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -164,5 +183,10 @@ export const socialMessages = pgTable(
       foreignColumns: [socialAccounts.tenantId, socialAccounts.id],
     }),
     index('social_messages_thread_idx').on(table.tenantId, table.conversationId, table.sentAt),
+    check('social_messages_direction_check', sql`${table.direction} in ('inbound', 'outbound')`),
+    check(
+      'social_messages_status_check',
+      sql`${table.status} in ('received', 'sending', 'sent', 'delivered', 'read', 'failed')`,
+    ),
   ],
 );

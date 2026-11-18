@@ -23,9 +23,10 @@ choose which Pages and Instagram accounts to share; Instagram needs no Facebook 
    `instagram_basic`, `instagram_manage_messages`. Its id is `META_LOGIN_CONFIG_ID`.
 4. **Redirect address.** Valid OAuth redirect URI: `https://<your domain>/api/social/oauth/meta`.
 5. **Webhooks.** Callback `https://<your domain>/api/webhooks/meta`, verify token =
-   `META_WEBHOOK_VERIFY_TOKEN` (any long random string). Subscribe the Page object to `messages`
-   and `message_echoes`, and Instagram to `messages`. Meroidea subscribes each account itself when
-   a business connects it.
+   `META_WEBHOOK_VERIFY_TOKEN` (any long random string). Subscribe the Page object to `messages`,
+   `message_echoes`, `message_deliveries` and `message_reads`, and Instagram to `messages` and
+   `messaging_seen` (for "delivered" and "read" on replies). Meroidea subscribes each account
+   itself when a business connects it.
 6. **App Review for Advanced Access** to the permissions above. Meta asks for a screencast of the
    whole flow: connecting from `/social/accounts`, a message arriving in `/social`, and a reply
    sent from the thread. Use a test Page and Instagram account you own; in development mode,
@@ -38,7 +39,15 @@ choose which Pages and Instagram accounts to share; Instagram needs no Facebook 
    `META_WEBHOOK_VERIFY_TOKEN`, and `META_GRAPH_VERSION` (default `v27.0`; move it forward when Meta
    retires that version).
 
-## 2. TikTok
+## 2. Supabase Realtime (live updates)
+
+In the Supabase dashboard of the production project: **Realtime → Settings → switch off "Allow
+public access"**, so only private, authorised channels exist. Nothing else to configure: the
+migration adds the channel policy, and the inbox shows "Live" when connected (it falls back to a
+30-second refresh otherwise). Saved customer media live in the private `social-media` bucket,
+created by the migration; its size is the platform's cost.
+
+## 3. TikTok
 
 1. **Developer app** at business-api.tiktok.com (TikTok API for Business) with the *Business
    Messaging* permission, and the TikTok account holder redirect URL
@@ -50,10 +59,14 @@ choose which Pages and Instagram accounts to share; Instagram needs no Facebook 
 3. **Webhook.** Once approved, register `https://<your domain>/api/webhooks/tiktok` for the
    `DIRECT_MESSAGE` events through TikTok's `/business/webhook/update/` endpoint (once per app,
    not per business).
-4. **Settings:** `TIKTOK_APP_ID`, `TIKTOK_APP_SECRET`, and `TIKTOK_AUTH_URL` (the "TikTok account
+4. **Signatures.** Meroidea checks `TikTok-Signature` (`t=…,s=…`, HMAC-SHA256 of `t.body` with
+   the app secret). Confirm on the developer portal that Business Messaging webhooks are signed
+   this way: until a notification is signed, it still works but is throttled, and read receipts
+   from TikTok are not applied.
+5. **Settings:** `TIKTOK_APP_ID`, `TIKTOK_APP_SECRET`, and `TIKTOK_AUTH_URL` (the "TikTok account
    holder authorization URL" shown on the app's page; Meroidea adds the `state`).
 
-## 3. Switch it on for a business
+## 4. Switch it on for a business
 
 In `/platform`, open the business and tick **Social inbox**. Its Admin then sees
 **Customer care → Social inbox → Connected accounts** and connects their accounts. Managers can
@@ -65,7 +78,7 @@ What the business needs:
 - **TikTok:** a Verified Business Account (or one with Advanced Access), owned by someone over 18,
   set to accept direct messages from everyone, and not registered in the EEA, Switzerland or the UK.
 
-## 4. Limits to tell businesses
+## 5. Limits to tell businesses
 
 - Replies: within 24 hours of the customer's last message on Facebook and Instagram (up to 7 days
   as a reply from a person, once Meta approves Human Agent); TikTok allows 10 replies within 48
@@ -73,4 +86,5 @@ What the business needs:
 - History: on connecting, the latest 25 conversations are imported, with up to 20 messages each
   (the platforms return no more). TikTok keeps only the last 90 days.
 - One business per account: an account already connected elsewhere is skipped.
-- Text replies only for now; images and files customers send are shown as links.
+- Text replies only for now. Photos, videos, voice notes and files customers send are saved and
+  shown in the thread; a file type Meroidea does not keep is marked as not saved.

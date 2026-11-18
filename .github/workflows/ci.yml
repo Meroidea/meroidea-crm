@@ -43,8 +43,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Start Supabase (database, auth, storage, API gateway)
-        run: npx supabase start --exclude studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+      - name: Start Supabase (database, auth, storage, realtime, API gateway)
+        run: npx supabase start --exclude studio,imgproxy,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
       # The tests talk to Auth and Storage as well as Postgres, so they need the keys this
       # throwaway local stack prints. They are generated per run and are not real secrets.
       - name: Point the tests at the local Supabase
@@ -76,8 +76,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Start Supabase (database, auth, storage, API gateway)
-        run: npx supabase start --exclude studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
+      - name: Start Supabase (database, auth, storage, realtime, API gateway)
+        run: npx supabase start --exclude studio,imgproxy,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta
       # Same throwaway keys as the database job. They are also needed at build time, because
       # Next.js writes the NEXT_PUBLIC_ values into the browser bundle.
       - name: Point the app at the local Supabase

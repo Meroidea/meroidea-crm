@@ -14,6 +14,7 @@ import {
   conversationIdSchema,
   conversationStatusSchema,
   linkContactSchema,
+  messageIdSchema,
   replySchema,
   startConnectSchema,
 } from './schemas';
@@ -62,6 +63,11 @@ export const disconnectAccountAction = authedAction(
 export const replyAction = authedAction(
   { permission: 'social.reply', input: replySchema, revalidate: paths },
   (ctx, input) => social.replyToConversation(ctx, input),
+);
+
+export const retryReplyAction = authedAction(
+  { permission: 'social.reply', input: messageIdSchema, revalidate: paths },
+  (ctx, input) => social.retryReply(ctx, input.messageId),
 );
 
 export const linkContactAction = authedAction(
