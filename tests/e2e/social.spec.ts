@@ -45,7 +45,10 @@ test('an admin opens the social inbox and sees what can be connected', async ({
   // A login callback that did not start here is refused, and nothing is connected.
   await page.goto('/api/social/oauth/meta?code=forged&state=forged');
   await expect(page).toHaveURL(/\/social\/accounts\?error=expired/);
-  await expect(page.getByRole('alert')).toContainText('took too long or came from another window');
+  // A production build also renders Next.js's empty route announcer with role "alert": find ours.
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'took too long or came from another window' }),
+  ).toBeVisible();
 
   for (const path of ['/social', '/social/accounts']) {
     await page.goto(path);
