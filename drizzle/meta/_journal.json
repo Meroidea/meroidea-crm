@@ -505,6 +505,13 @@
       "when": 1795143188486,
       "tag": "0071_assistant_feature",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795143811502,
+      "tag": "0072_ai_pending_actions",
+      "breakpoints": true
     }
   ]
 }

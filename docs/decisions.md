@@ -1277,6 +1277,8 @@ aged payables (milestone 5).
 
 ## ADR-063 — AI assistant: read-only chat over the business's own reports (pulled forward from Stage 4)
 
+> **Partly superseded by ADR-064:** the assistant (now "Meroidea AI") can also propose changes, which run only after the person approves them. The chat moved to `POST /api/ai/chat` and the key to `GEMINI_API_KEY`. Everything here about reads, scope, limits and the free tier still holds.
+
 **Context.** Businesses asked to ask their pipeline questions in plain words ("what am I behind
 on?", "how did last quarter go by source?") instead of reading the Reports page. The roadmap had AI
 in Stage 4. The read side already exists: `getDashboard`, `getReports` and `listQuietDeals`
@@ -1334,3 +1336,77 @@ links, so a crafted name in the data cannot make the browser call out with figur
 unchanged); saved conversations; per-business spend reporting; tools for leads, contacts or the
 books; a data-processing agreement with the provider, which the platform owner needs before
 switching the feature on for a real business.
+
+
+## ADR-064 — Meroidea AI proposes changes; a person approves each one (human in the loop)
+
+**Context.** Businesses asked the assistant to do the work as well as report on it: "invoice
+Example Pty Ltd for two hours", "put Sam on Monday 9 to 5", "email all staff about Friday",
+"move the Acme deal to Proposal". A language model can misread a request, pick the wrong record,
+or be steered by text someone typed into a record. It must never be the thing that writes.
+
+**Decision.**
+
+1. **Read tools run at once; write tools only propose.** Read: `get_pipeline_stats`,
+   `get_overdue_follow_ups`, `get_sales_report` (now with won-vs-weighted-forecast and stalled
+   deals; Meroidea has no sales targets yet, and the tool says so), and `search_records`
+   (contacts, organizations, opportunities, library documents, the roster for a day; at most 10,
+   through each module's own scoped list query, without phone numbers). Write:
+   `propose_invoice`, `propose_roster`, `propose_staff_email`, `propose_record_update` (stage move
+   or task). A write tool validates, then inserts one `ai_pending_actions` row and returns it; the
+   chat shows it as a card with **Approve & Execute**, **Cancel**, **Edit** and **Ask to revise**.
+2. **Table-backed, not the SDK's own tool approval.** The AI SDK's `toolApproval` keeps the
+   approval in the browser-held conversation. A row gives one source of truth: an owner, a status
+   the database guards, an expiry, an audit trail, and approval from any device.
+3. **Only the person who asked can see, edit, approve or reject** a proposal (RLS on
+   `created_by = app.user_id()`), in the same business, while the `assistant` feature is on. Not
+   even the Admin sees colleagues' proposals: they can hold drafts of emails and invoices.
+4. **Approval runs the module's own service as that person.** `saveInvoice`,
+   `saveRosterShifts`, `emailStaff`, `moveStage`, `createTask` check the permission (again: a role
+   may have changed since the proposal), apply every business rule and write their usual audit
+   rows. Propose tools check the same permissions first, so the assistant does not offer what the
+   person could not approve. Names the model gives are matched only among records the person may
+   see; anything ambiguous is a question back, never a guess.
+5. **Exactly once.** Approval claims the row with one conditional update (pending → executing,
+   only if still pending and unexpired), so a double click or a second tab cannot run it twice.
+   A trigger (`app.guard_ai_pending_action`) allows only pending → executing | rejected | expired
+   | pending (edit), and executing → approved | failed | pending; decided rows are final, and only
+   a pending row's payload can change. When a service refuses with a business reason
+   (`AppError`), its transaction wrote nothing, so the row returns to pending with the reason on
+   the card. Anything unexpected marks it failed for good, since we cannot be sure nothing
+   happened. Proposals lapse after 24 hours.
+6. **Safe defaults for what is applied.** An invoice is saved as a **draft** (sending stays a
+   person's action on the invoice). Roster shifts are saved **unpublished**, with breaks from the
+   business's break rules, all in one transaction (`saveShiftIn` / `createRosterIn` take the
+   caller's transaction) so one refused shift saves none. A staff email needs `users.manage` (Admin
+   by default; there was no "email staff" permission and we did not invent one), at most 200
+   recipients who must still be active members, 10 sends a business a day, replies to the sender,
+   and an audit row with counts only. A stage move that needs approval becomes a request, as on
+   the board.
+7. **Audit.** Each decision writes an `ai_pending_actions` audit row (`action = 'update'`,
+   `context.aiProposed = true`, `decision`, `approvedBy`, and the resulting record's type and id),
+   alongside the service's own row for the record itself.
+8. **The model's memory of proposals comes from the server.** The browser's copy of tool results
+   is still dropped (ADR-063). For proposal ids it mentions, the server reads the person's own
+   rows under RLS and tells the model their real summary and status, so "make it due Friday" can
+   revise proposal X (`replacesActionId`, which withdraws X in the same transaction).
+9. **Endpoints.** `POST /api/ai/chat`; `GET`/`PATCH /api/ai/actions/:id` (read, edit);
+   `POST /api/ai/actions/:id/approve` and `/reject`. All go through `authedRoute()`
+   (`src/server/authed-route.ts`): same-origin, signed in, workspace open, then the service.
+   Route Handlers rather than Server Actions because the chat streams and the approval API was
+   asked for as HTTP; they repeat authedAction's guarantees.
+10. **UI.** A right-hand drawer in the workspace header (⌘K / Ctrl+K), shown only with
+    `assistant.use`. Answers render through `SafeMarkdown`, a small renderer that builds React
+    elements and never renders links, images or HTML. Cards edit within limits (reword, change
+    amounts, dates and times, drop recipients or shifts); pointing a proposal at other records is a
+    revision through the assistant.
+
+**Consequences.** A new write capability is a new `kind`: a payload schema in
+`pending-schemas.ts`, a propose tool that checks the permission, an `execute` branch that calls
+the module service, a card preview, and DB tests for propose-writes-nothing, approve-once,
+cross-user and cross-tenant refusal. `@ai-sdk/react` is added (part of the approved SDK; it brings
+`swr` internally for `useChat`).
+
+**Not covered yet.** Saved conversations (a reload starts a new one; proposals survive in the
+table); a list of open proposals outside the chat; sending invoices or publishing rosters through
+the assistant; recurring or scheduled actions; per-business spend reporting.

@@ -138,9 +138,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `rosters.manage` | | Create, edit, publish and delete rosters and shifts, including unpublished ones; manage teams, pay loadings, break rules and public holidays; email staff their roster. Enforced again by RLS on every roster table. Shift cost is shown only to someone who also holds `employees.manage`, because it is worked out from contract pay rates |
 | `reports.view` | ✓ | Dashboards and reports, limited to scope |
 | `reports.export` | | Download report tables as CSV (audited) |
-| `assistant.use` | | Ask the AI assistant (ADR-063). Grants no data: its read-only tools use `reports.view`, `tasks.view`, `opportunities.view` and `revenue.view` at the person's own scope |
+| `assistant.use` | | Use Meroidea AI (ADR-063, ADR-064). Grants no data and no changes: its read tools use the person's own report, task, contact, organization, opportunity, file and roster permissions; each proposal it prepares needs the permission of the change itself (`invoices.manage`, `rosters.manage`, `users.manage`, `opportunities.edit`, `tasks.manage`) to be offered and again to be approved |
 | `settings.manage` | | Pipelines, stages, sources, lost reasons, document types, custom fields, labels, branding |
-| `users.manage` | | Invite, deactivate, change role/team |
+| `users.manage` | | Invite, deactivate, change role/team; email staff (ADR-064) |
 | `roles.manage` | | Edit roles and their permissions |
 | `audit.view` | | Audit log viewer and export |
 

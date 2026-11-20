@@ -42,10 +42,10 @@ const serverEnvSchema = z.object({
    */
   CRON_SECRET: z.string().min(32).optional(),
   /**
-   * The AI assistant (ADR-063), on Google's Gemini API. Without the key, the assistant answers
-   * "not set up" and the rest of the app is unaffected.
+   * Meroidea AI (ADR-063, ADR-064), on Google's Gemini API (https://aistudio.google.com/apikey).
+   * Without the key, the assistant answers "not set up" and the rest of the app is unaffected.
    */
-  GOOGLE_GENERATIVE_AI_API_KEY: blankAsUnset(z.string().min(1).optional()),
+  GEMINI_API_KEY: blankAsUnset(z.string().min(1).optional()),
   /** Which Gemini model answers. Checked against Google's current list, not hardcoded here. */
   ASSISTANT_MODEL: blankAsUnset(z.string().min(1).default('gemini-2.5-flash')),
   /**

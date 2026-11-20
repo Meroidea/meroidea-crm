@@ -25,13 +25,15 @@ import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 
 import { rosterEmail, type NotifiedShift } from './notify';
-import { unpaidMinutes } from './rules';
+import { getRosterRules } from './queries';
+import { autoBreaks, shiftLength, unpaidMinutes } from './rules';
 import {
   ROSTER_SPAN_DAYS,
   type AddHolidayInput,
   type CopyShiftInput,
   type CreateRosterInput,
   type PublishRosterInput,
+  type SaveRosterShiftsInput,
   type SaveRulesInput,
   type SaveShiftInput,
   type SaveTeamInput,
@@ -239,55 +241,62 @@ export async function createRoster(
   input: CreateRosterInput,
 ): Promise<{ id: string; copiedShifts: number; skippedShifts: number }> {
   requirePermission(ctx, 'rosters.manage');
+  return withRls(ctx, (tx) => createRosterIn(tx, ctx, input));
+}
+
+/** createRoster inside a transaction the caller already holds. */
+export async function createRosterIn(
+  tx: Tx,
+  ctx: TenantContext,
+  input: CreateRosterInput,
+): Promise<{ id: string; copiedShifts: number; skippedShifts: number }> {
+  requirePermission(ctx, 'rosters.manage');
   const endsOn = addDaysToDate(input.startsOn, ROSTER_SPAN_DAYS[input.span] - 1);
-
-  return withRls(ctx, async (tx) => {
-    const [clash] = await tx
-      .select({ id: rosters.id })
-      .from(rosters)
-      .where(
-        and(
-          eq(rosters.tenantId, ctx.tenantId),
-          isNull(rosters.deletedAt),
-          lte(rosters.startsOn, endsOn),
-          gte(rosters.endsOn, input.startsOn),
-        ),
-      )
-      .limit(1);
-    if (clash) {
-      throw new AppError('CONFLICT', 'A roster already covers some of those days.', {
-        startsOn: ['Choose days that no other roster covers'],
-      });
-    }
-
-    const [created] = await tx
-      .insert(rosters)
-      .values({
-        tenantId: ctx.tenantId,
-        startsOn: input.startsOn,
-        endsOn,
-        createdBy: ctx.userId,
-        updatedBy: ctx.userId,
-      })
-      .returning({ id: rosters.id, startsOn: rosters.startsOn, endsOn: rosters.endsOn });
-    if (!created) throw new AppError('INTERNAL', 'Could not create the roster.');
-
-    const copy = input.copyPrevious
-      ? await copyFromPrevious(tx, ctx, created)
-      : { copied: 0, skipped: 0 };
-    await audit(tx, ctx, {
-      action: 'create',
-      entityType: 'roster',
-      entityId: created.id,
-      context: {
-        startsOn: created.startsOn,
-        endsOn: created.endsOn,
-        copiedShifts: copy.copied,
-        skippedShifts: copy.skipped,
-      },
+  const [clash] = await tx
+    .select({ id: rosters.id })
+    .from(rosters)
+    .where(
+      and(
+        eq(rosters.tenantId, ctx.tenantId),
+        isNull(rosters.deletedAt),
+        lte(rosters.startsOn, endsOn),
+        gte(rosters.endsOn, input.startsOn),
+      ),
+    )
+    .limit(1);
+  if (clash) {
+    throw new AppError('CONFLICT', 'A roster already covers some of those days.', {
+      startsOn: ['Choose days that no other roster covers'],
     });
-    return { id: created.id, copiedShifts: copy.copied, skippedShifts: copy.skipped };
+  }
+
+  const [created] = await tx
+    .insert(rosters)
+    .values({
+      tenantId: ctx.tenantId,
+      startsOn: input.startsOn,
+      endsOn,
+      createdBy: ctx.userId,
+      updatedBy: ctx.userId,
+    })
+    .returning({ id: rosters.id, startsOn: rosters.startsOn, endsOn: rosters.endsOn });
+  if (!created) throw new AppError('INTERNAL', 'Could not create the roster.');
+
+  const copy = input.copyPrevious
+    ? await copyFromPrevious(tx, ctx, created)
+    : { copied: 0, skipped: 0 };
+  await audit(tx, ctx, {
+    action: 'create',
+    entityType: 'roster',
+    entityId: created.id,
+    context: {
+      startsOn: created.startsOn,
+      endsOn: created.endsOn,
+      copiedShifts: copy.copied,
+      skippedShifts: copy.skipped,
+    },
   });
+  return { id: created.id, copiedShifts: copy.copied, skippedShifts: copy.skipped };
 }
 
 export type PublishOutcome = {
@@ -477,142 +486,206 @@ export async function saveShift(
   input: SaveShiftInput,
 ): Promise<{ id: string }> {
   requirePermission(ctx, 'rosters.manage');
+  return withRls(ctx, (tx) => saveShiftIn(tx, ctx, input));
+}
 
-  return withRls(ctx, async (tx) => {
-    const roster = await loadRoster(tx, ctx, input.rosterId);
-    assertNotAuthorised(roster);
-    if (input.date < roster.startsOn || input.date > roster.endsOn) {
-      throw new AppError('VALIDATION', 'That day is outside this roster.', {
-        date: ['Choose a day inside this roster'],
-      });
-    }
+/**
+ * saveShift inside a transaction the caller already holds, so several shifts can be saved
+ * together or not at all (saveRosterShifts).
+ */
+export async function saveShiftIn(
+  tx: Tx,
+  ctx: TenantContext,
+  input: SaveShiftInput,
+): Promise<{ id: string }> {
+  requirePermission(ctx, 'rosters.manage');
+  const roster = await loadRoster(tx, ctx, input.rosterId);
+  assertNotAuthorised(roster);
+  if (input.date < roster.startsOn || input.date > roster.endsOn) {
+    throw new AppError('VALIDATION', 'That day is outside this roster.', {
+      date: ['Choose a day inside this roster'],
+    });
+  }
 
-    const { startsAt, endsAt } = shiftInstants(
-      ctx.tenant.timezone,
-      input.date,
-      input.startTime,
-      input.endTime,
-    );
-    const lengthMinutes = (endsAt.getTime() - startsAt.getTime()) / 60_000;
-    const totalBreak = input.breaks.reduce((sum, item) => sum + item.minutes, 0);
-    if (totalBreak >= lengthMinutes) {
-      throw new AppError('VALIDATION', 'The breaks are as long as the shift.', {
-        breaks: ['Make the breaks shorter than the shift'],
-      });
-    }
+  const { startsAt, endsAt } = shiftInstants(
+    ctx.tenant.timezone,
+    input.date,
+    input.startTime,
+    input.endTime,
+  );
+  const lengthMinutes = (endsAt.getTime() - startsAt.getTime()) / 60_000;
+  const totalBreak = input.breaks.reduce((sum, item) => sum + item.minutes, 0);
+  if (totalBreak >= lengthMinutes) {
+    throw new AppError('VALIDATION', 'The breaks are as long as the shift.', {
+      breaks: ['Make the breaks shorter than the shift'],
+    });
+  }
 
-    if (input.userId && !(await activeMemberIds(tx, ctx)).has(input.userId)) {
-      throw new AppError('VALIDATION', 'That person is not an active member of this workspace.', {
-        userId: ['Choose an active member'],
+  if (input.userId && !(await activeMemberIds(tx, ctx)).has(input.userId)) {
+    throw new AppError('VALIDATION', 'That person is not an active member of this workspace.', {
+      userId: ['Choose an active member'],
+    });
+  }
+  if (input.teamId) {
+    if (!(await liveTeamIds(tx, ctx)).has(input.teamId)) {
+      throw new AppError('VALIDATION', 'That team was not found.', {
+        teamId: ['Choose a team from the list'],
       });
-    }
-    if (input.teamId) {
-      if (!(await liveTeamIds(tx, ctx)).has(input.teamId)) {
-        throw new AppError('VALIDATION', 'That team was not found.', {
-          teamId: ['Choose a team from the list'],
-        });
-      }
-      if (input.userId) {
-        const [member] = await tx
-          .select({ userId: rosterTeamMembers.userId })
-          .from(rosterTeamMembers)
-          .where(
-            and(
-              eq(rosterTeamMembers.tenantId, ctx.tenantId),
-              eq(rosterTeamMembers.teamId, input.teamId),
-              eq(rosterTeamMembers.userId, input.userId),
-            ),
-          )
-          .limit(1);
-        if (!member) {
-          throw new AppError('VALIDATION', 'This person is not in that team.', {
-            teamId: ['Choose one of this person\u2019s teams, or add them to this one'],
-          });
-        }
-      }
     }
     if (input.userId) {
-      await assertNoOverlap(tx, ctx, {
-        userId: input.userId,
-        startsAt,
-        endsAt,
-        exceptId: input.id,
-      });
-    }
-
-    const values = {
-      userId: input.userId,
-      teamId: input.teamId,
-      startsAt,
-      endsAt,
-      breakMinutes: unpaidMinutes(input.breaks),
-      breaks: input.breaks,
-      autoBreaks: input.autoBreaks,
-      note: input.note,
-      // Staff are not shown the change until the roster is published again.
-      unpublishedChanges: true,
-      updatedBy: ctx.userId,
-    };
-
-    if (input.id) {
-      const [before] = await tx
-        .select({ userId: rosterShifts.userId, publishedAt: rosterShifts.publishedAt })
-        .from(rosterShifts)
+      const [member] = await tx
+        .select({ userId: rosterTeamMembers.userId })
+        .from(rosterTeamMembers)
         .where(
           and(
-            eq(rosterShifts.tenantId, ctx.tenantId),
-            eq(rosterShifts.id, input.id),
-            eq(rosterShifts.rosterId, roster.id),
-            isNull(rosterShifts.deletedAt),
+            eq(rosterTeamMembers.tenantId, ctx.tenantId),
+            eq(rosterTeamMembers.teamId, input.teamId),
+            eq(rosterTeamMembers.userId, input.userId),
           ),
         )
         .limit(1);
-      if (!before) throw new AppError('NOT_FOUND', 'That shift was not found.');
-      // A shift someone has already been told about, moved to someone else: it is taken off
-      // them like a removed shift (so publishing tells them) and given anew to the other person.
-      if (before.publishedAt && before.userId && before.userId !== input.userId) {
-        await tx
-          .update(rosterShifts)
-          .set({ deletedAt: new Date(), unpublishedChanges: true, updatedBy: ctx.userId })
-          .where(and(eq(rosterShifts.tenantId, ctx.tenantId), eq(rosterShifts.id, input.id)));
-        const [moved] = await tx
-          .insert(rosterShifts)
-          .values({ ...values, tenantId: ctx.tenantId, rosterId: roster.id, createdBy: ctx.userId })
-          .returning({ id: rosterShifts.id });
-        if (!moved) throw new AppError('INTERNAL', 'Could not save the shift.');
-        await audit(tx, ctx, {
-          action: 'update',
-          entityType: 'roster_shift',
-          entityId: moved.id,
-          changes: { userId: [before.userId, input.userId] },
-          context: { replacesShift: input.id },
+      if (!member) {
+        throw new AppError('VALIDATION', 'This person is not in that team.', {
+          teamId: ['Choose one of this person\u2019s teams, or add them to this one'],
         });
-        return moved;
       }
-      const [updated] = await tx
-        .update(rosterShifts)
-        .set(values)
-        .where(
-          and(
-            eq(rosterShifts.tenantId, ctx.tenantId),
-            eq(rosterShifts.id, input.id),
-            eq(rosterShifts.rosterId, roster.id),
-            isNull(rosterShifts.deletedAt),
-          ),
-        )
-        .returning({ id: rosterShifts.id });
-      if (!updated) throw new AppError('NOT_FOUND', 'That shift was not found.');
-      await audit(tx, ctx, { action: 'update', entityType: 'roster_shift', entityId: updated.id });
-      return updated;
     }
+  }
+  if (input.userId) {
+    await assertNoOverlap(tx, ctx, {
+      userId: input.userId,
+      startsAt,
+      endsAt,
+      exceptId: input.id,
+    });
+  }
 
-    const [created] = await tx
-      .insert(rosterShifts)
-      .values({ ...values, tenantId: ctx.tenantId, rosterId: roster.id, createdBy: ctx.userId })
+  const values = {
+    userId: input.userId,
+    teamId: input.teamId,
+    startsAt,
+    endsAt,
+    breakMinutes: unpaidMinutes(input.breaks),
+    breaks: input.breaks,
+    autoBreaks: input.autoBreaks,
+    note: input.note,
+    // Staff are not shown the change until the roster is published again.
+    unpublishedChanges: true,
+    updatedBy: ctx.userId,
+  };
+
+  if (input.id) {
+    const [before] = await tx
+      .select({ userId: rosterShifts.userId, publishedAt: rosterShifts.publishedAt })
+      .from(rosterShifts)
+      .where(
+        and(
+          eq(rosterShifts.tenantId, ctx.tenantId),
+          eq(rosterShifts.id, input.id),
+          eq(rosterShifts.rosterId, roster.id),
+          isNull(rosterShifts.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!before) throw new AppError('NOT_FOUND', 'That shift was not found.');
+    // A shift someone has already been told about, moved to someone else: it is taken off
+    // them like a removed shift (so publishing tells them) and given anew to the other person.
+    if (before.publishedAt && before.userId && before.userId !== input.userId) {
+      await tx
+        .update(rosterShifts)
+        .set({ deletedAt: new Date(), unpublishedChanges: true, updatedBy: ctx.userId })
+        .where(and(eq(rosterShifts.tenantId, ctx.tenantId), eq(rosterShifts.id, input.id)));
+      const [moved] = await tx
+        .insert(rosterShifts)
+        .values({ ...values, tenantId: ctx.tenantId, rosterId: roster.id, createdBy: ctx.userId })
+        .returning({ id: rosterShifts.id });
+      if (!moved) throw new AppError('INTERNAL', 'Could not save the shift.');
+      await audit(tx, ctx, {
+        action: 'update',
+        entityType: 'roster_shift',
+        entityId: moved.id,
+        changes: { userId: [before.userId, input.userId] },
+        context: { replacesShift: input.id },
+      });
+      return moved;
+    }
+    const [updated] = await tx
+      .update(rosterShifts)
+      .set(values)
+      .where(
+        and(
+          eq(rosterShifts.tenantId, ctx.tenantId),
+          eq(rosterShifts.id, input.id),
+          eq(rosterShifts.rosterId, roster.id),
+          isNull(rosterShifts.deletedAt),
+        ),
+      )
       .returning({ id: rosterShifts.id });
-    if (!created) throw new AppError('INTERNAL', 'Could not save the shift.');
-    await audit(tx, ctx, { action: 'create', entityType: 'roster_shift', entityId: created.id });
-    return created;
+    if (!updated) throw new AppError('NOT_FOUND', 'That shift was not found.');
+    await audit(tx, ctx, { action: 'update', entityType: 'roster_shift', entityId: updated.id });
+    return updated;
+  }
+
+  const [created] = await tx
+    .insert(rosterShifts)
+    .values({ ...values, tenantId: ctx.tenantId, rosterId: roster.id, createdBy: ctx.userId })
+    .returning({ id: rosterShifts.id });
+  if (!created) throw new AppError('INTERNAL', 'Could not save the shift.');
+  await audit(tx, ctx, { action: 'create', entityType: 'roster_shift', entityId: created.id });
+  return created;
+}
+
+/**
+ * Saves a set of shifts for one roster period in a single transaction: the roster starting on
+ * `startsOn` is used, or created for that period when there is none, and every shift goes
+ * through the same checks as one saved by hand (active member, inside the roster, no overlap,
+ * roster not authorised for pay). One refusal saves nothing. Shifts stay unpublished: staff see
+ * them only once someone publishes the roster.
+ */
+export async function saveRosterShifts(
+  ctx: TenantContext,
+  input: SaveRosterShiftsInput,
+): Promise<{ rosterId: string; createdRoster: boolean; shifts: number }> {
+  requirePermission(ctx, 'rosters.manage');
+  const { breakRules } = await getRosterRules(ctx);
+
+  return withRls(ctx, async (tx) => {
+    const [existing] = await tx
+      .select({ id: rosters.id })
+      .from(rosters)
+      .where(
+        and(
+          eq(rosters.tenantId, ctx.tenantId),
+          isNull(rosters.deletedAt),
+          eq(rosters.startsOn, input.startsOn),
+        ),
+      )
+      .limit(1);
+    const rosterId =
+      existing?.id ??
+      (
+        await createRosterIn(tx, ctx, {
+          startsOn: input.startsOn,
+          span: input.span,
+          copyPrevious: false,
+        })
+      ).id;
+
+    for (const shift of input.shifts) {
+      const breaks = autoBreaks(shiftLength(shift.startTime, shift.endTime), breakRules);
+      await saveShiftIn(tx, ctx, {
+        rosterId,
+        userId: shift.userId,
+        teamId: null,
+        date: shift.date,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        breaks,
+        autoBreaks: true,
+        note: shift.note,
+      });
+    }
+    return { rosterId, createdRoster: !existing, shifts: input.shifts.length };
   });
 }
 

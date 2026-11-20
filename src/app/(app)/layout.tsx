@@ -10,11 +10,12 @@ import { PrivacyBlurToggle } from '@/components/layout/privacy-blur-toggle';
 import { UserMenu } from '@/components/layout/user-menu';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AssistantDrawer } from '@/modules/assistant/components/assistant-drawer';
 import { getMyName } from '@/modules/members/queries';
 import { sweepIfDue } from '@/modules/notifications/alerts';
 import { countUnread } from '@/modules/notifications/queries';
 import { SupportBanner } from '@/modules/platform/components/platform-tools';
-import { requireTenantContext } from '@/server/context';
+import { hasPermission, requireTenantContext } from '@/server/context';
 import { getPlatformAdmin } from '@/server/platform';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
@@ -55,6 +56,18 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 >
                   Platform
                 </Link>
+              )}
+              {hasPermission(ctx, 'assistant.use') && (
+                <AssistantDrawer
+                  currency={ctx.tenant.currency}
+                  abilities={{
+                    reports: hasPermission(ctx, 'reports.view'),
+                    invoices: hasPermission(ctx, 'invoices.manage'),
+                    rosters: hasPermission(ctx, 'rosters.manage'),
+                    staffEmail: hasPermission(ctx, 'users.manage'),
+                    tasks: hasPermission(ctx, 'tasks.view'),
+                  }}
+                />
               )}
               <NotificationBell unread={unread} />
               <PrivacyBlurToggle />

@@ -151,7 +151,7 @@ if several, a `tenant` cookie validated against memberships. In Phase 3 the subd
 | User mutations | Server Actions via `authedAction` |
 | Client-side refetch (board drag, infinite scroll) | Server Action returning data |
 | Webhooks, public forms, file redirects, cron hooks | Route Handlers under `/api` |
-| Streamed AI assistant answers (ADR-063) | `POST /api/assistant/chat`, a signed-in Route Handler that repeats authedAction's checks plus a same-origin check |
+| Meroidea AI chat and approvals (ADR-063, ADR-064) | `POST /api/ai/chat` (streamed), `GET`/`PATCH /api/ai/actions/:id`, `POST /api/ai/actions/:id/approve` and `/reject`, all through `authedRoute()` (`src/server/authed-route.ts`): same-origin, signed in, workspace open, then the service |
 | External developers (Phase 3) | `/api/v1/*`, API keys per tenant, same services |
 
 - Errors: `AppError(code, message)`; codes in `coding-standards.md`.

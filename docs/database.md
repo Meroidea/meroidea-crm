@@ -1680,6 +1680,25 @@ unique (tenant_id, id)
 unique (tenant_id) where accepted_at is null   -- at most one open request per business
 ```
 
+### ai_pending_actions 🟢 (ADR-064)
+
+A change Meroidea AI proposed, waiting for the person who asked to approve or cancel it. Nothing
+else is written until approval, which runs the module's own service as that person.
+
+`id`, `tenant_id`, `created_by` (FK `(tenant_id, created_by)` → `tenant_memberships`), `kind`
+(`invoice` | `roster` | `staff_email` | `record_update`), `payload jsonb` (the validated service
+input, `src/modules/assistant/pending-schemas.ts`), `summary`, `status` (`pending` | `executing` |
+`approved` | `rejected` | `failed` | `expired`), `result jsonb` (resulting record), `error` (last
+refusal, safe to show), `decided_by`, `decided_at`, `expires_at` (default now + 24 h),
+`created_at`, `updated_at`. Index `(tenant_id, created_by, created_at)`.
+
+RLS: read, insert and update only where `created_by = app.user_id()`; insert needs
+`assistant.use` and status `pending`; restrictive `feature_switch` on `assistant`. Column grants:
+update only `payload, summary, status, result, error, decided_by, decided_at`; no delete. Trigger
+`app.guard_ai_pending_action` allows only pending → executing | rejected | expired | pending and
+executing → approved | failed | pending; decided rows are final and only a pending row's payload
+can change.
+
 ### audit_logs 🟢
 Append-only.
 ```sql

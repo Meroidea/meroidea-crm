@@ -147,6 +147,22 @@ change as touching sensitive personal data.
 - Entries from payroll stay `payroll = true` and hidden without `books.view_payroll`. Never show
   pay amounts from the books in a query that skips RLS.
 
+## Meroidea AI (ADR-063, ADR-064)
+
+- The model never writes business records. Its write tools only insert `ai_pending_actions`
+  rows; changes happen in `approvePendingAction` (`src/modules/assistant/pending.ts`), reached
+  only through `/api/ai/actions/:id/approve` by the person who made the proposal, and only through
+  the module's own service. Never give the model a tool that calls a service directly.
+- Keep the claim (`pending → executing` in one conditional update) and the
+  `app.guard_ai_pending_action` trigger: together they make approval run once.
+- Tool results sent back by the browser are never trusted. Proposal details reach the model only
+  from the database, under RLS (`toModelMessages`).
+- Tools take names, not record ids, from the model, and match them only among records the
+  person may see. The one id they accept, `replacesActionId`, only ever matches the person's own
+  pending proposal. Each propose tool checks the permission its approval needs.
+- Assistant output is rendered with `SafeMarkdown`: no links, images or HTML.
+- Staff emails and the audit rows of AI decisions never record message content.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

@@ -11,11 +11,13 @@ import { serverEnv, type ServerEnv } from '@/server/env';
 import { enforceRateLimit } from '@/server/rate-limit';
 
 import { assistantInstructions } from './instructions';
-import { toModelMessages, type AssistantChatInput } from './schemas';
+import { listPendingActions } from './pending';
+import { buildProposeTools } from './propose-tools';
+import { proposalIdsIn, toModelMessages, type AssistantChatInput } from './schemas';
 import { buildAssistantTools } from './tools';
 
-/** A question usually takes one or two tool calls and an answer; more means the model is looping. */
-const MAX_STEPS = 5;
+/** A turn usually takes a lookup or two, a proposal and an answer; more means it is looping. */
+const MAX_STEPS = 6;
 const MAX_OUTPUT_TOKENS = 1_500;
 
 /** Per person, so one tab left looping cannot use up the business's share. */
@@ -36,14 +38,14 @@ export type AssistantReadiness =
 export function assistantReadiness(
   env: Pick<
     ServerEnv,
-    'NODE_ENV' | 'GOOGLE_GENERATIVE_AI_API_KEY' | 'ASSISTANT_MODEL' | 'ASSISTANT_PROVIDER_PAID_TIER'
+    'NODE_ENV' | 'GEMINI_API_KEY' | 'ASSISTANT_MODEL' | 'ASSISTANT_PROVIDER_PAID_TIER'
   >,
 ): AssistantReadiness {
-  if (!env.GOOGLE_GENERATIVE_AI_API_KEY) return { ready: false, reason: 'not_configured' };
+  if (!env.GEMINI_API_KEY) return { ready: false, reason: 'not_configured' };
   if (env.NODE_ENV === 'production' && env.ASSISTANT_PROVIDER_PAID_TIER !== 'true') {
     return { ready: false, reason: 'paid_tier_unconfirmed' };
   }
-  return { ready: true, apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY, model: env.ASSISTANT_MODEL };
+  return { ready: true, apiKey: env.GEMINI_API_KEY, model: env.ASSISTANT_MODEL };
 }
 
 /**
@@ -62,7 +64,11 @@ export async function streamAssistantReply(
     throw new AppError('FORBIDDEN', 'The assistant is not set up for this workspace yet.');
   }
 
-  const messages = toModelMessages(input);
+  // The server's own record of proposals mentioned in the conversation, never the browser's copy.
+  const known = new Map(
+    (await listPendingActions(ctx, proposalIdsIn(input))).map((p) => [p.id, p] as const),
+  );
+  const messages = toModelMessages(input, known);
   if (messages.at(-1)?.role !== 'user') {
     throw new AppError('VALIDATION', 'Ask a question to get an answer.');
   }
@@ -91,7 +97,8 @@ export async function streamAssistantReply(
     model: google(readiness.model),
     instructions: assistantInstructions(ctx),
     messages,
-    tools: buildAssistantTools(ctx),
+    // Read tools run now; propose tools only record a proposal for the person to approve.
+    tools: { ...buildAssistantTools(ctx), ...buildProposeTools(ctx) },
     stopWhen: isStepCount(MAX_STEPS),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     temperature: 0.2,

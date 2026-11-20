@@ -135,3 +135,27 @@ export type PublishRosterInput = z.output<typeof publishRosterSchema>;
 export type SaveTeamInput = z.output<typeof saveTeamSchema>;
 export type SaveRulesInput = z.output<typeof saveRulesSchema>;
 export type AddHolidayInput = z.output<typeof addHolidaySchema>;
+
+/**
+ * Several shifts for one roster period, saved together or not at all: what an approved
+ * Meroidea AI roster proposal applies (ADR-064). The roster is found by its first day, or created
+ * for that period when there is none. Breaks follow the workspace's break rules.
+ */
+export const saveRosterShiftsSchema = z.object({
+  startsOn: isoDate,
+  span: z.enum(ROSTER_SPANS),
+  shifts: z
+    .array(
+      z.object({
+        userId: z.uuid(),
+        date: isoDate,
+        startTime: clockTime,
+        endTime: clockTime,
+        note: blankToNull(300),
+      }),
+    )
+    .min(1, 'Add at least one shift')
+    .max(150),
+});
+
+export type SaveRosterShiftsInput = z.output<typeof saveRosterShiftsSchema>;
