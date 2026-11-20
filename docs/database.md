@@ -1790,7 +1790,7 @@ app.user_id()          → auth.uid()
 app.tenant_ids()       → setof uuid: tenants where the user has an active membership
 app.active_tenant_id() → current_setting('app.tenant_id', true)::uuid
 app.has_permission(tenant uuid, perm text) → boolean   -- false while perm's feature is off
-app.permission_feature(perm text) → text               -- feature a permission needs; null = always
+app.permission_feature(perm text) → text               -- feature a permission needs; null = always (assistant → assistant since 0071, ADR-063)
 app.feature_enabled(tenant uuid, feature text) → boolean
 app.my_context(preferred uuid) → the signed-in person's workspace, live grants, features,
                                  support flag, clock-in location and team members, in one row

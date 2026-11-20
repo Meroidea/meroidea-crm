@@ -77,6 +77,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'productivity.view': 'See productivity',
   'reports.view': 'See reports',
   'reports.export': 'Export reports',
+  'assistant.use': 'Ask the AI assistant (answers use only what they may see)',
   'settings.manage': 'Change settings',
   'users.manage': 'Add and remove people',
   'roles.manage': 'Edit roles',
@@ -116,7 +117,7 @@ const GROUPS: { title: string; families: string[] }[] = [
   { title: 'Operations and money', families: ['inventory', 'purchasing', 'invoices', 'books'] },
   {
     title: 'Insight and administration',
-    families: ['reports', 'settings', 'users', 'roles', 'audit'],
+    families: ['reports', 'assistant', 'settings', 'users', 'roles', 'audit'],
   },
 ];
 

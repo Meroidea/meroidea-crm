@@ -89,6 +89,11 @@ export const PERMISSIONS = {
   'productivity.view': { scoped: false },
   'reports.view': { scoped: true },
   'reports.export': { scoped: false },
+  /**
+   * Open the AI assistant (ADR-063). Grants no data of its own: its read-only tools reuse the
+   * report, task and opportunity queries, so answers follow those permissions and scopes.
+   */
+  'assistant.use': { scoped: false },
   'settings.manage': { scoped: false },
   'users.manage': { scoped: false },
   'roles.manage': { scoped: false },
@@ -193,6 +198,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'training.view_all': true,
       'reports.view': 'team',
       'reports.export': true,
+      'assistant.use': true,
     },
   },
   {
@@ -230,6 +236,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'projects.view': true,
       'tickets.work': true,
       'reports.view': 'own',
+      'assistant.use': true,
     },
   },
 ];

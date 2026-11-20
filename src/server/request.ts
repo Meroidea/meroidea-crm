@@ -116,3 +116,20 @@ export function publicErrorResponse(error: unknown): NextResponse {
           : 400;
   return NextResponse.json({ ok: false, error: mapped }, { status });
 }
+
+/**
+ * The check Next.js applies to Server Actions, for signed-in Route Handlers that act on a
+ * cookie session: the browser's Origin must name the host that received the request. SameSite
+ * cookies alone are not enough here, because every workspace's `{slug}.meroidea.app` is the same
+ * site as every other. A request without an Origin (not from a browser page) is refused too.
+ */
+export function isSameOrigin(headers: Headers): boolean {
+  const origin = headers.get('origin');
+  const host = headers.get('x-forwarded-host')?.split(',')[0]?.trim() || headers.get('host');
+  if (!origin || !host) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}

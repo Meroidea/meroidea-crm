@@ -97,6 +97,12 @@ export const FEATURES = [
     description:
       'A chart of accounts and double-entry ledger: money in and out, journals, GST, and the Profit and Loss, Balance Sheet and Trial Balance, posted from invoices and payroll.',
   },
+  {
+    key: 'assistant',
+    label: 'AI assistant',
+    description:
+      'Ask questions about the pipeline, overdue follow-ups and sales reports in plain words. Answers use only what each person may already see. Sends those figures to the AI provider, so switch it on only with the business’s agreement (ADR-063).',
+  },
 ] as const;
 
 export type FeatureKey = (typeof FEATURES)[number]['key'];
@@ -132,6 +138,7 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
   concerns: 'concerns',
   training: 'training',
   books: 'books',
+  assistant: 'assistant',
 };
 
 /** The feature a permission needs, or null for workspace basics such as settings and users. */
