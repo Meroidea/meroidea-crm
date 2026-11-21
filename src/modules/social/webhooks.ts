@@ -7,18 +7,21 @@ import {
   socialAccounts,
   socialConversations,
   socialMessages,
+  socialMessageTemplates,
 } from '@/db/schema';
 import { adminDb } from '@/server/db/admin';
 import { serverEnv } from '@/server/env';
 import { consumeRateLimit } from '@/server/rate-limit';
 
 import { openCredentials, sealCredentials, usableToken, type Credentials } from './credentials';
-import { recordConversation, recordMessage } from './ingest';
+import { recordConversation, recordImportedConversation, recordMessage } from './ingest';
 import { fetchMetaProfile } from './providers/meta';
 import { afterResponse, persistAvatar, persistMessageMedia, type MediaAccess } from './media';
 import type { MetaMessageEvent, MetaReceiptEvent } from './providers/meta-webhook';
 import { fetchTikTokMessages, type TikTokNotification } from './providers/tiktok';
 import { ProviderError, type SocialPlatform } from './providers/types';
+import { whatsappReason } from './providers/whatsapp';
+import type { WhatsAppStatusEvent, WhatsAppWebhook } from './providers/whatsapp-webhook';
 
 /*
  * The only social code that uses the privileged connection (ADR-064, rules/security.md): it runs
@@ -363,4 +366,222 @@ export async function ingestTikTokNotification(
     await afterResponse(() => persistMessageMedia(adminDb(), media, access));
   }
   return stored;
+}
+
+/*
+ * WhatsApp (ADR-066). The webhook names the business's number by id; everything is stored for
+ * the one business that has that number live, and only there.
+ */
+
+type AccountCache = Map<string, LiveAccount | null>;
+
+async function whatsappAccount(cache: AccountCache, phoneNumberId: string) {
+  if (!cache.has(phoneNumberId)) {
+    cache.set(phoneNumberId, await liveAccountFor('whatsapp', phoneNumberId));
+  }
+  return cache.get(phoneNumberId) ?? null;
+}
+
+/**
+ * Copies the media of these messages into storage after Meta has its answer. WhatsApp files
+ * are reached with the account's own token, read here for the purpose.
+ */
+async function persistWhatsAppMedia(media: Map<LiveAccount, string[]>) {
+  if (media.size === 0) return;
+  await afterResponse(async () => {
+    for (const [account, ids] of media) {
+      const credentials = await readCredentialsAsSystem(account.tenantId, account.id);
+      if (!credentials) continue;
+      await persistMessageMedia(adminDb(), ids, {
+        account: refOf(account),
+        token: credentials.accessToken,
+      });
+    }
+  });
+}
+
+/** Stores a verified WhatsApp webhook. Returns how many messages were new. */
+export async function ingestWhatsAppWebhook(webhook: WhatsAppWebhook): Promise<number> {
+  const cache: AccountCache = new Map();
+  const media = new Map<LiveAccount, string[]>();
+  const withMedia = (account: LiveAccount, id: string) =>
+    media.set(account, [...(media.get(account) ?? []), id]);
+  let stored = 0;
+
+  for (const event of webhook.messages) {
+    const account = await whatsappAccount(cache, event.phoneNumberId);
+    if (!account) continue;
+    const scope = { tenantId: account.tenantId, accountId: account.id };
+    const fresh = await adminDb().transaction(async (tx) => {
+      const conversation = await recordConversation(tx, scope, {
+        externalId: null,
+        participantId: event.participantId,
+        participantName: event.participantName,
+        participantUsername: null,
+        participantPhone: event.participantPhone,
+      });
+      return recordMessage(tx, { ...scope, conversationId: conversation.id }, event.message, {
+        countUnread: event.message.direction === 'inbound',
+      });
+    });
+    if (fresh) stored += 1;
+    if (fresh?.hasMedia) withMedia(account, fresh.id);
+  }
+
+  for (const change of webhook.changes) {
+    const account = await whatsappAccount(cache, change.phoneNumberId);
+    if (!account) continue;
+    await adminDb()
+      .update(socialMessages)
+      .set(
+        change.kind === 'revoke'
+          ? { body: 'This message was deleted.', attachments: [] }
+          : { body: change.body },
+      )
+      .where(
+        and(
+          eq(socialMessages.tenantId, account.tenantId),
+          eq(socialMessages.accountId, account.id),
+          eq(socialMessages.externalId, change.originalId),
+        ),
+      );
+  }
+
+  await applyWhatsAppStatuses(cache, webhook.statuses);
+
+  for (const chunk of webhook.history) {
+    const account = await whatsappAccount(cache, chunk.phoneNumberId);
+    if (!account) continue;
+    const scope = { tenantId: account.tenantId, accountId: account.id };
+    for (const thread of chunk.threads) {
+      // History is older than the connection, so it neither counts as unread nor opens
+      // WhatsApp's 24 hours for a free-form reply.
+      const result = await adminDb().transaction((tx) =>
+        recordImportedConversation(
+          tx,
+          scope,
+          {
+            externalId: null,
+            participantId: thread.participantId,
+            participantName: null,
+            participantUsername: null,
+            participantPhone: thread.participantPhone,
+            messages: thread.messages,
+          },
+          { opensWindow: false },
+        ),
+      );
+      stored += result.stored;
+      for (const id of result.withMedia) withMedia(account, id);
+    }
+    await adminDb()
+      .update(socialAccounts)
+      .set(
+        chunk.declined
+          ? { historySync: 'declined', updatedAt: new Date() }
+          : {
+              historySync:
+                chunk.progress === 100
+                  ? 'complete'
+                  : sql`case when ${socialAccounts.historySync} = 'complete' then 'complete' else 'in_progress' end`,
+              historyProgress: sql`greatest(coalesce(${socialAccounts.historyProgress}, 0), ${chunk.progress ?? 0})`,
+              updatedAt: new Date(),
+            },
+      )
+      .where(eq(socialAccounts.id, account.id));
+  }
+
+  for (const event of webhook.contacts) {
+    const account = await whatsappAccount(cache, event.phoneNumberId);
+    if (!account) continue;
+    // The business's own names for customers it already has conversations with.
+    for (const contact of event.contacts.slice(0, 5000)) {
+      await adminDb()
+        .update(socialConversations)
+        .set({ participantName: contact.name, updatedAt: new Date() })
+        .where(
+          and(
+            eq(socialConversations.tenantId, account.tenantId),
+            eq(socialConversations.accountId, account.id),
+            eq(socialConversations.participantPhone, contact.phone),
+            isNull(socialConversations.participantName),
+          ),
+        );
+    }
+  }
+
+  for (const update of webhook.templates) {
+    // The template belongs to the WhatsApp Business Account of one or more live numbers.
+    await adminDb()
+      .update(socialMessageTemplates)
+      .set({ status: update.status, reason: update.reason, updatedAt: new Date() })
+      .where(
+        and(
+          eq(socialMessageTemplates.externalId, update.templateId),
+          inArray(
+            socialMessageTemplates.accountId,
+            adminDb()
+              .select({ id: socialAccounts.id })
+              .from(socialAccounts)
+              .where(
+                and(
+                  eq(socialAccounts.platform, 'whatsapp'),
+                  eq(socialAccounts.providerBusinessId, update.wabaId),
+                  isNull(socialAccounts.disconnectedAt),
+                ),
+              ),
+          ),
+        ),
+      );
+  }
+
+  await persistWhatsAppMedia(media);
+  return stored;
+}
+
+/**
+ * Moves the business's WhatsApp messages forward as WhatsApp reports them: delivered, read, or
+ * failed with the reason in words the business can act on (a closed reply window, billing).
+ * Never backwards: a late "delivered" does not undo "read".
+ */
+async function applyWhatsAppStatuses(cache: AccountCache, statuses: WhatsAppStatusEvent[]) {
+  for (const status of statuses) {
+    if (status.status === 'sent') continue;
+    const account = await whatsappAccount(cache, status.phoneNumberId);
+    if (!account) continue;
+    const before =
+      status.status === 'delivered'
+        ? ['sent']
+        : status.status === 'read'
+          ? ['sent', 'delivered']
+          : ['sending', 'sent', 'delivered'];
+    const set =
+      status.status === 'delivered'
+        ? { status: 'delivered', deliveredAt: status.at }
+        : status.status === 'read'
+          ? {
+              status: 'read',
+              readAt: status.at,
+              deliveredAt: sql`coalesce(${socialMessages.deliveredAt}, ${status.at.toISOString()}::timestamptz)`,
+            }
+          : {
+              status: 'failed',
+              error:
+                whatsappReason(status.errorCode) ??
+                status.errorTitle ??
+                'WhatsApp could not deliver this message.',
+            };
+    await adminDb()
+      .update(socialMessages)
+      .set(set)
+      .where(
+        and(
+          eq(socialMessages.tenantId, account.tenantId),
+          eq(socialMessages.accountId, account.id),
+          eq(socialMessages.externalId, status.messageId),
+          eq(socialMessages.direction, 'outbound'),
+          inArray(socialMessages.status, before),
+        ),
+      );
+  }
 }

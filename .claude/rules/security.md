@@ -157,8 +157,10 @@ change as touching sensitive personal data.
   which `authenticated` has no grants on. Read and write them through the `app.social_*`
   functions; never log them, put them in a URL (send them in headers or bodies), or return them to
   the browser.
-- Connecting runs only through the state cookie check in `/api/social/oauth/[provider]`, as the
-  signed-in person with `social.manage`; the code is never logged or redirected onwards.
+- Connecting Meta and TikTok runs only through the state cookie check in
+  `/api/social/oauth/[provider]`, as the signed-in person with `social.manage`; the code is never
+  logged or redirected onwards. WhatsApp's Embedded Signup returns its code to the page instead
+  (below).
 - One live business per account (`social_accounts_live_key`): never relax it, or one business's
   customers' messages could reach another.
 - Message content never goes into `audit_logs`, logs or error messages.
@@ -172,6 +174,16 @@ change as touching sensitive personal data.
   link).
 - A TikTok notification whose signature fails is treated as unsigned, never as verified; read
   receipts need a valid signature.
+- WhatsApp (ADR-066):
+  - Connecting runs through Embedded Signup and `connectWhatsAppAction` (`social.manage`). The
+    account and number ids come from the browser: trust them only after the business's own new
+    token finds that number in that account (`findWhatsAppNumber`).
+  - Meta's SDK loads on Connected accounts only, after a click. Never load it anywhere else.
+  - The number's two-step PIN is sealed in the credentials row and never shown or logged.
+  - WhatsApp media are fetched only through `media.ts`. The token goes only to Meta's file
+    hosts, checked at every redirect; never pass it to `downloadMedia` for any other host.
+  - History imported from the WhatsApp Business app never opens the 24-hour window: keep
+    `opensWindow: false` for anything older than the connection.
 
 ## Location (ADR-033)
 

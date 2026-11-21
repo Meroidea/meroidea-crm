@@ -62,15 +62,16 @@ export function safeReason(value: unknown): string | null {
 
 /**
  * Meta's throttling codes (developers.facebook.com, Graph API rate limiting): 4 app, 17 user,
- * 32 Page, 613 custom, and 80000–80014 per business use case (80006 Messenger, 80002 Instagram).
- * An HTTP 429 from anyone means the same.
+ * 32 Page, 613 custom, and 80000–80014 per business use case (80006 Messenger, 80002 Instagram,
+ * 80007 WhatsApp); WhatsApp's 130429 (the number's throughput) and 131056 (too many messages to
+ * one customer in a short time). An HTTP 429 from anyone means the same.
  */
 export function isRateLimited(status: number, code: unknown): boolean {
   if (status === 429) return true;
   const value = typeof code === 'string' ? Number(code) : code;
   return (
     typeof value === 'number' &&
-    ([4, 17, 32, 613].includes(value) || (value >= 80000 && value <= 80014))
+    ([4, 17, 32, 613, 130429, 131056].includes(value) || (value >= 80000 && value <= 80014))
   );
 }
 

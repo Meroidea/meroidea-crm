@@ -39,8 +39,20 @@ test('an admin opens the social inbox and sees what can be connected', async ({
   await page.getByRole('link', { name: 'Connect an account' }).click();
   await expect(page).toHaveURL(/\/social\/accounts$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Connected accounts' })).toBeVisible();
-  // Without the platform's Meta and TikTok apps set up, the business is told so plainly.
-  await expect(page.getByText('Not available yet', { exact: false })).toHaveCount(2);
+  // Without the platform's Meta and TikTok apps set up, the business is told so plainly, and
+  // Meta's WhatsApp sign-up is not loaded at all (ADR-066).
+  await expect(page.getByText('Not available yet', { exact: false })).toHaveCount(3);
+  await expect(page.getByText('WhatsApp', { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      [...document.scripts].some((script) => script.src.includes('connect.facebook.net')),
+    ),
+  ).toBe(false);
+
+  // WhatsApp templates live under Marketing, next to the inbox.
+  await page.goto('/social/templates');
+  await expect(page.getByRole('heading', { level: 1, name: 'WhatsApp templates' })).toBeVisible();
+  await expect(page.getByText('Connect a WhatsApp number first')).toBeVisible();
 
   // A login callback that did not start here is refused, and nothing is connected.
   await page.goto('/api/social/oauth/meta?code=forged&state=forged');
@@ -50,7 +62,7 @@ test('an admin opens the social inbox and sees what can be connected', async ({
     page.getByRole('alert').filter({ hasText: 'took too long or came from another window' }),
   ).toBeVisible();
 
-  for (const path of ['/social', '/social/accounts']) {
+  for (const path of ['/social', '/social/accounts', '/social/templates']) {
     await page.goto(path);
     await page.waitForLoadState('networkidle');
     const overflow = await page.evaluate(

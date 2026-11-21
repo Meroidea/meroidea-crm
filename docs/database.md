@@ -1508,7 +1508,8 @@ Written by `src/modules/social`: from a person's request under RLS, or from a ve
 `webhooks.ts`, the module's only code on the privileged connection.
 
 ### social_accounts
-A connected Facebook Page, Instagram professional account or TikTok business account.
+A connected Facebook Page, Instagram professional account, TikTok business account or WhatsApp
+business number (ADR-066).
 ```sql
 id uuid pk, tenant_id uuid not null → tenants
 platform text not null            -- facebook | instagram | tiktok
@@ -1585,6 +1586,49 @@ definer` functions that skip where Realtime is absent. Policy `social_inbox_rece
 open. Erasure: `app.social_media_paths_for_contact(contact)` lists the saved files of a person's
 linked conversations (`contacts.anonymize`), and `app.erase_contact_traces` blanks their inbound
 messages, name, handle and picture.
+
+**WhatsApp (migration `0074`, ADR-066).**
+- `social_accounts.platform` also allows `whatsapp`: `external_id` is the business phone
+  number's id, `provider_business_id` its WhatsApp Business Account, and `username` the
+  displayed number.
+- New account columns:
+  - `coexistence boolean not null default false`: the number is also used in the WhatsApp
+    Business app;
+  - `history_sync text`: `requested | in_progress | complete | declined | failed`;
+  - `history_progress int`: 0 to 100.
+- `social_conversations.participant_phone`: the customer's number, digits only. On WhatsApp,
+  `participant_id` is that number, or the business-scoped user id when it is hidden.
+- `social_messages.template jsonb`: `{name, language, parameterFormat, parameters, values}` for
+  a message sent as a template, so Retry resends the same template.
+- For a WhatsApp account, `social_account_credentials.refresh_token_ciphertext` holds the
+  number's two-step PIN set when Meroidea registered it. It is sealed, rotated and cleared like a
+  token.
+- Sessions may also update `coexistence`, `history_sync`, `history_progress` and
+  `participant_phone`.
+- `app.erase_contact_traces` also clears `participant_phone` and, on WhatsApp, replaces
+  `participant_id` with `erased:<conversation id>`.
+
+### social_message_templates
+A WhatsApp template of a connected number's WhatsApp Business Account. Each live number of the
+account holds the account's templates.
+```sql
+id uuid pk, tenant_id → tenants, account_id (composite FK to social_accounts)
+external_id text not null         -- Meta's template id
+name text not null, language text not null, category text not null   -- marketing | utility | authentication
+status text not null              -- Meta's review status, lower case (approved, pending, rejected, …)
+parameter_format text not null default 'positional'   -- positional | named
+body text not null, header_text text, footer_text text
+parameters text[] not null default '{}'   -- the body's placeholders in order
+sendable boolean not null default true    -- false: media header, button value or code
+reason text                       -- Meta's reason for a rejection or pause
+created_by uuid, synced_at, created_at, updated_at
+unique (tenant_id, id), unique (account_id, external_id)
+index (tenant_id, account_id, name)
+```
+RLS: read with `social.view` or `social.manage`. Insert, update (named columns) and delete need
+`social.manage`. The restrictive `feature_switch` policy applies too. Status changes also arrive
+from Meta's `message_template_status_update` webhook, through the privileged connection after the
+signature check.
 
 ## 8. Platform tables
 

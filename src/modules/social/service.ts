@@ -2,7 +2,13 @@ import 'server-only';
 
 import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 
-import { contacts, socialAccounts, socialConversations, socialMessages } from '@/db/schema';
+import {
+  contacts,
+  socialAccounts,
+  socialConversations,
+  socialMessages,
+  socialMessageTemplates,
+} from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { scopeFilter } from '@/lib/permissions/scope';
 import { contactScope } from '@/modules/contacts/access';
@@ -28,13 +34,19 @@ import {
   sendTikTokMessage,
 } from './providers/tiktok';
 import {
+  sendWhatsAppTemplate,
+  sendWhatsAppText,
+  unsubscribeWhatsAppAccount,
+  type TemplateSend,
+} from './providers/whatsapp';
+import {
   previewOf,
   ProviderError,
   type AccountRef,
   type DiscoveredAccount,
   type SocialPlatform,
 } from './providers/types';
-import type { ReplyInput } from './schemas';
+import type { ReplyInput, TemplateReplyInput } from './schemas';
 
 const HOUR = 3_600_000;
 
@@ -46,6 +58,14 @@ export const REPLY_RULES: Record<
   facebook: { normalHours: 24, humanAgentHours: 7 * 24, maxChars: 2000 },
   instagram: { normalHours: 24, humanAgentHours: 7 * 24, maxChars: 1000, maxBytes: 1000 },
   tiktok: { normalHours: 48, humanAgentHours: null, maxChars: 6000 },
+  whatsapp: { normalHours: 24, humanAgentHours: null, maxChars: 4096 },
+};
+
+const PLATFORM_NAMES: Record<SocialPlatform, string> = {
+  facebook: 'Messenger',
+  instagram: 'Instagram',
+  tiktok: 'TikTok',
+  whatsapp: 'WhatsApp',
 };
 
 /** Whether a reply may go now, and whether it needs the human agent tag; or why not. */
@@ -66,9 +86,12 @@ export function replyWindow(
   const limit = rules.humanAgentHours ?? rules.normalHours;
   return {
     ok: false,
-    reason: `The customer last wrote more than ${limit >= 48 ? `${limit / 24} days` : `${limit} hours`} ago. ${
-      platform === 'tiktok' ? 'TikTok' : platform === 'facebook' ? 'Messenger' : 'Instagram'
-    } only allows a reply after they write again.`,
+    reason:
+      platform === 'whatsapp'
+        ? 'The customer last wrote more than 24 hours ago. WhatsApp only allows an approved template until they write again.'
+        : `The customer last wrote more than ${limit >= 48 ? `${limit / 24} days` : `${limit} hours`} ago. ${
+            PLATFORM_NAMES[platform]
+          } only allows a reply after they write again.`,
   };
 }
 
@@ -242,7 +265,28 @@ async function liveAccount(ctx: TenantContext, accountId: string) {
 export async function disconnectAccount(ctx: TenantContext, accountId: string): Promise<void> {
   requirePermission(ctx, 'social.manage');
   const { account, credentials } = await liveAccount(ctx, accountId);
-  if (credentials && account.platform !== 'tiktok') {
+  const wabaId = account.platform === 'whatsapp' ? account.providerBusinessId : null;
+  if (credentials && wabaId) {
+    // The webhook is per WhatsApp Business Account: keep it while another of its numbers is live.
+    const others = await withRls(ctx, (tx) =>
+      tx
+        .select({ id: socialAccounts.id })
+        .from(socialAccounts)
+        .where(
+          and(
+            eq(socialAccounts.tenantId, ctx.tenantId),
+            eq(socialAccounts.platform, 'whatsapp'),
+            eq(socialAccounts.providerBusinessId, wabaId),
+            isNull(socialAccounts.disconnectedAt),
+            ne(socialAccounts.id, account.id),
+          ),
+        )
+        .limit(1),
+    );
+    if (others.length === 0) {
+      await unsubscribeWhatsAppAccount(credentials.accessToken, wabaId).catch(() => undefined);
+    }
+  } else if (credentials && account.platform !== 'tiktok') {
     // Best effort: a token that no longer works cannot unsubscribe, and Meta stops on its own.
     await unsubscribeMetaAccount(
       {
@@ -276,12 +320,15 @@ type Prepared = {
   credentials: Credentials;
   messageId: string;
   body: string;
+  /** WhatsApp: send as this approved template instead of free text. */
+  template: TemplateSend | null;
 };
 
 /**
  * Everything a reply must pass before it goes: a live account, the platform's length and reply
  * window (and TikTok's ten replies per window), and usable tokens. Runs inside the caller's
- * transaction; `excluding` leaves a retried message out of TikTok's count.
+ * transaction; `excluding` leaves a retried message out of TikTok's count. A WhatsApp template
+ * may go at any time, so it skips the window and length checks.
  */
 async function checkReply(
   tx: Tx,
@@ -290,6 +337,7 @@ async function checkReply(
   body: string,
   now: Date,
   excluding?: string,
+  options: { template?: boolean } = {},
 ) {
   const [row] = await tx
     .select({ conversation: socialConversations, account: socialAccounts })
@@ -315,6 +363,19 @@ async function checkReply(
     throw new AppError('CONFLICT', 'This account is disconnected. Connect it again to reply.');
   }
   const rules = REPLY_RULES[platform];
+  if (options.template && platform !== 'whatsapp') {
+    throw new AppError('VALIDATION', 'Templates are for WhatsApp conversations.');
+  }
+  if (options.template) {
+    const credentials = await readCredentials(tx, ctx.tenantId, account.id);
+    if (!credentials) {
+      throw new AppError(
+        'CONFLICT',
+        'This account needs to be connected again before you can reply.',
+      );
+    }
+    return { conversation, account, platform, humanAgent: false, credentials };
+  }
   if (
     body.length > rules.maxChars ||
     (rules.maxBytes && Buffer.byteLength(body) > rules.maxBytes)
@@ -381,7 +442,76 @@ export async function replyToConversation(
         status: 'sending',
       })
       .returning({ id: socialMessages.id });
-    return { ...checked, messageId: pending!.id, body: input.body };
+    return { ...checked, messageId: pending!.id, body: input.body, template: null };
+  });
+  return deliver(ctx, prepared, now, 'create');
+}
+
+/** A template's body with the values in place of its placeholders, as the customer sees it. */
+export function renderTemplate(body: string, parameters: string[], values: string[]): string {
+  return body.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (whole, name: string) => {
+    const index = parameters.indexOf(name);
+    return index >= 0 && values[index] !== undefined ? values[index]! : whole;
+  });
+}
+
+/**
+ * Sends an approved WhatsApp template, the only kind of message WhatsApp allows more than 24
+ * hours after the customer last wrote. Meta charges the business for it (ADR-066).
+ */
+export async function sendTemplateReply(
+  ctx: TenantContext,
+  input: TemplateReplyInput,
+  now = new Date(),
+): Promise<{ messageId: string }> {
+  requirePermission(ctx, 'social.reply');
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const [template] = await tx
+      .select()
+      .from(socialMessageTemplates)
+      .where(
+        and(
+          eq(socialMessageTemplates.tenantId, ctx.tenantId),
+          eq(socialMessageTemplates.id, input.templateId),
+        ),
+      )
+      .limit(1);
+    if (!template) throw new AppError('NOT_FOUND', 'That template was not found.');
+    if (template.status !== 'approved' || !template.sendable) {
+      throw new AppError('CONFLICT', 'Only an approved template can be sent from here.');
+    }
+    if (input.values.length !== template.parameters.length) {
+      throw new AppError('VALIDATION', 'Fill in every value the template needs.');
+    }
+    const body = renderTemplate(template.body, template.parameters, input.values);
+    const checked = await checkReply(tx, ctx, input.conversationId, body, now, undefined, {
+      template: true,
+    });
+    if (checked.account.id !== template.accountId) {
+      throw new AppError('VALIDATION', 'That template belongs to another WhatsApp number.');
+    }
+    const send: TemplateSend = {
+      name: template.name,
+      language: template.language,
+      parameterFormat: template.parameterFormat === 'named' ? 'named' : 'positional',
+      parameters: template.parameters,
+      values: input.values,
+    };
+    const [pending] = await tx
+      .insert(socialMessages)
+      .values({
+        tenantId: ctx.tenantId,
+        conversationId: checked.conversation.id,
+        accountId: checked.account.id,
+        direction: 'outbound',
+        body,
+        template: send,
+        sentAt: now,
+        sentByUserId: ctx.userId,
+        status: 'sending',
+      })
+      .returning({ id: socialMessages.id });
+    return { ...checked, messageId: pending!.id, body, template: send };
   });
   return deliver(ctx, prepared, now, 'create');
 }
@@ -402,6 +532,7 @@ export async function retryReply(
         id: socialMessages.id,
         conversationId: socialMessages.conversationId,
         body: socialMessages.body,
+        template: socialMessages.template,
       })
       .from(socialMessages)
       .where(
@@ -415,12 +546,15 @@ export async function retryReply(
       .limit(1)
       .for('update');
     if (!failed || !failed.body) throw new AppError('NOT_FOUND', 'That reply was not found.');
-    const checked = await checkReply(tx, ctx, failed.conversationId, failed.body, now, failed.id);
+    const template = (failed.template as TemplateSend | null) ?? null;
+    const checked = await checkReply(tx, ctx, failed.conversationId, failed.body, now, failed.id, {
+      template: template !== null,
+    });
     await tx
       .update(socialMessages)
       .set({ status: 'sending', error: null })
       .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.id, failed.id)));
-    return { ...checked, messageId: failed.id, body: failed.body };
+    return { ...checked, messageId: failed.id, body: failed.body, template };
   });
   return deliver(ctx, prepared, now, 'update');
 }
@@ -432,7 +566,8 @@ async function deliver(
   now: Date,
   action: 'create' | 'update',
 ): Promise<{ messageId: string }> {
-  const { conversation, account, platform, humanAgent, credentials, messageId, body } = prepared;
+  const { conversation, account, platform, humanAgent, credentials, messageId, body, template } =
+    prepared;
   const ref: AccountRef = { platform, externalId: account.externalId, username: account.username };
   let externalId: string | null = null;
   let failure: ProviderError | null = null;
@@ -440,15 +575,36 @@ async function deliver(
   try {
     const usable = await usableToken(platform, credentials, now);
     renewed = usable.renewed;
-    externalId =
-      platform === 'tiktok'
-        ? await sendTikTokMessage(
-            ref,
+    if (platform === 'whatsapp') {
+      externalId = template
+        ? await sendWhatsAppTemplate(
             usable.token,
-            conversation.externalId ?? conversation.participantId,
-            body,
+            account.externalId,
+            conversation.participantId,
+            template,
           )
-        : await sendMetaMessage(ref, usable.token, conversation.participantId, body, humanAgent);
+        : await sendWhatsAppText(
+            usable.token,
+            account.externalId,
+            conversation.participantId,
+            body,
+          );
+    } else if (platform === 'tiktok') {
+      externalId = await sendTikTokMessage(
+        ref,
+        usable.token,
+        conversation.externalId ?? conversation.participantId,
+        body,
+      );
+    } else {
+      externalId = await sendMetaMessage(
+        ref,
+        usable.token,
+        conversation.participantId,
+        body,
+        humanAgent,
+      );
+    }
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
     failure = error;
@@ -498,7 +654,12 @@ async function deliver(
       action,
       entityType: 'social_message',
       entityId: messageId,
-      context: { conversationId: conversation.id, platform, retried: action === 'update' },
+      context: {
+        conversationId: conversation.id,
+        platform,
+        retried: action === 'update',
+        ...(template ? { template: template.name } : {}),
+      },
     });
   });
   if (failure) throw replyFailure(failure);

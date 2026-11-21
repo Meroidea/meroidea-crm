@@ -8,7 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/format';
 import { ConnectButton, DisconnectButton } from '@/modules/social/components/social-tools';
-import { ACCOUNT_STATUS_LABELS, PLATFORM_LABELS } from '@/modules/social/format';
+import { WhatsAppConnect } from '@/modules/social/components/whatsapp-connect';
+import {
+  ACCOUNT_STATUS_LABELS,
+  HISTORY_SYNC_LABELS,
+  PLATFORM_LABELS,
+} from '@/modules/social/format';
+import { whatsappSignupSettings } from '@/modules/social/providers/whatsapp';
 import { listAccounts } from '@/modules/social/queries';
 import { requirePermission, requireTenantContext } from '@/server/context';
 
@@ -30,6 +36,7 @@ export default async function ConnectedAccountsPage({
   requirePermission(ctx, 'social.manage');
   const params = await searchParams;
   const { accounts, available } = await listAccounts(ctx);
+  const whatsapp = available.whatsapp ? whatsappSignupSettings() : null;
   const one = (key: string) => (typeof params[key] === 'string' ? (params[key] as string) : null);
   const error = one('error');
   const connected = Number(one('connected') ?? NaN);
@@ -89,6 +96,33 @@ export default async function ConnectedAccountsPage({
         </Card>
         <Card>
           <CardHeader>
+            <CardTitle>WhatsApp</CardTitle>
+            <CardDescription>
+              Connect your business&rsquo;s WhatsApp number through Meta. Customers&rsquo; WhatsApp
+              messages then arrive here, and you can answer them.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {whatsapp ? (
+              <WhatsAppConnect
+                appId={whatsapp.appId}
+                configId={whatsapp.configId}
+                graphVersion={whatsapp.graphVersion}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Not available yet: the platform owner has not finished setting it up.
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Meta charges your business directly: approved templates, and replies beyond 1,000 a
+              month per number. Add a payment method in Meta Business Suite (Billing &amp;
+              payments), or replies past the free 1,000 are not delivered.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
             <CardTitle>TikTok</CardTitle>
             <CardDescription>
               Log in with your TikTok business account. It needs to be a Verified Business Account
@@ -134,13 +168,38 @@ export default async function ConnectedAccountsPage({
                     </Badge>
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
-                    {account.username ? `@${account.username} · ` : ''}
+                    {account.username
+                      ? account.platform === 'whatsapp'
+                        ? `${account.username} · `
+                        : `@${account.username} · `
+                      : ''}
                     {account.conversations}{' '}
                     {account.conversations === 1 ? 'conversation' : 'conversations'} · connected{' '}
                     {formatDateTime(ctx, account.connectedAt)}
                   </p>
+                  {account.platform === 'whatsapp' && account.coexistence && (
+                    <p className="text-sm text-muted-foreground">
+                      Also used in the WhatsApp Business app
+                      {account.historySync && HISTORY_SYNC_LABELS[account.historySync]
+                        ? ` · ${HISTORY_SYNC_LABELS[account.historySync]}${
+                            account.historySync === 'in_progress' &&
+                            account.historyProgress !== null
+                              ? ` (${account.historyProgress}%)`
+                              : ''
+                          }`
+                        : ''}
+                    </p>
+                  )}
                   {account.lastError && (
                     <p className="text-sm text-destructive-text">{account.lastError}</p>
+                  )}
+                  {account.platform === 'whatsapp' && (
+                    <Link
+                      href="/social/templates"
+                      className="text-sm text-primary underline-offset-4 hover:underline"
+                    >
+                      Message templates
+                    </Link>
                   )}
                 </div>
                 <DisconnectButton accountId={account.id} name={account.name} />

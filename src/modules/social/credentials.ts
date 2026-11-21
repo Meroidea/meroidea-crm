@@ -18,6 +18,10 @@ import type { SocialPlatform } from './providers/types';
 export type Credentials = {
   accessToken: string;
   accessExpiresAt: Date | null;
+  /**
+   * TikTok: the refresh token. WhatsApp: the number's two-step verification PIN, set when
+   * Meroidea registered it (ADR-066), sealed and rotated like a token and never shown.
+   */
   refreshToken: string | null;
   refreshExpiresAt: Date | null;
 };

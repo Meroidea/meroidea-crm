@@ -33,6 +33,7 @@ export async function recordConversation(
       participantId: conversation.participantId,
       participantName: conversation.participantName,
       participantUsername: conversation.participantUsername,
+      participantPhone: conversation.participantPhone ?? null,
     })
     .onConflictDoUpdate({
       target: [socialConversations.accountId, socialConversations.participantId],
@@ -40,6 +41,7 @@ export async function recordConversation(
         externalId: sql`coalesce(excluded.external_id, ${socialConversations.externalId})`,
         participantName: sql`coalesce(excluded.participant_name, ${socialConversations.participantName})`,
         participantUsername: sql`coalesce(excluded.participant_username, ${socialConversations.participantUsername})`,
+        participantPhone: sql`coalesce(excluded.participant_phone, ${socialConversations.participantPhone})`,
         updatedAt: new Date(),
       },
     })
@@ -52,13 +54,18 @@ export async function recordConversation(
  * Stores one message unless it is already there, and keeps the conversation's last message,
  * reply window and unread count up to date. A business message echoed back by the provider
  * first claims a reply that is still being sent from Meroidea, so it is not shown twice.
+ *
+ * `opensWindow: false` is for WhatsApp history: messages from before the number was connected
+ * do not open WhatsApp's 24 hours for a reply. A history message whose file arrives later
+ * replaces its placeholder.
  */
 export async function recordMessage(
   db: Db,
   scope: AccountScope & { conversationId: string },
   message: ProviderMessage,
-  options: { countUnread: boolean },
+  options: { countUnread: boolean; opensWindow?: boolean },
 ): Promise<{ id: string; hasMedia: boolean } | null> {
+  const opensWindow = options.opensWindow ?? true;
   let storedId: string | null = null;
   if (message.direction === 'outbound') {
     const claimed = await db
@@ -81,8 +88,31 @@ export async function recordMessage(
     storedId = claimed[0]?.id ?? null;
   }
   const attachments = message.attachments.map((attachment) =>
-    attachment.url || attachment.mediaId ? { ...attachment, state: 'pending' } : attachment,
+    attachment.url || attachment.mediaId
+      ? { ...attachment, state: 'pending' }
+      : attachment.placeholder
+        ? { ...attachment, state: 'skipped' }
+        : attachment,
   );
+  const hasMedia = attachments.some(
+    (attachment) => 'state' in attachment && attachment.state === 'pending',
+  );
+  if (!storedId && hasMedia) {
+    // The file of a history message stored earlier with a placeholder.
+    const filled = await db
+      .update(socialMessages)
+      .set({ attachments })
+      .where(
+        and(
+          eq(socialMessages.tenantId, scope.tenantId),
+          eq(socialMessages.accountId, scope.accountId),
+          eq(socialMessages.externalId, message.externalId),
+          sql`${socialMessages.attachments} @> '[{"placeholder": true}]'::jsonb`,
+        ),
+      )
+      .returning({ id: socialMessages.id });
+    if (filled[0]) return { id: filled[0].id, hasMedia: true };
+  }
   if (!storedId) {
     const inserted = await db
       .insert(socialMessages)
@@ -95,7 +125,7 @@ export async function recordMessage(
         body: message.body,
         attachments,
         sentAt: message.sentAt,
-        status: message.direction === 'inbound' ? 'received' : 'sent',
+        status: message.direction === 'inbound' ? 'received' : (message.status ?? 'sent'),
       })
       .onConflictDoNothing({ target: [socialMessages.accountId, socialMessages.externalId] })
       .returning({ id: socialMessages.id });
@@ -105,6 +135,7 @@ export async function recordMessage(
 
   const at = message.sentAt.toISOString();
   const inbound = message.direction === 'inbound';
+  const counts = inbound && options.countUnread;
   await db
     .update(socialConversations)
     .set({
@@ -112,15 +143,15 @@ export async function recordMessage(
         or ${socialConversations.lastMessageAt} <= ${at}::timestamptz then ${previewOf(message)}
         else ${socialConversations.lastMessagePreview} end`,
       lastMessageAt: sql`greatest(coalesce(${socialConversations.lastMessageAt}, ${at}::timestamptz), ${at}::timestamptz)`,
-      lastInboundAt: inbound
-        ? sql`greatest(coalesce(${socialConversations.lastInboundAt}, ${at}::timestamptz), ${at}::timestamptz)`
-        : sql`${socialConversations.lastInboundAt}`,
-      unreadCount:
-        inbound && options.countUnread
-          ? sql`${socialConversations.unreadCount} + 1`
-          : sql`${socialConversations.unreadCount}`,
+      lastInboundAt:
+        inbound && opensWindow
+          ? sql`greatest(coalesce(${socialConversations.lastInboundAt}, ${at}::timestamptz), ${at}::timestamptz)`
+          : sql`${socialConversations.lastInboundAt}`,
+      unreadCount: counts
+        ? sql`${socialConversations.unreadCount} + 1`
+        : sql`${socialConversations.unreadCount}`,
       // A customer writing again reopens a conversation marked done.
-      status: inbound && options.countUnread ? 'open' : sql`${socialConversations.status}`,
+      status: counts ? 'open' : sql`${socialConversations.status}`,
       updatedAt: new Date(),
     })
     .where(
@@ -129,7 +160,7 @@ export async function recordMessage(
         eq(socialConversations.id, scope.conversationId),
       ),
     );
-  return { id: storedId, hasMedia: attachments.some((attachment) => 'state' in attachment) };
+  return { id: storedId, hasMedia };
 }
 
 /**
@@ -140,6 +171,7 @@ export async function recordImportedConversation(
   db: Db,
   scope: AccountScope,
   conversation: ProviderConversation,
+  options: { opensWindow?: boolean } = {},
 ): Promise<{ stored: number; withMedia: string[] }> {
   const { id } = await recordConversation(db, scope, conversation);
   let stored = 0;
@@ -150,6 +182,7 @@ export async function recordImportedConversation(
   for (const message of ordered) {
     const result = await recordMessage(db, { ...scope, conversationId: id }, message, {
       countUnread: false,
+      opensWindow: options.opensWindow,
     });
     if (!result) continue;
     stored += 1;

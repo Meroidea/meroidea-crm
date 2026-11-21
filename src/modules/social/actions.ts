@@ -11,14 +11,19 @@ import { metaAuthorizeUrl, metaConfigured } from './providers/meta';
 import { tiktokAuthorizeUrl, tiktokConfigured } from './providers/tiktok';
 import {
   accountIdSchema,
+  connectWhatsAppSchema,
   conversationIdSchema,
   conversationStatusSchema,
+  createTemplateSchema,
   linkContactSchema,
   messageIdSchema,
   replySchema,
   startConnectSchema,
+  templateIdSchema,
+  templateReplySchema,
 } from './schemas';
 import * as social from './service';
+import * as whatsapp from './whatsapp-service';
 
 const paths = ['/social'];
 
@@ -83,4 +88,30 @@ export const setConversationStatusAction = authedAction(
 export const markReadAction = authedAction(
   { permission: 'social.view', input: conversationIdSchema },
   (ctx, input) => social.markConversationRead(ctx, input.conversationId),
+);
+
+/** Finishes connecting a WhatsApp number after Embedded Signup returned its code (ADR-066). */
+export const connectWhatsAppAction = authedAction(
+  { permission: 'social.manage', input: connectWhatsAppSchema, revalidate: paths },
+  (ctx, input) => whatsapp.connectWhatsApp(ctx, input),
+);
+
+export const templateReplyAction = authedAction(
+  { permission: 'social.reply', input: templateReplySchema, revalidate: paths },
+  (ctx, input) => social.sendTemplateReply(ctx, input),
+);
+
+export const refreshTemplatesAction = authedAction(
+  { permission: 'social.manage', input: accountIdSchema, revalidate: paths },
+  (ctx, input) => whatsapp.refreshTemplates(ctx, input.accountId),
+);
+
+export const createTemplateAction = authedAction(
+  { permission: 'social.manage', input: createTemplateSchema, revalidate: paths },
+  (ctx, input) => whatsapp.createTemplate(ctx, input),
+);
+
+export const deleteTemplateAction = authedAction(
+  { permission: 'social.manage', input: templateIdSchema, revalidate: paths },
+  (ctx, input) => whatsapp.deleteTemplate(ctx, input.templateId),
 );

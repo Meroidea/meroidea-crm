@@ -53,6 +53,10 @@ needs them, not before.
 
 One separate service is approved: OnlyOffice Document Server, for editing documents (ADR-030).
 
+One third-party browser script is approved: Meta's JavaScript SDK (`connect.facebook.net`), for
+WhatsApp Embedded Signup, loaded on the Connected accounts page only and only after an admin
+clicks to connect (owner's approval, ADR-066). Load it nowhere else.
+
 Never introduce: microservices, Redis, GraphQL, tRPC, Prisma, Redux/Zustand, TanStack
 Query, Kafka/queues, Elasticsearch/Meilisearch, a second database, or a second migration
 tool. Ask first before adding **any** runtime dependency.
