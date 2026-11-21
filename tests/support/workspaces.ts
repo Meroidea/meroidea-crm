@@ -68,6 +68,7 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
     'social_messages',
     'social_conversations',
     'social_account_credentials',
+    'social_message_templates',
     'social_accounts',
     'ledger_lines',
     'ledger_entries',

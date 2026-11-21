@@ -11,13 +11,15 @@ import { writeSocialMedia } from '@/server/storage';
 
 import { tiktokMediaUrl } from './providers/tiktok';
 import { ProviderError, type AccountRef } from './providers/types';
+import { whatsappMediaUrl } from './providers/whatsapp';
 
 /*
  * Customers' media, copied into our private `social-media` bucket (ADR-065): the platforms' own
  * links expire within days, and a chat history that loses its pictures looks broken. The
  * download address comes from a provider payload, so it is treated as untrusted: HTTPS only, the
  * platforms' own media hosts only, redirects followed by hand and checked at every hop, a size
- * cap, and the file's leading bytes must match a type we accept.
+ * cap, and the file's leading bytes must match a type we accept. WhatsApp files need the
+ * account's token as well (ADR-066): it is sent only to Meta's own file hosts, at every hop.
  */
 
 export const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
@@ -36,8 +38,18 @@ const MEDIA_HOSTS = [
   'ibyteimg.com',
   'byteimg.com',
   'ibytedtos.com',
+  'whatsapp.net',
 ];
 
+/** Meta's hosts that serve WhatsApp files: the only places the account's token is ever sent. */
+const TOKEN_HOSTS = ['fbsbx.com', 'facebook.com', 'whatsapp.net'];
+
+const onHosts = (url: URL, hosts: string[]) => {
+  const host = url.hostname.toLowerCase();
+  return hosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+};
+
+const OFFICE_ZIP = (b: Uint8Array) => starts(b, [0x50, 0x4b, 0x03, 0x04]);
 const TYPES: Record<string, { ext: string; matches: (bytes: Uint8Array) => boolean }> = {
   'image/jpeg': { ext: 'jpg', matches: (b) => starts(b, [0xff, 0xd8, 0xff]) },
   'image/png': { ext: 'png', matches: (b) => starts(b, [0x89, 0x50, 0x4e, 0x47]) },
@@ -56,6 +68,20 @@ const TYPES: Record<string, { ext: string; matches: (bytes: Uint8Array) => boole
   'audio/ogg': { ext: 'ogg', matches: (b) => ascii(b, 0, 'OggS') },
   'audio/wav': { ext: 'wav', matches: (b) => ascii(b, 0, 'RIFF') && ascii(b, 8, 'WAVE') },
   'application/pdf': { ext: 'pdf', matches: (b) => ascii(b, 0, '%PDF-') },
+  // Office files customers send on WhatsApp. Their bytes start like any zip, so the declared
+  // type must say which; they are never sniffed from the bytes alone.
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': {
+    ext: 'docx',
+    matches: OFFICE_ZIP,
+  },
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+    ext: 'xlsx',
+    matches: OFFICE_ZIP,
+  },
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': {
+    ext: 'pptx',
+    matches: OFFICE_ZIP,
+  },
 };
 
 const ALIASES: Record<string, string> = {
@@ -82,8 +108,7 @@ export function allowedMediaUrl(raw: string): boolean {
     return false;
   }
   if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
-  const host = url.hostname.toLowerCase();
-  return MEDIA_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+  return onHosts(url, MEDIA_HOSTS);
 }
 
 /** The accepted type for these bytes and declared content type, or null. */
@@ -146,20 +171,25 @@ async function readCapped(response: Response, limit: number): Promise<Uint8Array
   return bytes;
 }
 
-/** Downloads one media file from a platform's host, refusing anything outside the rules. */
+/**
+ * Downloads one media file from a platform's host, refusing anything outside the rules. A
+ * `bearer` token goes only to Meta's WhatsApp file hosts, checked again at every redirect.
+ */
 export async function downloadMedia(
   url: string,
-  options: { limit?: number; imagesOnly?: boolean } = {},
+  options: { limit?: number; imagesOnly?: boolean; bearer?: string } = {},
 ): Promise<{ bytes: Uint8Array; mimeType: string; ext: string }> {
   let current = url;
   for (let hop = 0; hop < 4; hop += 1) {
     if (!allowedMediaUrl(current)) throw new MediaRefused('host not allowed');
+    const withToken = options.bearer && onHosts(new URL(current), TOKEN_HOSTS);
     let response: Response;
     try {
       response = await fetch(current, {
         redirect: 'manual',
         signal: AbortSignal.timeout(15_000),
         cache: 'no-store',
+        ...(withToken ? { headers: { authorization: `Bearer ${options.bearer}` } } : {}),
       });
     } catch {
       throw new MediaRefused('unreachable');
@@ -184,6 +214,8 @@ export async function downloadMedia(
 export type StoredAttachment = {
   type: string;
   state?: 'pending' | 'stored' | 'failed' | 'skipped';
+  /** A WhatsApp history message whose file had not arrived yet. */
+  placeholder?: boolean;
   storagePath?: string;
   mimeType?: string;
   size?: number;
@@ -194,7 +226,7 @@ export type StoredAttachment = {
 /** A transaction under RLS (import) or the privileged client (webhooks): both write the same. */
 type Db = Pick<Tx, 'select' | 'update' | 'transaction'>;
 
-/** What reaching a TikTok attachment needs: the account and a usable token. */
+/** What reaching a TikTok or WhatsApp attachment needs: the account and a usable token. */
 export type MediaAccess = { account: AccountRef; token: string } | null;
 
 /**
@@ -242,13 +274,13 @@ export async function persistMessageMedia(
           continue;
         }
         try {
-          const url = await sourceUrl(attachment, row, access);
-          if (!url) {
+          const source = await sourceUrl(attachment, row, access);
+          if (!source) {
             next.push({ ...attachment, state: 'skipped' });
             changed = true;
             continue;
           }
-          const file = await downloadMedia(url);
+          const file = await downloadMedia(source.url, { bearer: source.bearer });
           const path = `${row.tenantId}/social/${row.conversationId}/${row.id}/${index}-${randomUUID()}.${file.ext}`;
           await writeSocialMedia(path, file.bytes, file.mimeType);
           next.push({
@@ -281,21 +313,33 @@ async function sourceUrl(
   attachment: StoredAttachment,
   row: { externalId: string | null; conversationExternalId: string | null },
   access: MediaAccess,
-): Promise<string | null> {
-  if (attachment.url) return attachment.url;
-  if (!attachment.mediaId || !access || access.account.platform !== 'tiktok') return null;
-  if (!row.externalId || !row.conversationExternalId) return null;
-  const type = attachment.type === 'video' ? 'VIDEO' : attachment.type === 'image' ? 'IMAGE' : null;
-  if (!type) return null;
+): Promise<{ url: string; bearer?: string } | null> {
+  if (attachment.url) return { url: attachment.url };
+  if (!attachment.mediaId || !access) return null;
   try {
-    return await tiktokMediaUrl(
-      access.account,
-      access.token,
-      row.conversationExternalId,
-      row.externalId,
-      attachment.mediaId,
-      type,
-    );
+    if (access.account.platform === 'whatsapp') {
+      const url = await whatsappMediaUrl(
+        access.token,
+        attachment.mediaId,
+        access.account.externalId,
+      );
+      return { url, bearer: access.token };
+    }
+    if (access.account.platform !== 'tiktok') return null;
+    if (!row.externalId || !row.conversationExternalId) return null;
+    const type =
+      attachment.type === 'video' ? 'VIDEO' : attachment.type === 'image' ? 'IMAGE' : null;
+    if (!type) return null;
+    return {
+      url: await tiktokMediaUrl(
+        access.account,
+        access.token,
+        row.conversationExternalId,
+        row.externalId,
+        attachment.mediaId,
+        type,
+      ),
+    };
   } catch (error) {
     if (error instanceof ProviderError) throw new MediaRefused(error.message);
     throw error;

@@ -1430,3 +1430,88 @@ to reconnect: fixed). TikTok's media are fetched by media id through
 channels exist (docs/social-inbox.md). Media storage grows with use and is paid by the platform.
 Revoking a person's access stops their Realtime signals only when their session token renews
 (Supabase caches channel authorisation per connection); the signals carry ids alone.
+
+## ADR-066 — WhatsApp in the social inbox, and a Marketing section
+
+**Context.** The owner asked for a Marketing module whose first part is one place to read and
+answer customers on every platform, naming WhatsApp beside Facebook, Instagram and TikTok
+(ADR-064). Facts that shaped it (Meta's WhatsApp Business Platform documentation, read 20
+November 2026):
+- A platform that onboards other businesses is a *Tech Provider*. It needs business
+  verification and App Review for `whatsapp_business_messaging` and
+  `whatsapp_business_management`; the review asks for a video of a message sent from the app and
+  of a template *created in the app*. Until then at most 10 new WhatsApp accounts a week.
+- Businesses connect through *Embedded Signup*, which "relies on the JavaScript SDK"; a redirect
+  flow is not documented. v2 and v3 were retired on 15 October 2026.
+- The code it returns lives five minutes and is exchanged for a Business Integration System User
+  token (no expiry by default). A new number is registered with a six-digit two-step PIN.
+- *Coexistence* (a number that stays in the WhatsApp Business app) is supported in Australia
+  since October 2025. Messages sent from the phone arrive as `smb_message_echoes`, and history
+  (180 days, media ids for only 14) and contacts can each be asked for once, the history within
+  24 hours. Such a number is fixed at 20 messages a second.
+- Free-form messages only within 24 hours of the customer's last message; after that only an
+  approved template.
+- Since 1 October 2026 Meta again charges for replies inside the window beyond 1,000 a month per
+  number. Without a payment method on the business's own WhatsApp account, those beyond the free
+  1,000 are not delivered. The business pays Meta directly, not through the platform.
+- Media are fetched by id and the download needs the token; webhook media ids last 7 days.
+  Webhooks are signed like every Meta webhook and may carry up to 3 MB.
+
+**Decision.**
+1. *WhatsApp is a fourth platform of the `social` feature*, on the same Meta app, permissions and
+   tables. A business phone number is a `social_accounts` row (`external_id` = phone number id,
+   `provider_business_id` = WhatsApp Business Account). Conversations keep the customer's number
+   (`participant_phone`); the number is also their id, or their business-scoped user id when
+   they hide it.
+2. *Meta's SDK is loaded on one page only, on purpose* (owner's approval, 20 November 2026).
+   - It loads on Connected accounts, and only after an admin clicks **Connect WhatsApp**. The
+     second click opens Meta's window, because a popup must come straight from a click.
+   - Embedded Signup hands the page the code plus the account and number ids. A Server Action
+     (`social.manage`) exchanges the code on the server.
+   - The ids come from the browser, so they are trusted only once the business's own new token
+     finds that number in that account. The state cookie of ADR-064 is not needed: no redirect
+     carries the code.
+3. *Two ways to connect*, chosen by the business:
+   - *A new number:* registered for the Cloud API with a random PIN. The PIN is sealed in the
+     credentials row's second secret, rotated and cleared like a token, and never shown.
+   - *The number on its WhatsApp Business app:* the app stays in use. Contacts and history are
+     asked for at once.
+     - History is stored without counting as unread or opening the 24 hours, since the window
+       belongs to Cloud API messages.
+     - A media placeholder is filled when its file arrives.
+     - Messages sent from the phone appear in the thread, and so do their edits and deletions.
+     - The app's contact names name existing conversations.
+4. *Templates* (`social_message_templates`):
+   - They belong to the business, behind the feature switch. Anyone with `social.view` can read
+     them; only `social.manage` can write them (RLS).
+   - They are kept per number, each number of an account holding the account's templates, and
+     kept current by **Refresh** and by Meta's `message_template_status_update` webhook.
+   - Meroidea creates (text heading, body with numbered placeholders and examples, footer), lists
+     and deletes them.
+   - It sends a template's *body values only*, so templates with a media header, a button value
+     or a code are listed as "send from WhatsApp Manager".
+   - After 24 hours the reply box becomes a template picker with a preview. Retry resends the
+     same template.
+5. *Delivery states:*
+   - `sent → delivered → read` from WhatsApp's statuses, never back.
+   - A later `failed` explains itself in words: a closed window, billing, the customer's block.
+     WhatsApp's 130429 and 131056 are rate limits.
+6. *Media* are fetched by id, and the token goes only to Meta's file hosts (`fbsbx.com`,
+   `facebook.com`, `whatsapp.net`), checked again at every redirect. A redirect elsewhere gets no
+   token. Word, Excel and PowerPoint files are now kept, recognised by declared type and zip
+   bytes.
+7. *Erasure* also clears the customer's number. On WhatsApp it replaces their id in the
+   conversation, so a later message starts a new conversation with no link to the erased one.
+8. *Marketing* becomes a section of the menu, holding the Social inbox and WhatsApp templates.
+   The `social` permissions are listed under it in the role editor. The sidebar now highlights
+   the most specific item.
+
+**Consequences.**
+- The platform owner must become a Tech Provider: business verification, then App Review with the
+  two videos. That is the long pole, as for ADR-064.
+- Each business adds its own payment method in Meta Business Suite; the accounts page says so.
+- The 24-hour rule and Meta's charges are visible in the reply box and on the templates page.
+- Not yet: images or files in replies, media headers and button values in templates, reactions,
+  WhatsApp calls, and marking customers' messages as read in WhatsApp (blue ticks).
+- The SMS channel the owner also asked for is a separate decision: provider, who holds the
+  account, Australia's sender ID rules.

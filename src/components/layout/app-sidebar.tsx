@@ -31,7 +31,7 @@ type AppSidebarProps = {
   features: string[];
 };
 
-function isCurrent(pathname: string, item: NavItem) {
+function matches(pathname: string, item: NavItem) {
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
@@ -47,6 +47,14 @@ export function AppSidebar({ labels, workspaceName, permissions, features }: App
         (!item.feature || features.includes(item.feature)),
     ),
   })).filter((group) => group.items.length > 0);
+  // The most specific item holding the page: /social/templates is the templates page, not the
+  // inbox, though both addresses start with /social.
+  const currentHref =
+    groups
+      .flatMap((group) => group.items)
+      .filter((item) => matches(pathname, item))
+      .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
+  const isCurrent = (item: NavItem) => item.href === currentHref;
 
   // What the person opened or closed by hand. A group they have not touched is open only while
   // it holds the page they are on, so moving around never leaves a pile of open groups behind.
@@ -60,7 +68,7 @@ export function AppSidebar({ labels, workspaceName, permissions, features }: App
     return (
       <SidebarMenuItem key={item.href}>
         {item.available ? (
-          <SidebarMenuButton asChild tooltip={title} isActive={isCurrent(pathname, item)}>
+          <SidebarMenuButton asChild tooltip={title} isActive={isCurrent(item)}>
             <Link href={item.href}>
               <Icon aria-hidden />
               <span>{title}</span>
@@ -95,7 +103,7 @@ export function AppSidebar({ labels, workspaceName, permissions, features }: App
               {groups.map((group) => {
                 if (group.pinned || rail) return group.items.map(link);
 
-                const holdsCurrent = group.items.some((item) => isCurrent(pathname, item));
+                const holdsCurrent = group.items.some((item) => isCurrent(item));
                 const open = chosen[group.title] ?? holdsCurrent;
                 const GroupIcon = group.icon;
                 return (
@@ -128,10 +136,7 @@ export function AppSidebar({ labels, workspaceName, permissions, features }: App
                             return (
                               <SidebarMenuSubItem key={item.href}>
                                 {item.available ? (
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    isActive={isCurrent(pathname, item)}
-                                  >
+                                  <SidebarMenuSubButton asChild isActive={isCurrent(item)}>
                                     <Link href={item.href}>
                                       <Icon aria-hidden />
                                       <span>{title}</span>

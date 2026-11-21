@@ -95,7 +95,7 @@ export const FEATURES = [
     key: 'social',
     label: 'Social inbox',
     description:
-      'Connect Facebook, Instagram and TikTok business accounts and answer customers’ direct messages from one inbox.',
+      'Connect Facebook, Instagram, WhatsApp and TikTok business accounts and answer customers’ messages from one inbox.',
   },
   {
     key: 'books',

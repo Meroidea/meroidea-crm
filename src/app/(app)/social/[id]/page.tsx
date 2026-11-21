@@ -11,6 +11,7 @@ import { InboxList } from '@/modules/social/components/inbox-list';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
 import { CustomerAvatar, PlatformBadge } from '@/modules/social/components/platform-badge';
 import { ContactLinker, MarkRead, StatusButton } from '@/modules/social/components/social-tools';
+import { TemplateReply } from '@/modules/social/components/template-reply';
 import { ThreadView } from '@/modules/social/components/thread-view';
 import { ACCOUNT_STATUS_LABELS, customerLabel, PLATFORM_LABELS } from '@/modules/social/format';
 import {
@@ -18,6 +19,7 @@ import {
   getConversation,
   listAccounts,
   listConversations,
+  sendableTemplates,
 } from '@/modules/social/queries';
 import { inboxFiltersSchema } from '@/modules/social/schemas';
 import { REPLY_RULES, replyWindow } from '@/modules/social/service';
@@ -53,6 +55,12 @@ export default async function ConversationPage({
     : window.ok
       ? null
       : window.reason;
+  // WhatsApp: an approved template may be sent at any time, the only option after 24 hours.
+  const templates =
+    platform === 'whatsapp' && canReply && accountLive
+      ? await sendableTemplates(ctx, thread.accountId)
+      : [];
+  const templateOnly = platform === 'whatsapp' && accountLive && !window.ok;
   const contactLabel = ctx.tenant.labels.contact.singular;
   const back = withParams('/social', { view: filters.view, platform: filters.platform }, {});
 
@@ -85,7 +93,7 @@ export default async function ConversationPage({
 
         <section
           aria-label={`Conversation with ${name}`}
-          className="flex min-h-[70dvh] min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 sm:p-4 lg:min-h-0"
+          className="flex min-h-[70dvh] min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 sm:p-4 lg:min-h-0 lg:overflow-y-auto"
         >
           <header className="flex flex-wrap items-start gap-3 border-b pb-3">
             <CustomerAvatar
@@ -102,6 +110,9 @@ export default async function ConversationPage({
                 <PlatformBadge platform={platform} />
                 {conversation.participantUsername && conversation.participantName && (
                   <span data-sensitive>@{conversation.participantUsername}</span>
+                )}
+                {conversation.participantPhone && conversation.participantName && (
+                  <span data-sensitive>+{conversation.participantPhone}</span>
                 )}
                 <span>to {thread.accountName}</span>
                 {!accountLive && (
@@ -137,9 +148,37 @@ export default async function ConversationPage({
             conversationId={conversation.id}
             platformLabel={PLATFORM_LABELS[platform]}
             canReply={canReply}
-            blockedReason={blockedReason}
+            blockedReason={templateOnly ? null : blockedReason}
+            textReply={!templateOnly}
             humanAgent={window.ok && window.humanAgent}
             maxChars={REPLY_RULES[platform].maxChars}
+            extra={
+              platform === 'whatsapp' && accountLive ? (
+                window.ok ? (
+                  <details className="rounded-xl border bg-card p-3 text-sm">
+                    <summary className="cursor-pointer font-medium">
+                      Send a template instead
+                    </summary>
+                    <div className="mt-3">
+                      <TemplateReply
+                        conversationId={conversation.id}
+                        templates={templates}
+                        canManage={hasPermission(ctx, 'social.manage')}
+                      />
+                    </div>
+                  </details>
+                ) : (
+                  <div className="rounded-xl border bg-card p-3">
+                    <TemplateReply
+                      conversationId={conversation.id}
+                      templates={templates}
+                      canManage={hasPermission(ctx, 'social.manage')}
+                      notice={window.ok ? undefined : window.reason}
+                    />
+                  </div>
+                )
+              ) : null
+            }
             messages={thread.messages.map((message) => ({
               id: message.id,
               direction: message.direction,
@@ -151,10 +190,12 @@ export default async function ConversationPage({
               sentByName: message.sentByName,
             }))}
           />
-          <p className="text-xs text-muted-foreground">
+          <p className={templateOnly ? 'hidden' : 'text-xs text-muted-foreground'}>
             {platform === 'tiktok'
               ? 'TikTok allows up to 10 replies within 48 hours of the customer’s last message.'
-              : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
+              : platform === 'whatsapp'
+                ? 'Free-form replies within 24 hours of the customer’s last message; after that, an approved template. Meta charges for templates and for replies beyond 1,000 a month.'
+                : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
           </p>
         </section>
       </div>

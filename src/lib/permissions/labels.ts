@@ -100,8 +100,9 @@ const GROUPS: { title: string; families: string[] }[] = [
       'documents',
     ],
   },
+  { title: 'Marketing', families: ['social'] },
   { title: 'Work', families: ['tasks', 'projects', 'files', 'productivity'] },
-  { title: 'Customer care', families: ['reviews', 'tickets', 'social'] },
+  { title: 'Customer care', families: ['reviews', 'tickets'] },
   {
     title: 'People',
     families: [

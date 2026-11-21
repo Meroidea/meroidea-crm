@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -18,8 +19,9 @@ import { tenants } from './tenancy';
 
 /**
  * A social media account a business has connected: a Facebook Page, an Instagram professional
- * account or a TikTok business account (ADR-064). One live connection per account across the
- * platform, so an incoming message has exactly one business to go to.
+ * account, a TikTok business account (ADR-064) or a WhatsApp business phone number (ADR-066).
+ * One live connection per account across the platform, so an incoming message has exactly one
+ * business to go to.
  */
 export const socialAccounts = pgTable(
   'social_accounts',
@@ -28,15 +30,34 @@ export const socialAccounts = pgTable(
     tenantId: uuid()
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
-    /** facebook | instagram | tiktok */
+    /** facebook | instagram | tiktok | whatsapp */
     platform: text().notNull(),
-    /** The provider's id: Page id, Instagram account id, or TikTok business id (open_id). */
+    /**
+     * The provider's id: Page id, Instagram account id, TikTok business id (open_id), or the
+     * WhatsApp business phone number's id.
+     */
     externalId: text().notNull(),
     name: text().notNull(),
     username: text(),
     avatarUrl: text(),
-    /** Meta: the client's business portfolio, so its app removal can be matched. */
+    /**
+     * Meta: the client's business portfolio, so its app removal can be matched. WhatsApp: the
+     * WhatsApp Business Account (Messaging account) the number belongs to.
+     */
     providerBusinessId: text(),
+    /**
+     * WhatsApp: the number is also used in the WhatsApp Business app on the business's phone
+     * ("coexistence"), so messages sent from the phone arrive here too.
+     */
+    coexistence: boolean().notNull().default(false),
+    /**
+     * WhatsApp Business app numbers: importing the app's chat history (up to 180 days), which
+     * must be asked for within 24 hours of connecting. requested | in_progress | complete |
+     * declined | failed; empty when there is nothing to import.
+     */
+    historySync: text(),
+    /** How far the history import has come, 0 to 100, as WhatsApp reports it. */
+    historyProgress: integer(),
     /** active | needs_reconnect | disconnected */
     status: text().notNull().default('active'),
     /** What went wrong last, in words for the business; never a token or a payload. */
@@ -56,7 +77,15 @@ export const socialAccounts = pgTable(
     index('social_accounts_tenant_idx').on(table.tenantId, table.status),
     check(
       'social_accounts_platform_check',
-      sql`${table.platform} in ('facebook', 'instagram', 'tiktok')`,
+      sql`${table.platform} in ('facebook', 'instagram', 'tiktok', 'whatsapp')`,
+    ),
+    check(
+      'social_accounts_history_sync_check',
+      sql`${table.historySync} in ('requested', 'in_progress', 'complete', 'declined', 'failed')`,
+    ),
+    check(
+      'social_accounts_history_progress_check',
+      sql`${table.historyProgress} between 0 and 100`,
     ),
     check(
       'social_accounts_status_check',
@@ -101,10 +130,15 @@ export const socialConversations = pgTable(
     accountId: uuid().notNull(),
     /** The provider's conversation id, where it has one (needed to reply on TikTok). */
     externalId: text(),
-    /** The customer's id as the provider scopes it to this account (PSID, IGSID, TikTok id). */
+    /**
+     * The customer's id as the provider scopes it to this account (PSID, IGSID, TikTok id; on
+     * WhatsApp their number, or their business-scoped user id when they hide it).
+     */
     participantId: text().notNull(),
     participantName: text(),
     participantUsername: text(),
+    /** WhatsApp: the customer's phone number in international form, digits only. */
+    participantPhone: text(),
     /** The customer's picture, saved to the private `social-media` bucket (provider links expire). */
     participantAvatarPath: text(),
     /** The CRM contact this customer is, once someone links them. */
@@ -159,6 +193,11 @@ export const socialMessages = pgTable(
      */
     attachments: jsonb().notNull().default([]),
     sentAt: timestamp({ withTimezone: true }).notNull(),
+    /**
+     * WhatsApp: the approved template this message was sent with, `{ name, language,
+     * parameters }`, so a failed one is sent again as the same template.
+     */
+    template: jsonb(),
     /** Who replied from Meroidea; empty for the customer and for replies made in the app itself. */
     sentByUserId: uuid(),
     /** received (inbound) | sending | sent | delivered | read | failed (outbound) */
@@ -187,6 +226,67 @@ export const socialMessages = pgTable(
     check(
       'social_messages_status_check',
       sql`${table.status} in ('received', 'sending', 'sent', 'delivered', 'read', 'failed')`,
+    ),
+  ],
+);
+
+/**
+ * A WhatsApp message template of a connected number's WhatsApp Business Account (ADR-066). Meta
+ * reviews each one; outside the 24 hours after a customer's last message, only an approved
+ * template may be sent. Kept here so the reply box does not ask Meta each time (Meta allows 200
+ * template reads an hour); changes arrive by webhook and with "Refresh".
+ */
+export const socialMessageTemplates = pgTable(
+  'social_message_templates',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    accountId: uuid().notNull(),
+    /** Meta's template id. */
+    externalId: text().notNull(),
+    name: text().notNull(),
+    /** Meta's language code, e.g. en, en_US. */
+    language: text().notNull(),
+    /** marketing | utility | authentication, as Meta classified it. */
+    category: text().notNull(),
+    /** Meta's review status, lower case: approved, pending, rejected, paused, disabled, … */
+    status: text().notNull(),
+    /** positional ({{1}}) | named ({{first_name}}) */
+    parameterFormat: text().notNull().default('positional'),
+    body: text().notNull(),
+    headerText: text(),
+    footerText: text(),
+    /** The body's placeholders in order: "1", "2", … or the names. */
+    parameters: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /**
+     * Whether Meroidea can send it: a text body, with at most a text header and a footer and
+     * buttons that need no values. Others are listed but sent from WhatsApp Manager.
+     */
+    sendable: boolean().notNull().default(true),
+    /** Why Meta rejected or paused it, in Meta's words. */
+    reason: text(),
+    createdBy: uuid(),
+    syncedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('social_message_templates_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('social_message_templates_external_key').on(table.accountId, table.externalId),
+    foreignKey({
+      name: 'social_message_templates_account_fkey',
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [socialAccounts.tenantId, socialAccounts.id],
+    }),
+    index('social_message_templates_account_idx').on(table.tenantId, table.accountId, table.name),
+    check(
+      'social_message_templates_format_check',
+      sql`${table.parameterFormat} in ('positional', 'named')`,
     ),
   ],
 );

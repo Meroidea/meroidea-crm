@@ -47,6 +47,11 @@ const serverEnvSchema = z.object({
   /** The Facebook Login for Business configuration that asks for the messaging permissions. */
   META_LOGIN_CONFIG_ID: z.string().min(1).optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(16).optional(),
+  /**
+   * WhatsApp (ADR-066): the Embedded Signup configuration of the same Meta app. Without it,
+   * businesses cannot connect a WhatsApp number.
+   */
+  META_WHATSAPP_CONFIG_ID: z.string().min(1).optional(),
   /** The Graph API version the client calls; change it when Meta retires this one. */
   META_GRAPH_VERSION: z
     .string()

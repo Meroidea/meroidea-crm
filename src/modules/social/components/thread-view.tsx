@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Check, CheckCheck, Clock, FileText, RotateCcw, Send } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useEffect, useOptimistic, useRef, useState, useTransition, type ReactNode } from 'react';
 
 import { ErrorNote } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
@@ -113,6 +113,8 @@ export function ThreadView({
   blockedReason,
   humanAgent,
   maxChars,
+  extra,
+  textReply = true,
 }: {
   conversationId: string;
   messages: ThreadItem[];
@@ -121,6 +123,10 @@ export function ThreadView({
   blockedReason: string | null;
   humanAgent: boolean;
   maxChars: number;
+  /** Shown under the reply box: WhatsApp's template sender. */
+  extra?: ReactNode;
+  /** False when only `extra` may be sent (WhatsApp after 24 hours): no free-text box. */
+  textReply?: boolean;
 }) {
   const router = useRouter();
   const [body, setBody] = useState('');
@@ -169,7 +175,7 @@ export function ThreadView({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <ol
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 lg:min-h-24"
         aria-label="Messages"
         aria-live="polite"
       >
@@ -251,6 +257,7 @@ export function ThreadView({
       </ol>
 
       {canReply &&
+        textReply &&
         (blockedReason ? (
           <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">
             {blockedReason}
@@ -291,6 +298,11 @@ export function ThreadView({
             </div>
           </form>
         ))}
+      {canReply && extra && (
+        // On a wide screen the thread has a fixed height: a tall template form scrolls in place
+        // instead of spilling over the page.
+        <div className="shrink-0 lg:max-h-[45dvh] lg:overflow-y-auto">{extra}</div>
+      )}
       <ErrorNote error={error} />
     </div>
   );

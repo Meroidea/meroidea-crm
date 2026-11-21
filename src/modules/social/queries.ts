@@ -4,7 +4,14 @@ import { and, asc, desc, eq, gt, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 
-import { contacts, socialAccounts, socialConversations, socialMessages, users } from '@/db/schema';
+import {
+  contacts,
+  socialAccounts,
+  socialConversations,
+  socialMessages,
+  socialMessageTemplates,
+  users,
+} from '@/db/schema';
 import { scopeFilter } from '@/lib/permissions/scope';
 import { contactScope } from '@/modules/contacts/access';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
@@ -12,6 +19,7 @@ import { withRls } from '@/server/db/with-rls';
 
 import { metaConfigured } from './providers/meta';
 import { tiktokConfigured } from './providers/tiktok';
+import { whatsappConfigured } from './providers/whatsapp';
 import type { SocialPlatform } from './providers/types';
 import type { StoredAttachment } from './media';
 import type { InboxFilters } from './schemas';
@@ -59,6 +67,7 @@ export type InboxRow = {
   id: string;
   participantName: string | null;
   participantUsername: string | null;
+  participantPhone: string | null;
   lastMessageAt: Date | null;
   lastMessagePreview: string | null;
   unreadCount: number;
@@ -95,6 +104,7 @@ export async function listConversations(
         id: socialConversations.id,
         participantName: socialConversations.participantName,
         participantUsername: socialConversations.participantUsername,
+        participantPhone: socialConversations.participantPhone,
         lastMessageAt: socialConversations.lastMessageAt,
         lastMessagePreview: socialConversations.lastMessagePreview,
         unreadCount: socialConversations.unreadCount,
@@ -129,6 +139,7 @@ export async function listConversations(
       id: row.id,
       participantName: row.participantName,
       participantUsername: row.participantUsername,
+      participantPhone: row.participantPhone,
       lastMessageAt: row.lastMessageAt,
       lastMessagePreview: row.lastMessagePreview,
       unreadCount: row.unreadCount,
@@ -235,12 +246,15 @@ export type AccountRow = {
   connectedAt: Date;
   lastSyncedAt: Date | null;
   conversations: number;
+  coexistence: boolean;
+  historySync: string | null;
+  historyProgress: number | null;
 };
 
 /** The business's connected accounts, and whether each platform is available to connect. */
 export async function listAccounts(ctx: TenantContext): Promise<{
   accounts: AccountRow[];
-  available: { meta: boolean; tiktok: boolean };
+  available: { meta: boolean; tiktok: boolean; whatsapp: boolean };
 }> {
   if (!hasPermission(ctx, 'social.manage')) requirePermission(ctx, 'social.view');
   const accounts = await withRls(ctx, (tx) =>
@@ -255,6 +269,9 @@ export async function listAccounts(ctx: TenantContext): Promise<{
         lastError: socialAccounts.lastError,
         connectedAt: socialAccounts.connectedAt,
         lastSyncedAt: socialAccounts.lastSyncedAt,
+        coexistence: socialAccounts.coexistence,
+        historySync: socialAccounts.historySync,
+        historyProgress: socialAccounts.historyProgress,
         conversations: sql<number>`(select count(*)::int from ${socialConversations}
           where ${socialConversations.tenantId} = ${socialAccounts.tenantId}
             and ${socialConversations.accountId} = ${socialAccounts.id})`,
@@ -268,7 +285,11 @@ export async function listAccounts(ctx: TenantContext): Promise<{
       ...account,
       platform: account.platform as SocialPlatform,
     })),
-    available: { meta: metaConfigured(), tiktok: tiktokConfigured() },
+    available: {
+      meta: metaConfigured(),
+      tiktok: tiktokConfigured(),
+      whatsapp: whatsappConfigured(),
+    },
   };
 }
 
@@ -316,4 +337,84 @@ export async function avatarPath(
       .limit(1),
   );
   return row?.path ?? null;
+}
+
+export type TemplateRow = {
+  id: string;
+  accountId: string;
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+  body: string;
+  headerText: string | null;
+  footerText: string | null;
+  parameters: string[];
+  sendable: boolean;
+  reason: string | null;
+  syncedAt: Date;
+};
+
+const templateColumns = {
+  id: socialMessageTemplates.id,
+  accountId: socialMessageTemplates.accountId,
+  name: socialMessageTemplates.name,
+  language: socialMessageTemplates.language,
+  category: socialMessageTemplates.category,
+  status: socialMessageTemplates.status,
+  body: socialMessageTemplates.body,
+  headerText: socialMessageTemplates.headerText,
+  footerText: socialMessageTemplates.footerText,
+  parameters: socialMessageTemplates.parameters,
+  sendable: socialMessageTemplates.sendable,
+  reason: socialMessageTemplates.reason,
+  syncedAt: socialMessageTemplates.syncedAt,
+};
+
+/** Every WhatsApp template of the business's live numbers, for the templates page. */
+export async function listTemplates(ctx: TenantContext): Promise<TemplateRow[]> {
+  requirePermission(ctx, 'social.manage');
+  return withRls(ctx, (tx) =>
+    tx
+      .select(templateColumns)
+      .from(socialMessageTemplates)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialMessageTemplates.tenantId),
+          eq(socialAccounts.id, socialMessageTemplates.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialMessageTemplates.tenantId, ctx.tenantId),
+          isNull(socialAccounts.disconnectedAt),
+        ),
+      )
+      .orderBy(asc(socialMessageTemplates.name), asc(socialMessageTemplates.language))
+      .limit(1000),
+  );
+}
+
+/** The approved templates a person may send in a conversation with this WhatsApp number. */
+export async function sendableTemplates(
+  ctx: TenantContext,
+  accountId: string,
+): Promise<TemplateRow[]> {
+  if (!hasPermission(ctx, 'social.reply')) return [];
+  return withRls(ctx, (tx) =>
+    tx
+      .select(templateColumns)
+      .from(socialMessageTemplates)
+      .where(
+        and(
+          eq(socialMessageTemplates.tenantId, ctx.tenantId),
+          eq(socialMessageTemplates.accountId, accountId),
+          eq(socialMessageTemplates.status, 'approved'),
+          eq(socialMessageTemplates.sendable, true),
+        ),
+      )
+      .orderBy(asc(socialMessageTemplates.name), asc(socialMessageTemplates.language))
+      .limit(500),
+  );
 }

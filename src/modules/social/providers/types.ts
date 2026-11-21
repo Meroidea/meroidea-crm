@@ -1,8 +1,16 @@
-export const SOCIAL_PLATFORMS = ['facebook', 'instagram', 'tiktok'] as const;
+export const SOCIAL_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'whatsapp'] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
-/** An attachment as a provider reports it: a link (Meta) or a media id to fetch (TikTok). */
-export type ProviderAttachment = { type: string; url?: string; mediaId?: string };
+/**
+ * An attachment as a provider reports it: a link (Meta) or a media id to fetch (TikTok,
+ * WhatsApp). `placeholder` marks a WhatsApp history message whose media follows separately.
+ */
+export type ProviderAttachment = {
+  type: string;
+  url?: string;
+  mediaId?: string;
+  placeholder?: boolean;
+};
 
 /** A message as a provider reports it, before it is stored. */
 export type ProviderMessage = {
@@ -11,6 +19,8 @@ export type ProviderMessage = {
   body: string | null;
   attachments: ProviderAttachment[];
   sentAt: Date;
+  /** A business message's state when the provider reports it (WhatsApp history); else sent. */
+  status?: 'sent' | 'delivered' | 'read' | 'failed';
 };
 
 /** A customer's thread as a provider reports it. */
@@ -21,6 +31,8 @@ export type ProviderConversation = {
   participantId: string;
   participantName: string | null;
   participantUsername: string | null;
+  /** WhatsApp: the customer's number, digits only. */
+  participantPhone?: string | null;
   messages: ProviderMessage[];
 };
 

@@ -5,14 +5,22 @@ import {
   parseMetaWebhook,
   verifyMetaSignature,
 } from '@/modules/social/providers/meta-webhook';
-import { applyMetaReceipts, ingestMetaEvents } from '@/modules/social/webhooks';
+import { parseWhatsAppWebhook } from '@/modules/social/providers/whatsapp-webhook';
+import {
+  applyMetaReceipts,
+  ingestMetaEvents,
+  ingestWhatsAppWebhook,
+} from '@/modules/social/webhooks';
 import { serverEnv } from '@/server/env';
 import { PayloadTooLargeError, readBodyWithLimit } from '@/server/request';
 
-/** Meta batches events, but a message notification is a few kilobytes; far larger is not one. */
-const MAX_BODY_BYTES = 512 * 1024;
+/**
+ * A message notification is a few kilobytes, but WhatsApp sends a connected WhatsApp Business
+ * app's chat history in batches of up to 3 MB (ADR-066); far larger is not Meta.
+ */
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 function sameText(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -41,9 +49,10 @@ export function GET(request: Request) {
 }
 
 /**
- * Messages for connected Facebook Pages and Instagram accounts. Nothing is read or stored until
- * the body's signature is checked against the app secret. Meta retries anything but a 200, so a
- * failure to store is answered with a 500 to have it sent again; events are stored idempotently.
+ * Messages for connected Facebook Pages, Instagram accounts and WhatsApp numbers. Nothing is
+ * read or stored until the body's signature is checked against the app secret. Meta retries
+ * anything but a 200, so a failure to store is answered with a 500 to have it sent again; events
+ * are stored idempotently.
  */
 export async function POST(request: Request) {
   const secret = serverEnv().META_APP_SECRET;
@@ -67,6 +76,7 @@ export async function POST(request: Request) {
   try {
     await ingestMetaEvents(parseMetaWebhook(body));
     await applyMetaReceipts(parseMetaReceipts(body));
+    await ingestWhatsAppWebhook(parseWhatsAppWebhook(body));
   } catch (error) {
     // Never the payload: it holds customers' messages.
     console.error(

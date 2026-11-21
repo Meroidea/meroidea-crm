@@ -30,6 +30,8 @@ import {
   Landmark,
   LayoutDashboard,
   ListChecks,
+  Megaphone,
+  MessageSquareText,
   MessagesSquare,
   Settings,
   Receipt,
@@ -134,6 +136,28 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
+    // Customers' messages on every social platform in one place (ADR-064–066); campaigns and
+    // broadcasts join here as they are built.
+    title: 'Marketing',
+    icon: Megaphone,
+    items: [
+      {
+        href: '/social',
+        icon: MessagesSquare,
+        label: { title: 'Social inbox' },
+        permission: 'social.view',
+        available: true,
+      },
+      {
+        href: '/social/templates',
+        icon: MessageSquareText,
+        label: { title: 'WhatsApp templates' },
+        permission: 'social.manage',
+        available: true,
+      },
+    ],
+  },
+  {
     title: 'Work',
     icon: FolderKanban,
     items: [
@@ -176,13 +200,6 @@ export const NAVIGATION: NavGroup[] = [
         icon: LifeBuoy,
         label: { title: 'Helpdesk' },
         permission: 'tickets.work',
-        available: true,
-      },
-      {
-        href: '/social',
-        icon: MessagesSquare,
-        label: { title: 'Social inbox' },
-        permission: 'social.view',
         available: true,
       },
     ],

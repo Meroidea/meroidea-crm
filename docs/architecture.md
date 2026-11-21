@@ -152,6 +152,7 @@ if several, a `tenant` cookie validated against memberships. In Phase 3 the subd
 | Client-side refetch (board drag, infinite scroll) | Server Action returning data |
 | Webhooks, public forms, file redirects, cron hooks, OAuth callbacks from a provider's login (`/api/social/oauth/*`, run as the signed-in person) | Route Handlers under `/api` |
 | Live updates (social inbox only) | Supabase Realtime: database triggers broadcast ids on a private channel per business; the page re-renders through its server components (ADR-065) |
+| Connecting a WhatsApp number | Meta's Embedded Signup (its JavaScript SDK, loaded on Connected accounts only, after a click) returns a code to the page; a Server Action exchanges it on the server and checks the chosen number with the business's own token (ADR-066) |
 | External developers (Phase 3) | `/api/v1/*`, API keys per tenant, same services |
 
 - Errors: `AppError(code, message)`; codes in `coding-standards.md`.
