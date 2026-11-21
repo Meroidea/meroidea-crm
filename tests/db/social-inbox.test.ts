@@ -471,7 +471,7 @@ describe('replying', () => {
       update social_conversations set last_inbound_at = now() - interval '8 days' where id = ${conversation.id}`);
     await expectCode(
       () => replyToConversation(manager, { conversationId: conversation.id, body: 'Too late' }),
-      'CONFLICT',
+      'WINDOW_EXPIRED',
     );
     await adminDb().execute(sql`
       update social_conversations set last_inbound_at = now() where id = ${conversation.id}`);

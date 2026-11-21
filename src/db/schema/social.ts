@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { contacts } from './crm';
-import { tenants } from './tenancy';
+import { tenantMemberships, tenants } from './tenancy';
 
 /**
  * A social media account a business has connected: a Facebook Page, an Instagram professional
@@ -148,8 +148,12 @@ export const socialConversations = pgTable(
     /** The customer's last message: the provider's reply window counts from here. */
     lastInboundAt: timestamp({ withTimezone: true }),
     unreadCount: integer().notNull().default(0),
-    /** open | done */
+    /** open | snoozed | done. A snoozed conversation is open again once `snoozedUntil` passes. */
     status: text().notNull().default('open'),
+    /** Until when it is set aside (ADR-067); a customer writing again reopens it at once. */
+    snoozedUntil: timestamp({ withTimezone: true }),
+    /** The colleague looking after it (ADR-067); empty for the whole team. */
+    assignedUserId: uuid(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
@@ -166,8 +170,18 @@ export const socialConversations = pgTable(
       columns: [table.tenantId, table.contactId],
       foreignColumns: [contacts.tenantId, contacts.id],
     }),
+    foreignKey({
+      name: 'social_conversations_assignee_fkey',
+      columns: [table.tenantId, table.assignedUserId],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+    }),
     index('social_conversations_inbox_idx').on(table.tenantId, table.lastMessageAt, table.id),
-    check('social_conversations_status_check', sql`${table.status} in ('open', 'done')`),
+    index('social_conversations_assignee_idx').on(table.tenantId, table.assignedUserId),
+    check('social_conversations_status_check', sql`${table.status} in ('open', 'snoozed', 'done')`),
+    check(
+      'social_conversations_snooze_check',
+      sql`(${table.status} = 'snoozed') = (${table.snoozedUntil} is not null)`,
+    ),
   ],
 );
 

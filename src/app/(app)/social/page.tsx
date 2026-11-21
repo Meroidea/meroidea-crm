@@ -27,7 +27,7 @@ export default async function SocialInboxPage({ searchParams }: PageProps<'/soci
     <div className="flex w-full max-w-7xl flex-col gap-4">
       <PageHeader
         title="Social inbox"
-        description="Direct messages from customers on your connected Facebook, Instagram and TikTok accounts."
+        description="Messages from customers on your connected WhatsApp, Facebook, Instagram and TikTok accounts."
         actions={
           <>
             <InboxRealtime tenantId={ctx.tenantId} />

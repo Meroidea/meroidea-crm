@@ -1,11 +1,12 @@
-import { MessagesSquare } from 'lucide-react';
+import { AlarmClock, MessagesSquare, Search } from 'lucide-react';
 import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
 import { ListPagination } from '@/components/data/list-pagination';
 import { withParams } from '@/components/data/url';
 import { Button } from '@/components/ui/button';
-import { formatRelative } from '@/lib/format';
+import { Input } from '@/components/ui/input';
+import { formatRelative, initials } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { customerLabel, PLATFORM_LABELS } from '../format';
@@ -16,7 +17,9 @@ import { CustomerAvatar, PlatformBadge } from './platform-badge';
 
 const VIEW_LABELS: Record<(typeof INBOX_VIEWS)[number], string> = {
   open: 'Open',
+  mine: 'Mine',
   unread: 'Unread',
+  snoozed: 'Snoozed',
   done: 'Done',
   all: 'All',
 };
@@ -45,7 +48,7 @@ export function InboxList({
   canManage: boolean;
 }) {
   const view = filters.view ?? 'open';
-  const current = { view: filters.view, platform: filters.platform };
+  const current = { view: filters.view, platform: filters.platform, q: filters.q };
   const chip = (active: boolean) =>
     cn(
       'rounded-full border px-2.5 py-0.5 text-sm text-muted-foreground hover:text-foreground',
@@ -57,6 +60,23 @@ export function InboxList({
       aria-label="Conversations"
       className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card"
     >
+      <form action="/social" className="relative border-b px-3 pt-3" role="search">
+        {filters.view && <input type="hidden" name="view" value={filters.view} />}
+        {filters.platform && <input type="hidden" name="platform" value={filters.platform} />}
+        <Search
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-5.5 mt-1.5 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          type="search"
+          name="q"
+          defaultValue={filters.q ?? ''}
+          maxLength={100}
+          placeholder="Search name, number or message"
+          aria-label="Search conversations"
+          className="pl-8"
+        />
+      </form>
       <nav aria-label="Filter conversations" className="flex flex-wrap gap-1.5 border-b p-3">
         {INBOX_VIEWS.map((key) => (
           <Link
@@ -90,10 +110,14 @@ export function InboxList({
           title={hasAccounts ? 'No conversations here' : 'No accounts connected yet'}
           description={
             hasAccounts
-              ? view === 'open'
-                ? 'New messages from customers appear here the moment they arrive.'
-                : 'Try another view.'
-              : 'Connect your Facebook Page, Instagram or TikTok account to see customers’ messages here.'
+              ? filters.q
+                ? 'Nothing matches that search.'
+                : view === 'open'
+                  ? 'New messages from customers appear here the moment they arrive.'
+                  : view === 'mine'
+                    ? 'Conversations given to you appear here.'
+                    : 'Try another view.'
+              : 'Connect your WhatsApp, Facebook Page, Instagram or TikTok account to see customers’ messages here.'
           }
           action={
             !hasAccounts && canManage ? (
@@ -150,6 +174,21 @@ export function InboxList({
                       <span className="truncate text-xs text-muted-foreground">
                         {row.contactId && row.contactName ? row.contactName : row.accountName}
                       </span>
+                      {row.snoozedNow && (
+                        <span className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground">
+                          <AlarmClock aria-hidden className="size-3" />
+                          <span className="sr-only">Snoozed</span>
+                        </span>
+                      )}
+                      {row.assigneeName && (
+                        <span
+                          title={`Assigned to ${row.assigneeName}`}
+                          className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium"
+                        >
+                          <span aria-hidden>{initials(row.assigneeName)}</span>
+                          <span className="sr-only">Assigned to {row.assigneeName}</span>
+                        </span>
+                      )}
                       {row.unreadCount > 0 && (
                         <span className="ml-auto rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground tabular-nums">
                           {row.unreadCount}

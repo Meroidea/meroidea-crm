@@ -184,6 +184,13 @@ change as touching sensitive personal data.
     hosts, checked at every redirect; never pass it to `downloadMedia` for any other host.
   - History imported from the WhatsApp Business app never opens the 24-hour window: keep
     `opensWindow: false` for anything older than the connection.
+- Files in replies (ADR-067):
+  - Only through `startMediaUpload` (a ticket for a path under
+    `{tenant}/social/{conversation}/outbound/` that the server chose) and `sendMediaReply`.
+  - `sendMediaReply` re-checks the path prefix, the leading bytes and the platform's type and
+    size, and deletes what it refuses. Never send a path the browser made up.
+  - Meta gets a ten-minute signed link to that one object, never a longer or broader one.
+- An assignment notice never contains what the customer wrote.
 
 ## Location (ADR-033)
 

@@ -336,3 +336,56 @@ export async function sendMetaMessage(
   }
   return result.message_id;
 }
+
+/**
+ * Sends a photo, video, voice note or file by link (ADR-067): Meta fetches it from the
+ * ten-minute link to our private bucket while delivering. Same window as text: a normal
+ * response within 24 hours, then the HUMAN_AGENT tag up to 7 days.
+ */
+export async function sendMetaAttachment(
+  account: AccountRef,
+  token: string,
+  participantId: string,
+  attachment: { type: 'image' | 'video' | 'audio' | 'file'; url: string },
+  humanAgent: boolean,
+): Promise<string> {
+  const payload: Record<string, unknown> = {
+    recipient: { id: participantId },
+    message: {
+      attachment: { type: attachment.type, payload: { url: attachment.url, is_reusable: false } },
+    },
+    messaging_type: humanAgent ? 'MESSAGE_TAG' : 'RESPONSE',
+  };
+  if (humanAgent) payload.tag = 'HUMAN_AGENT';
+  const result = (await providerFetch(
+    'meta',
+    graph(`/${encodeURIComponent(account.externalId)}/messages`),
+    {
+      method: 'POST',
+      headers: { ...authorized(token), 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      timeoutMs: 30_000,
+    },
+  )) as { message_id?: unknown };
+  if (typeof result.message_id !== 'string') {
+    throw new ProviderError('meta', 'Meta accepted the file but did not return its id.');
+  }
+  return result.message_id;
+}
+
+/**
+ * Tells a Messenger customer their messages were seen (ADR-067). Messenger only: Instagram
+ * documents no such action for businesses.
+ */
+export async function markMessengerSeen(
+  account: AccountRef,
+  token: string,
+  participantId: string,
+): Promise<void> {
+  await providerFetch('meta', graph(`/${encodeURIComponent(account.externalId)}/messages`), {
+    method: 'POST',
+    headers: { ...authorized(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ recipient: { id: participantId }, sender_action: 'mark_seen' }),
+    timeoutMs: 5_000,
+  });
+}

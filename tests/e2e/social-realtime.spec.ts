@@ -54,6 +54,8 @@ test('a new customer message appears in the open conversation without reloading'
     await page.goto(`/social/${conversation!.id}`);
     await expect(page.getByRole('heading', { name: 'Riley Realtime' })).toBeVisible();
     await expect(page.getByText('Do you sell stamps?').last()).toBeVisible();
+    // The reply window counts down live (ADR-067).
+    await expect(page.getByRole('timer').first()).toContainText('Reply window');
     // The private Realtime channel is joined (Realtime Authorization with the person's session).
     await expect(page.getByText('Live', { exact: true })).toBeVisible({ timeout: 20_000 });
 

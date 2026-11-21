@@ -114,7 +114,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `reviews.view` | | Read customer reviews, the summary and the review links |
 | `reviews.manage` | | Create and switch review links, mark reviews read or followed up, keep notes, remove a review |
 | `social.view` | | Read the social inbox: conversations and messages from connected Facebook, Instagram, WhatsApp and TikTok accounts, and the approved WhatsApp templates. Enforced again by RLS on every `social_*` table (ADR-064, ADR-066) |
-| `social.reply` | | Reply from Meroidea within each platform's reply window, send an approved WhatsApp template, mark conversations done, and link a conversation to a contact the person can see |
+| `social.reply` | | Reply from Meroidea within each platform's reply window (text, photos and files), send an approved WhatsApp template, assign a conversation to a colleague who can read the inbox, snooze it, mark it done, and link it to a contact the person can see; opening a conversation also sends the platform's read receipt (ADR-067) |
 | `social.manage` | | Connect and disconnect the business's social media accounts (Meta, WhatsApp Embedded Signup or TikTok), and create, refresh and delete WhatsApp templates |
 | `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee |
 | `tickets.manage` | | Switch the public contact form on or off, delete tickets |

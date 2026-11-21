@@ -9,6 +9,11 @@ export const APP_ERROR_CODES = [
   'DUPLICATE',
   /** Too many requests from one sender or to one public form; try again later. */
   'RATE_LIMITED',
+  /**
+   * A platform's reply window has closed (social inbox, ADR-067): free text cannot be sent until
+   * the customer writes again; on WhatsApp an approved template still can.
+   */
+  'WINDOW_EXPIRED',
   'INTERNAL',
 ] as const;
 

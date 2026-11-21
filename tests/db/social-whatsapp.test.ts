@@ -515,7 +515,7 @@ describe('replying on WhatsApp', () => {
       where id = ${conversation.id}`);
     await expectCode(
       () => replyToConversation(manager, { conversationId: conversation.id, body: 'Hello?' }),
-      'CONFLICT',
+      'WINDOW_EXPIRED',
     );
     const offered = await sendableTemplates(manager, (await numberAccount(NUMBER)).id);
     expect(offered.map((template) => template.name)).toEqual(['order_ready']);

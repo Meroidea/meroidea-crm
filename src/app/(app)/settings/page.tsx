@@ -5,6 +5,7 @@ import {
   KanbanSquare,
   ListPlus,
   Mail,
+  MessagesSquare,
   Radio,
   Route,
   ShieldCheck,
@@ -54,6 +55,8 @@ import { serverEnv } from '@/server/env';
 import { StageEditor } from '@/modules/settings/components/stage-editor';
 import { TeamTable } from '@/modules/settings/components/team-table';
 import { readBusinessDetails } from '@/modules/settings/business';
+import { ACCOUNT_STATUS_LABELS, PLATFORM_LABELS } from '@/modules/social/format';
+import { listAccounts } from '@/modules/social/queries';
 import { BusinessForm } from '@/modules/settings/components/business-form';
 import { WorkspaceForm } from '@/modules/settings/components/workspace-form';
 import { getAcceptedAgreement, getSettingsLists } from '@/modules/settings/queries';
@@ -73,6 +76,8 @@ const TABS: {
   icon: LucideIcon;
   crm?: true;
   roles?: true;
+  /** Messaging channels: the social inbox's connected accounts (ADR-067). */
+  social?: true;
 }[] = [
   { key: 'general', label: 'Workspace', icon: Building },
   { key: 'leads', label: 'Leads', icon: Inbox, crm: true },
@@ -83,6 +88,7 @@ const TABS: {
   { key: 'fields', label: 'Fields and names', icon: ListPlus, crm: true },
   { key: 'outreach', label: 'Emails and sequences', icon: Mail, crm: true },
   { key: 'forms', label: 'Website forms', icon: FileInput, crm: true },
+  { key: 'channels', label: 'Channels', icon: MessagesSquare, social: true },
   { key: 'team', label: 'Team', icon: Users },
   { key: 'roles', label: 'Roles', icon: ShieldCheck, roles: true },
 ];
@@ -94,7 +100,9 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   const crm = hasFeature(ctx, 'crm');
   const tabs = TABS.filter(
     (candidate) =>
-      (crm || !candidate.crm) && (!candidate.roles || hasPermission(ctx, 'roles.manage')),
+      (crm || !candidate.crm) &&
+      (!candidate.roles || hasPermission(ctx, 'roles.manage')) &&
+      (!candidate.social || (hasFeature(ctx, 'social') && hasPermission(ctx, 'social.manage'))),
   );
   const tab = tabs.find((candidate) => candidate.key === params.tab)?.key ?? 'general';
   const pipelineParam = typeof params.pipeline === 'string' ? params.pipeline : null;
@@ -159,6 +167,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
   }));
   const teamOptions = teams.map((team) => ({ value: team.id, label: team.name }));
   const business = readBusinessDetails(ctx.tenant.settings);
+  const channels = tab === 'channels' ? (await listAccounts(ctx)).accounts : [];
 
   return (
     <div className="flex w-full max-w-6xl flex-col gap-5">
@@ -530,6 +539,70 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
               </CardHeader>
               <CardContent>
                 <WebFormsEditor forms={webForms} appUrl={serverEnv().APP_URL} />
+              </CardContent>
+            </>
+          )}
+          {tab === 'channels' && (
+            <>
+              <CardHeader>
+                <CardTitle>Channels</CardTitle>
+                <CardDescription>
+                  The WhatsApp numbers and Facebook, Instagram and TikTok accounts whose messages
+                  arrive in the social inbox, and whether each is working. Meroidea receives their
+                  messages itself: there is nothing to set up with Meta or TikTok here.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                {channels.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No accounts connected yet.</p>
+                ) : (
+                  <ul className="divide-y rounded-lg border">
+                    {channels.map((channel) => (
+                      <li
+                        key={channel.id}
+                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5"
+                      >
+                        <span className="min-w-0">
+                          <span className="font-medium">{channel.name}</span>{' '}
+                          <span className="text-sm text-muted-foreground">
+                            {PLATFORM_LABELS[channel.platform]}
+                          </span>
+                          {channel.lastError && (
+                            <span className="block text-sm text-destructive-text">
+                              {channel.lastError}
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-xs font-medium',
+                            channel.status === 'active'
+                              ? 'bg-accent text-foreground'
+                              : 'bg-destructive/10 text-destructive-text',
+                          )}
+                        >
+                          {ACCOUNT_STATUS_LABELS[channel.status] ?? channel.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href="/social/accounts"
+                    className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/80"
+                  >
+                    Connect or manage accounts
+                  </Link>
+                  {channels.some((channel) => channel.platform === 'whatsapp') && (
+                    <Link
+                      href="/social/templates"
+                      className="inline-flex h-9 items-center rounded-lg border px-3 text-sm font-medium hover:bg-muted"
+                    >
+                      WhatsApp templates
+                    </Link>
+                  )}
+                </div>
               </CardContent>
             </>
           )}

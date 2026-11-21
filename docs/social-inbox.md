@@ -139,7 +139,17 @@ What the business needs:
 - History: on connecting, the latest 25 conversations are imported, with up to 20 messages each
   (the platforms return no more). TikTok keeps only the last 90 days.
 - One business per account: an account already connected elsewhere is skipped.
-- Text replies and WhatsApp templates only for now. Photos, videos, voice notes and files that
-  customers send are saved and shown in the thread; a file type Meroidea does not keep is marked
-  as not saved. Templates with a picture heading, a button value or a code are sent from
-  WhatsApp Manager.
+- Replies can carry a photo or file (ADR-067):
+  - WhatsApp: JPEG and PNG up to 5 MB, MP4 video and audio up to 16 MB, PDF and Office files,
+    with a caption.
+  - Messenger: images, video, audio and files up to 16 MB.
+  - Instagram: JPEG and PNG up to 8 MB, video and audio, and PDF only.
+  - TikTok: JPG and PNG up to 3 MB, without words.
+  - Where words cannot go with a file, they follow as a second reply.
+- Customers' own photos, videos, voice notes and files are saved and shown in the thread. A file
+  type Meroidea does not keep is marked as not saved.
+- Templates with a picture heading, a button value or a code are sent from WhatsApp Manager.
+- Opening a conversation with new messages marks them read for the customer on WhatsApp (blue
+  ticks) and Messenger ("seen"). Instagram and TikTok offer businesses no such call.
+- Conversations can be assigned to a colleague, snoozed, and searched by name, number or what
+  was said.

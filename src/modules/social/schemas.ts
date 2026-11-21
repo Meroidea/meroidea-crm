@@ -3,11 +3,19 @@ import { z } from 'zod';
 import { OAUTH_PROVIDERS } from './oauth-state-keys';
 import { SOCIAL_PLATFORMS } from './providers/types';
 
-export const INBOX_VIEWS = ['open', 'unread', 'done', 'all'] as const;
+export const INBOX_VIEWS = ['open', 'mine', 'unread', 'snoozed', 'done', 'all'] as const;
 
 export const inboxFiltersSchema = z.object({
   view: z.enum(INBOX_VIEWS).optional().catch(undefined),
   platform: z.enum(SOCIAL_PLATFORMS).optional().catch(undefined),
+  /** Part of the customer's name, handle or number, or of something said (ADR-067). */
+  q: z
+    .string()
+    .trim()
+    .max(100)
+    .transform((value) => value || undefined)
+    .optional()
+    .catch(undefined),
   cursor: z.string().max(300).optional().catch(undefined),
 });
 export type InboxFilters = z.output<typeof inboxFiltersSchema>;
@@ -161,3 +169,43 @@ export const createTemplateSchema = z
 export type CreateTemplateInput = z.output<typeof createTemplateSchema>;
 
 export const templateIdSchema = z.object({ templateId: z.uuid() });
+
+/** Who looks after a conversation; null hands it back to the whole team (ADR-067). */
+export const assignSchema = z.object({
+  conversationId: z.uuid(),
+  userId: z.uuid().nullable(),
+});
+export type AssignInput = z.output<typeof assignSchema>;
+
+/** Set a conversation aside until a time; a customer writing again brings it back at once. */
+export const snoozeSchema = z.object({
+  conversationId: z.uuid(),
+  until: z.iso.datetime({ offset: true }),
+});
+export type SnoozeInput = z.output<typeof snoozeSchema>;
+
+/** The largest file a reply may carry on any platform; each platform's own limit is lower. */
+export const MAX_REPLY_FILE_BYTES = 16 * 1024 * 1024;
+
+/** Asking to upload a reply's attachment; the server chooses where it goes. */
+export const mediaUploadSchema = z.object({
+  conversationId: z.uuid(),
+  fileName: z.string().trim().min(1).max(200),
+  mimeType: z.string().trim().min(3).max(120),
+  size: z.number().int().positive().max(MAX_REPLY_FILE_BYTES, 'Files can be up to 16 MB'),
+});
+
+/** Sending the uploaded attachment; on WhatsApp the caption goes with it. */
+export const mediaReplySchema = z.object({
+  conversationId: z.uuid(),
+  path: z.string().min(10).max(400),
+  mimeType: z.string().trim().min(3).max(120),
+  fileName: z.string().trim().min(1).max(200),
+  caption: z
+    .string()
+    .trim()
+    .max(1024, 'At most 1024 characters with a file')
+    .optional()
+    .transform((value) => value || null),
+});
+export type MediaReplyInput = z.output<typeof mediaReplySchema>;

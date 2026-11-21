@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 import {
@@ -9,21 +11,38 @@ import {
   socialMessages,
   socialMessageTemplates,
 } from '@/db/schema';
+import { addDaysToDate, mondayOf, zonedDateTimeToInstant, zonedToday } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
 import { scopeFilter } from '@/lib/permissions/scope';
 import { contactScope } from '@/modules/contacts/access';
+import { listMemberIdsWithPermission } from '@/modules/members/queries';
+import { notify } from '@/modules/notifications/service';
 import { audit } from '@/server/audit';
-import { requirePermission, type TenantContext } from '@/server/context';
+import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
+import {
+  createSocialUploadTicket,
+  readSocialMedia,
+  removeSocialMedia,
+  socialMediaLinkForPlatform,
+} from '@/server/storage';
 
 import { readCredentials, storeCredentials, usableToken, type Credentials } from './credentials';
 import { recordImportedConversation } from './ingest';
-import { afterResponse, persistMessageMedia, type MediaAccess } from './media';
+import {
+  acceptedType,
+  afterResponse,
+  persistMessageMedia,
+  type MediaAccess,
+  type StoredAttachment,
+} from './media';
 import type { OAuthProvider } from './oauth-state-keys';
 import {
   discoverMetaAccounts,
   exchangeMetaCode,
   fetchMetaConversations,
+  markMessengerSeen,
+  sendMetaAttachment,
   sendMetaMessage,
   subscribeMetaAccount,
   unsubscribeMetaAccount,
@@ -31,12 +50,17 @@ import {
 import {
   exchangeTikTokCode,
   fetchTikTokConversations,
+  sendTikTokImage,
   sendTikTokMessage,
+  uploadTikTokImage,
 } from './providers/tiktok';
 import {
+  markWhatsAppRead,
+  sendWhatsAppMedia,
   sendWhatsAppTemplate,
   sendWhatsAppText,
   unsubscribeWhatsAppAccount,
+  uploadWhatsAppMedia,
   type TemplateSend,
 } from './providers/whatsapp';
 import {
@@ -46,7 +70,13 @@ import {
   type DiscoveredAccount,
   type SocialPlatform,
 } from './providers/types';
-import type { ReplyInput, TemplateReplyInput } from './schemas';
+import type {
+  AssignInput,
+  MediaReplyInput,
+  ReplyInput,
+  SnoozeInput,
+  TemplateReplyInput,
+} from './schemas';
 
 const HOUR = 3_600_000;
 
@@ -94,6 +124,100 @@ export function replyWindow(
           } only allows a reply after they write again.`,
   };
 }
+
+/**
+ * When the platform's reply windows close, for the countdown in the reply box (ADR-067): the
+ * normal window, and on Messenger and Instagram the 7 days a person may still answer in.
+ */
+export function windowEnds(
+  platform: SocialPlatform,
+  lastInboundAt: Date | null,
+): { normal: Date | null; human: Date | null } {
+  if (!lastInboundAt) return { normal: null, human: null };
+  const rules = REPLY_RULES[platform];
+  const at = (hours: number) => new Date(lastInboundAt.getTime() + hours * HOUR);
+  return {
+    normal: at(rules.normalHours),
+    human: rules.humanAgentHours === null ? null : at(rules.humanAgentHours),
+  };
+}
+
+const MB = 1024 * 1024;
+const OFFICE = {
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+} as const;
+
+/**
+ * What each platform takes in a reply (ADR-067), by type, with the largest size Meroidea sends.
+ * WhatsApp: images 5 MB, video and audio 16 MB, documents. Messenger: images, video, audio and
+ * files. Instagram: JPEG/PNG up to 8 MB, video, audio and PDF only. TikTok: JPG/PNG up to 3 MB.
+ */
+export const MEDIA_RULES: Record<SocialPlatform, Record<string, number>> = {
+  whatsapp: {
+    'image/jpeg': 5 * MB,
+    'image/png': 5 * MB,
+    'video/mp4': 16 * MB,
+    'audio/mpeg': 16 * MB,
+    'audio/mp4': 16 * MB,
+    'audio/ogg': 16 * MB,
+    'audio/aac': 16 * MB,
+    ...Object.fromEntries(Object.keys(OFFICE).map((type) => [type, 16 * MB])),
+  },
+  facebook: {
+    'image/jpeg': 16 * MB,
+    'image/png': 16 * MB,
+    'image/gif': 16 * MB,
+    'video/mp4': 16 * MB,
+    'audio/mpeg': 16 * MB,
+    'audio/mp4': 16 * MB,
+    ...Object.fromEntries(Object.keys(OFFICE).map((type) => [type, 16 * MB])),
+  },
+  instagram: {
+    'image/jpeg': 8 * MB,
+    'image/png': 8 * MB,
+    'video/mp4': 16 * MB,
+    'video/quicktime': 16 * MB,
+    'audio/mp4': 16 * MB,
+    'audio/aac': 16 * MB,
+    'audio/wav': 16 * MB,
+    'application/pdf': 16 * MB,
+  },
+  tiktok: { 'image/jpeg': 3 * MB, 'image/png': 3 * MB },
+};
+
+/** Only WhatsApp sends words with a photo, video or document in one message. */
+export const CAPTIONS: Record<SocialPlatform, boolean> = {
+  whatsapp: true,
+  facebook: false,
+  instagram: false,
+  tiktok: false,
+};
+
+/** Why this file cannot go on this platform, or null when it can. */
+export function mediaRefusal(
+  platform: SocialPlatform,
+  mimeType: string,
+  size: number,
+): string | null {
+  const limit = MEDIA_RULES[platform][mimeType];
+  if (!limit) return `${PLATFORM_NAMES[platform]} does not take this kind of file from here.`;
+  if (size > limit) {
+    return `${PLATFORM_NAMES[platform]} takes files of this kind up to ${Math.round(limit / MB)} MB.`;
+  }
+  return null;
+}
+
+export const mediaKind = (mimeType: string): 'image' | 'video' | 'audio' | 'file' =>
+  mimeType.startsWith('image/')
+    ? 'image'
+    : mimeType.startsWith('video/')
+      ? 'video'
+      : mimeType.startsWith('audio/')
+        ? 'audio'
+        : 'file';
 
 const describe = (error: unknown) =>
   error instanceof ProviderError ? error.message : 'Something went wrong on our side.';
@@ -322,7 +446,11 @@ type Prepared = {
   body: string;
   /** WhatsApp: send as this approved template instead of free text. */
   template: TemplateSend | null;
+  /** A photo, video, voice note or file from the private bucket; `body` is its caption. */
+  media: OutboundMedia | null;
 };
+
+type OutboundMedia = { path: string; mimeType: string; size: number; fileName: string };
 
 /**
  * Everything a reply must pass before it goes: a live account, the platform's length and reply
@@ -386,7 +514,7 @@ async function checkReply(
     );
   }
   const window = replyWindow(platform, conversation.lastInboundAt, now);
-  if (!window.ok) throw new AppError('CONFLICT', window.reason);
+  if (!window.ok) throw new AppError('WINDOW_EXPIRED', window.reason);
   if (platform === 'tiktok' && conversation.lastInboundAt) {
     // TikTok allows ten messages in the 48 hours after each message from the customer.
     const [sent] = await tx
@@ -442,7 +570,7 @@ export async function replyToConversation(
         status: 'sending',
       })
       .returning({ id: socialMessages.id });
-    return { ...checked, messageId: pending!.id, body: input.body, template: null };
+    return { ...checked, messageId: pending!.id, body: input.body, template: null, media: null };
   });
   return deliver(ctx, prepared, now, 'create');
 }
@@ -511,7 +639,7 @@ export async function sendTemplateReply(
         status: 'sending',
       })
       .returning({ id: socialMessages.id });
-    return { ...checked, messageId: pending!.id, body, template: send };
+    return { ...checked, messageId: pending!.id, body, template: send, media: null };
   });
   return deliver(ctx, prepared, now, 'create');
 }
@@ -533,6 +661,7 @@ export async function retryReply(
         conversationId: socialMessages.conversationId,
         body: socialMessages.body,
         template: socialMessages.template,
+        attachments: socialMessages.attachments,
       })
       .from(socialMessages)
       .where(
@@ -545,16 +674,25 @@ export async function retryReply(
       )
       .limit(1)
       .for('update');
-    if (!failed || !failed.body) throw new AppError('NOT_FOUND', 'That reply was not found.');
+    const media = outboundMediaOf(failed?.attachments);
+    if (!failed || (!failed.body && !media)) {
+      throw new AppError('NOT_FOUND', 'That reply was not found.');
+    }
     const template = (failed.template as TemplateSend | null) ?? null;
-    const checked = await checkReply(tx, ctx, failed.conversationId, failed.body, now, failed.id, {
-      template: template !== null,
-    });
+    const checked = await checkReply(
+      tx,
+      ctx,
+      failed.conversationId,
+      failed.body ?? '',
+      now,
+      failed.id,
+      { template: template !== null },
+    );
     await tx
       .update(socialMessages)
       .set({ status: 'sending', error: null })
       .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.id, failed.id)));
-    return { ...checked, messageId: failed.id, body: failed.body, template };
+    return { ...checked, messageId: failed.id, body: failed.body ?? '', template, media };
   });
   return deliver(ctx, prepared, now, 'update');
 }
@@ -566,8 +704,17 @@ async function deliver(
   now: Date,
   action: 'create' | 'update',
 ): Promise<{ messageId: string }> {
-  const { conversation, account, platform, humanAgent, credentials, messageId, body, template } =
-    prepared;
+  const {
+    conversation,
+    account,
+    platform,
+    humanAgent,
+    credentials,
+    messageId,
+    body,
+    template,
+    media,
+  } = prepared;
   const ref: AccountRef = { platform, externalId: account.externalId, username: account.username };
   let externalId: string | null = null;
   let failure: ProviderError | null = null;
@@ -575,7 +722,9 @@ async function deliver(
   try {
     const usable = await usableToken(platform, credentials, now);
     renewed = usable.renewed;
-    if (platform === 'whatsapp') {
+    if (media) {
+      externalId = await sendMedia(prepared, usable.token, media);
+    } else if (platform === 'whatsapp') {
       externalId = template
         ? await sendWhatsAppTemplate(
             usable.token,
@@ -640,7 +789,10 @@ async function deliver(
       .update(socialConversations)
       .set({
         lastMessageAt: now,
-        lastMessagePreview: previewOf({ body, attachments: [] }),
+        lastMessagePreview: previewOf({
+          body: body || null,
+          attachments: media ? [{ type: mediaKind(media.mimeType) }] : [],
+        }),
         unreadCount: 0,
         updatedAt: now,
       })
@@ -659,6 +811,7 @@ async function deliver(
         platform,
         retried: action === 'update',
         ...(template ? { template: template.name } : {}),
+        ...(media ? { media: mediaKind(media.mimeType) } : {}),
       },
     });
   });
@@ -740,16 +893,89 @@ export async function linkConversationContact(
   });
 }
 
-/** Marks a conversation done, or open again. */
+/** Marks a conversation done, or open again (which also ends a snooze). */
 export async function setConversationStatus(
   ctx: TenantContext,
   input: { conversationId: string; status: 'open' | 'done' },
 ): Promise<void> {
   requirePermission(ctx, 'social.reply');
   await withRls(ctx, async (tx) => {
+    const [before] = await tx
+      .select({ id: socialConversations.id, status: socialConversations.status })
+      .from(socialConversations)
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.id, input.conversationId),
+        ),
+      )
+      .limit(1);
+    if (!before) throw new AppError('NOT_FOUND', 'That conversation was not found.');
+    await tx
+      .update(socialConversations)
+      .set({ status: input.status, snoozedUntil: null, updatedAt: new Date() })
+      .where(
+        and(eq(socialConversations.tenantId, ctx.tenantId), eq(socialConversations.id, before.id)),
+      );
+    await audit(tx, ctx, {
+      action: 'update',
+      entityType: 'social_conversation',
+      entityId: before.id,
+      changes: { status: [before.status, input.status] },
+    });
+  });
+}
+
+/** The quick snooze choices, in the business's timezone (ADR-067). */
+export function snoozeChoices(
+  timeZone: string,
+  now = new Date(),
+): { label: string; until: string }[] {
+  const today = zonedToday(timeZone, now);
+  return [
+    { label: 'In 3 hours', until: new Date(now.getTime() + 3 * HOUR).toISOString() },
+    {
+      label: 'Tomorrow 9 am',
+      until: zonedDateTimeToInstant(timeZone, addDaysToDate(today, 1), '09:00').toISOString(),
+    },
+    {
+      label: 'Next Monday 9 am',
+      until: zonedDateTimeToInstant(
+        timeZone,
+        addDaysToDate(mondayOf(today), 7),
+        '09:00',
+      ).toISOString(),
+    },
+  ];
+}
+
+/** The longest a conversation may be snoozed. */
+const MAX_SNOOZE_DAYS = 90;
+
+/**
+ * Sets a conversation aside until a time (ADR-067). It leaves the Open view and comes back on
+ * its own when the time passes, or at once if the customer writes again.
+ */
+export async function snoozeConversation(
+  ctx: TenantContext,
+  input: SnoozeInput,
+  now = new Date(),
+): Promise<void> {
+  requirePermission(ctx, 'social.reply');
+  const until = new Date(input.until);
+  if (until.getTime() <= now.getTime() + 60_000) {
+    throw new AppError('VALIDATION', 'Choose a time in the future.');
+  }
+  if (until.getTime() > now.getTime() + MAX_SNOOZE_DAYS * 24 * HOUR) {
+    throw new AppError(
+      'VALIDATION',
+      `A conversation can be snoozed for up to ${MAX_SNOOZE_DAYS} days.`,
+    );
+  }
+  await withRls(ctx, async (tx) => {
     const [row] = await tx
       .update(socialConversations)
-      .set({ status: input.status, updatedAt: new Date() })
+      .set({ status: 'snoozed', snoozedUntil: until, updatedAt: now })
       .where(
         and(
           eq(socialConversations.tenantId, ctx.tenantId),
@@ -762,18 +988,84 @@ export async function setConversationStatus(
       action: 'update',
       entityType: 'social_conversation',
       entityId: row.id,
-      changes: { status: [input.status === 'done' ? 'open' : 'done', input.status] },
+      changes: { snoozedUntil: [null, until.toISOString()] },
     });
   });
 }
 
-/** Opening a conversation reads it. */
+/**
+ * Gives a conversation to a colleague who can read the inbox, or back to the whole team
+ * (ADR-067). The colleague is told in Meroidea; what the customer wrote is never in the notice.
+ */
+export async function assignConversation(ctx: TenantContext, input: AssignInput): Promise<void> {
+  requirePermission(ctx, 'social.reply');
+  if (input.userId) {
+    const allowed = await listMemberIdsWithPermission(ctx, 'social.view');
+    if (!allowed.includes(input.userId)) {
+      throw new AppError('VALIDATION', 'That colleague cannot see the social inbox.');
+    }
+  }
+  await withRls(ctx, async (tx) => {
+    const [row] = await tx
+      .select({
+        id: socialConversations.id,
+        assignedUserId: socialConversations.assignedUserId,
+        platform: socialAccounts.platform,
+      })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.id, input.conversationId),
+        ),
+      )
+      .limit(1);
+    if (!row) throw new AppError('NOT_FOUND', 'That conversation was not found.');
+    if (row.assignedUserId === input.userId) return;
+    await tx
+      .update(socialConversations)
+      .set({ assignedUserId: input.userId, updatedAt: new Date() })
+      .where(
+        and(eq(socialConversations.tenantId, ctx.tenantId), eq(socialConversations.id, row.id)),
+      );
+    await audit(tx, ctx, {
+      action: 'update',
+      entityType: 'social_conversation',
+      entityId: row.id,
+      changes: { assignedUserId: [row.assignedUserId, input.userId] },
+    });
+    if (input.userId) {
+      await notify(tx, ctx, [
+        {
+          userId: input.userId,
+          type: 'conversation_assigned',
+          title: `A ${PLATFORM_NAMES[row.platform as SocialPlatform]} conversation was assigned to you`,
+          url: `/social/${row.id}`,
+          dedupeKey: `conversation_assigned:${row.id}:${Date.now()}`,
+        },
+      ]);
+    }
+  });
+}
+
+/**
+ * Opening a conversation reads it. With new messages from the customer, and when the person may
+ * reply, the platform is told too, after the page has its answer: WhatsApp's blue ticks and
+ * Messenger's "seen" (ADR-067). Instagram and TikTok document no such call for businesses.
+ */
 export async function markConversationRead(
   ctx: TenantContext,
   conversationId: string,
 ): Promise<void> {
   requirePermission(ctx, 'social.view');
-  await withRls(ctx, (tx) =>
+  const cleared = await withRls(ctx, (tx) =>
     tx
       .update(socialConversations)
       .set({ unreadCount: 0 })
@@ -783,6 +1075,243 @@ export async function markConversationRead(
           eq(socialConversations.id, conversationId),
           sql`${socialConversations.unreadCount} > 0`,
         ),
-      ),
+      )
+      .returning({ id: socialConversations.id }),
   );
+  if (cleared.length === 0 || !hasPermission(ctx, 'social.reply')) return;
+  await afterResponse(() => sendReadReceipt(ctx, conversationId));
+}
+
+async function sendReadReceipt(ctx: TenantContext, conversationId: string): Promise<void> {
+  const target = await withRls(ctx, async (tx) => {
+    const [row] = await tx
+      .select({
+        platform: socialAccounts.platform,
+        accountId: socialAccounts.id,
+        externalId: socialAccounts.externalId,
+        username: socialAccounts.username,
+        disconnectedAt: socialAccounts.disconnectedAt,
+        participantId: socialConversations.participantId,
+        lastInboundAt: socialConversations.lastInboundAt,
+      })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.id, conversationId),
+        ),
+      )
+      .limit(1);
+    if (!row || row.disconnectedAt || !['whatsapp', 'facebook'].includes(row.platform)) return null;
+    const [latest] = await tx
+      .select({ externalId: socialMessages.externalId })
+      .from(socialMessages)
+      .where(
+        and(
+          eq(socialMessages.tenantId, ctx.tenantId),
+          eq(socialMessages.conversationId, conversationId),
+          eq(socialMessages.direction, 'inbound'),
+        ),
+      )
+      .orderBy(desc(socialMessages.sentAt))
+      .limit(1);
+    const credentials = await readCredentials(tx, ctx.tenantId, row.accountId);
+    return credentials ? { ...row, latest: latest?.externalId ?? null, credentials } : null;
+  });
+  if (!target) return;
+  const ref: AccountRef = {
+    platform: target.platform as SocialPlatform,
+    externalId: target.externalId,
+    username: target.username,
+  };
+  try {
+    if (target.platform === 'whatsapp' && target.latest) {
+      await markWhatsAppRead(target.credentials.accessToken, target.externalId, target.latest);
+    } else if (target.platform === 'facebook' && replyWindow('facebook', target.lastInboundAt).ok) {
+      await markMessengerSeen(ref, target.credentials.accessToken, target.participantId);
+    }
+  } catch {
+    // Best effort: a receipt that does not go changes nothing in Meroidea.
+  }
+}
+
+/** A failed reply's own file, from its stored attachment. */
+function outboundMediaOf(attachments: unknown): OutboundMedia | null {
+  const first = Array.isArray(attachments)
+    ? (attachments[0] as StoredAttachment | undefined)
+    : undefined;
+  if (!first || first.state !== 'stored' || !first.storagePath || !first.mimeType) return null;
+  return {
+    path: first.storagePath,
+    mimeType: first.mimeType,
+    size: first.size ?? 0,
+    fileName: first.storagePath.split('/').pop() ?? 'file',
+  };
+}
+
+/** Sends a photo, video, voice note or file on the conversation's platform. */
+async function sendMedia(prepared: Prepared, token: string, media: OutboundMedia): Promise<string> {
+  const { account, conversation, platform, humanAgent, body } = prepared;
+  const ref: AccountRef = { platform, externalId: account.externalId, username: account.username };
+  if (platform === 'facebook' || platform === 'instagram') {
+    // Meta fetches the file from a ten-minute link while it delivers the message.
+    const url = await socialMediaLinkForPlatform(media.path);
+    return sendMetaAttachment(
+      ref,
+      token,
+      conversation.participantId,
+      { type: mediaKind(media.mimeType), url },
+      humanAgent,
+    );
+  }
+  const bytes = await readSocialMedia(media.path);
+  if (!bytes)
+    throw new ProviderError(platform, 'The file is no longer in storage. Attach it again.');
+  const file = { bytes, mimeType: media.mimeType, fileName: media.fileName };
+  if (platform === 'tiktok') {
+    const mediaId = await uploadTikTokImage(ref, token, file);
+    return sendTikTokImage(
+      ref,
+      token,
+      conversation.externalId ?? conversation.participantId,
+      mediaId,
+    );
+  }
+  const kind = mediaKind(media.mimeType);
+  const id = await uploadWhatsAppMedia(token, account.externalId, file);
+  return sendWhatsAppMedia(token, account.externalId, conversation.participantId, {
+    kind: kind === 'file' ? 'document' : kind,
+    id,
+    caption: body || null,
+    fileName: media.fileName,
+  });
+}
+
+/** Where a reply's attachment is uploaded: under the business and conversation, never chosen by the browser. */
+const outboundPrefix = (tenantId: string, conversationId: string) =>
+  `${tenantId}/social/${conversationId}/outbound/`;
+
+/**
+ * Starts attaching a file to a reply (ADR-067): checks the person may reply here and that the
+ * platform takes this kind and size of file, then hands the browser a one-time upload ticket for
+ * a path the server chose.
+ */
+export async function startMediaUpload(
+  ctx: TenantContext,
+  input: { conversationId: string; fileName: string; mimeType: string; size: number },
+): Promise<{ path: string; token: string }> {
+  requirePermission(ctx, 'social.reply');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select({ platform: socialAccounts.platform, disconnectedAt: socialAccounts.disconnectedAt })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.id, input.conversationId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!row) throw new AppError('NOT_FOUND', 'That conversation was not found.');
+  if (row.disconnectedAt) {
+    throw new AppError('CONFLICT', 'This account is disconnected. Connect it again to reply.');
+  }
+  const refusal = mediaRefusal(row.platform as SocialPlatform, input.mimeType, input.size);
+  if (refusal) throw new AppError('VALIDATION', refusal);
+  const ext =
+    (input.fileName.split('.').pop() ?? 'bin')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 8) || 'bin';
+  return createSocialUploadTicket(
+    `${outboundPrefix(ctx.tenantId, input.conversationId)}${randomUUID()}.${ext}`,
+  );
+}
+
+/**
+ * Sends the uploaded attachment as a reply (ADR-067). The file is checked again here, where the
+ * browser cannot interfere: the path must be this conversation's, the bytes must match an
+ * accepted type the platform takes, and the size must fit. A refused file is deleted. Then the
+ * same rules as text apply (account live, reply window, TikTok's ten replies) and it is sent.
+ */
+export async function sendMediaReply(
+  ctx: TenantContext,
+  input: MediaReplyInput,
+  now = new Date(),
+): Promise<{ messageId: string }> {
+  requirePermission(ctx, 'social.reply');
+  const prefix = outboundPrefix(ctx.tenantId, input.conversationId);
+  if (!input.path.startsWith(prefix) || input.path.includes('..')) {
+    throw new AppError('VALIDATION', 'That upload does not belong to this conversation.');
+  }
+  const bytes = await readSocialMedia(input.path);
+  if (!bytes) throw new AppError('VALIDATION', 'The upload did not finish. Attach the file again.');
+  const type = acceptedType(input.mimeType, bytes);
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const checked = await checkReply(tx, ctx, input.conversationId, input.caption ?? '', now);
+    const refusal = !type
+      ? 'That file is not the kind it says it is.'
+      : mediaRefusal(checked.platform, type.mimeType, bytes.byteLength);
+    if (refusal) {
+      await removeSocialMedia([input.path]);
+      throw new AppError('VALIDATION', refusal);
+    }
+    if (input.caption && !CAPTIONS[checked.platform]) {
+      throw new AppError(
+        'VALIDATION',
+        `${PLATFORM_NAMES[checked.platform]} sends a file on its own: send the words as a separate reply.`,
+      );
+    }
+    const kind = mediaKind(type!.mimeType);
+    const [pending] = await tx
+      .insert(socialMessages)
+      .values({
+        tenantId: ctx.tenantId,
+        conversationId: checked.conversation.id,
+        accountId: checked.account.id,
+        direction: 'outbound',
+        body: input.caption,
+        attachments: [
+          {
+            type: kind,
+            state: 'stored',
+            storagePath: input.path,
+            mimeType: type!.mimeType,
+            size: bytes.byteLength,
+          },
+        ],
+        sentAt: now,
+        sentByUserId: ctx.userId,
+        status: 'sending',
+      })
+      .returning({ id: socialMessages.id });
+    return {
+      ...checked,
+      messageId: pending!.id,
+      body: input.caption ?? '',
+      template: null,
+      media: {
+        path: input.path,
+        mimeType: type!.mimeType,
+        size: bytes.byteLength,
+        fileName: input.fileName,
+      },
+    };
+  });
+  return deliver(ctx, prepared, now, 'create');
 }

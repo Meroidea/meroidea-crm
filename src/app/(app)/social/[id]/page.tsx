@@ -5,16 +5,19 @@ import { notFound } from 'next/navigation';
 import { z } from 'zod';
 
 import { withParams } from '@/components/data/url';
-import { Badge } from '@/components/ui/badge';
 import { formatDateTime } from '@/lib/format';
+import { ConversationDetails } from '@/modules/social/components/conversation-details';
+import { DetailsSheet } from '@/modules/social/components/details-sheet';
 import { InboxList } from '@/modules/social/components/inbox-list';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
 import { CustomerAvatar, PlatformBadge } from '@/modules/social/components/platform-badge';
-import { ContactLinker, MarkRead, StatusButton } from '@/modules/social/components/social-tools';
+import { ReplyWindowBadge } from '@/modules/social/components/reply-window';
+import { MarkRead } from '@/modules/social/components/social-tools';
 import { TemplateReply } from '@/modules/social/components/template-reply';
 import { ThreadView } from '@/modules/social/components/thread-view';
 import { ACCOUNT_STATUS_LABELS, customerLabel, PLATFORM_LABELS } from '@/modules/social/format';
 import {
+  assignableMembers,
   countUnread,
   getConversation,
   listAccounts,
@@ -22,7 +25,14 @@ import {
   sendableTemplates,
 } from '@/modules/social/queries';
 import { inboxFiltersSchema } from '@/modules/social/schemas';
-import { REPLY_RULES, replyWindow } from '@/modules/social/service';
+import {
+  CAPTIONS,
+  MEDIA_RULES,
+  REPLY_RULES,
+  replyWindow,
+  snoozeChoices,
+  windowEnds,
+} from '@/modules/social/service';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'Conversation' };
@@ -62,10 +72,58 @@ export default async function ConversationPage({
       : [];
   const templateOnly = platform === 'whatsapp' && accountLive && !window.ok;
   const contactLabel = ctx.tenant.labels.contact.singular;
-  const back = withParams('/social', { view: filters.view, platform: filters.platform }, {});
+  const back = withParams(
+    '/social',
+    { view: filters.view, platform: filters.platform, q: filters.q },
+    {},
+  );
+  const members = canReply ? await assignableMembers(ctx) : [];
+  const ends = windowEnds(platform, conversation.lastInboundAt);
+  const snoozeOptions = snoozeChoices(ctx.tenant.timezone);
+  const snoozed = thread.snoozedNow;
+  const accountBadge = accountLive
+    ? null
+    : (ACCOUNT_STATUS_LABELS[
+        thread.accountDisconnectedAt ? 'disconnected' : thread.accountStatus
+      ] ?? null);
+  const details = (
+    <ConversationDetails
+      conversationId={conversation.id}
+      name={name}
+      hasPicture={conversation.participantAvatarPath !== null}
+      platform={platform}
+      handle={conversation.participantUsername}
+      phone={conversation.participantPhone}
+      accountName={thread.accountName}
+      accountBadge={accountBadge}
+      window={{
+        normal: ends.normal?.toISOString() ?? null,
+        human: ends.human?.toISOString() ?? null,
+      }}
+      status={
+        snoozed ? 'snoozed' : conversation.status === 'snoozed' ? 'open' : conversation.status
+      }
+      snoozedLabel={
+        snoozed ? `Snoozed until ${formatDateTime(ctx, conversation.snoozedUntil)}` : null
+      }
+      snoozeOptions={snoozeOptions}
+      assignedUserId={conversation.assignedUserId}
+      members={members}
+      myUserId={ctx.userId}
+      canReply={canReply}
+      contact={{
+        label: contactLabel,
+        id: conversation.contactId,
+        name: thread.contactName,
+        email: thread.contactEmail,
+        phone: thread.contactPhone,
+        canLink: canReply && hasPermission(ctx, 'contacts.view'),
+      }}
+    />
+  );
 
   return (
-    <div className="flex w-full max-w-7xl flex-col gap-4">
+    <div className="flex w-full max-w-screen-2xl flex-col gap-4">
       <MarkRead conversationId={conversation.id} unread={conversation.unreadCount} />
       <div className="flex items-center justify-between gap-3">
         <Link
@@ -74,10 +132,13 @@ export default async function ConversationPage({
         >
           <ArrowLeft aria-hidden className="size-4" /> Social inbox
         </Link>
-        <InboxRealtime tenantId={ctx.tenantId} />
+        <div className="flex items-center gap-2">
+          <InboxRealtime tenantId={ctx.tenantId} />
+          <DetailsSheet title={name}>{details}</DetailsSheet>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:h-[calc(100dvh-10rem)] lg:min-h-[32rem] lg:grid-cols-[22rem_1fr]">
+      <div className="grid gap-4 lg:h-[calc(100dvh-10rem)] lg:min-h-[32rem] lg:grid-cols-[20rem_1fr] 2xl:grid-cols-[20rem_1fr_20rem]">
         <div className="hidden min-h-0 lg:flex">
           <InboxList
             rows={list.rows}
@@ -95,53 +156,29 @@ export default async function ConversationPage({
           aria-label={`Conversation with ${name}`}
           className="flex min-h-[70dvh] min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 sm:p-4 lg:min-h-0 lg:overflow-y-auto"
         >
-          <header className="flex flex-wrap items-start gap-3 border-b pb-3">
+          <header className="flex flex-wrap items-center gap-3 border-b pb-3">
             <CustomerAvatar
               conversationId={conversation.id}
               name={name}
               hasPicture={conversation.participantAvatarPath !== null}
               className="size-10 text-sm"
             />
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-48">
               <h1 className="truncate text-lg font-semibold tracking-tight" data-sensitive>
                 {name}
               </h1>
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <PlatformBadge platform={platform} />
-                {conversation.participantUsername && conversation.participantName && (
-                  <span data-sensitive>@{conversation.participantUsername}</span>
-                )}
-                {conversation.participantPhone && conversation.participantName && (
-                  <span data-sensitive>+{conversation.participantPhone}</span>
-                )}
                 <span>to {thread.accountName}</span>
-                {!accountLive && (
-                  <Badge variant="destructive">
-                    {
-                      ACCOUNT_STATUS_LABELS[
-                        thread.accountDisconnectedAt ? 'disconnected' : thread.accountStatus
-                      ]
-                    }
-                  </Badge>
-                )}
                 {conversation.lastInboundAt && (
                   <span>Last wrote {formatDateTime(ctx, conversation.lastInboundAt)}</span>
                 )}
               </div>
             </div>
-            {canReply && (
-              <StatusButton conversationId={conversation.id} status={conversation.status} />
-            )}
-            {canReply && hasPermission(ctx, 'contacts.view') && (
-              <div className="w-full sm:max-w-xs">
-                <ContactLinker
-                  conversationId={conversation.id}
-                  contactId={conversation.contactId}
-                  contactName={thread.contactName}
-                  contactLabel={contactLabel}
-                />
-              </div>
-            )}
+            <ReplyWindowBadge
+              normalEndsAt={ends.normal?.toISOString() ?? null}
+              humanEndsAt={ends.human?.toISOString() ?? null}
+            />
           </header>
 
           <ThreadView
@@ -152,6 +189,15 @@ export default async function ConversationPage({
             textReply={!templateOnly}
             humanAgent={window.ok && window.humanAgent}
             maxChars={REPLY_RULES[platform].maxChars}
+            attach={
+              accountLive
+                ? {
+                    limits: MEDIA_RULES[platform],
+                    captions: CAPTIONS[platform],
+                    platformLabel: PLATFORM_LABELS[platform],
+                  }
+                : null
+            }
             extra={
               platform === 'whatsapp' && accountLive ? (
                 window.ok ? (
@@ -198,6 +244,13 @@ export default async function ConversationPage({
                 : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
           </p>
         </section>
+
+        <aside
+          aria-label="Conversation details"
+          className="hidden min-h-0 overflow-y-auto rounded-xl border bg-card p-4 2xl:block"
+        >
+          {details}
+        </aside>
       </div>
     </div>
   );

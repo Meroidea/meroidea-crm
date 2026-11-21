@@ -374,3 +374,58 @@ export function verifyTikTokSignature(
   const given = Buffer.from(signature, 'hex');
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
+
+/**
+ * Uploads a picture for a reply (ADR-067): TikTok sends JPG and PNG up to 3 MB, as a message of
+ * its own (no words with it). The id lasts 30 days.
+ */
+export async function uploadTikTokImage(
+  account: AccountRef,
+  token: string,
+  file: { bytes: Uint8Array; mimeType: string; fileName: string },
+): Promise<string> {
+  const form = new FormData();
+  form.append('business_id', account.externalId);
+  form.append('media_type', 'IMAGE');
+  form.append(
+    'file',
+    new Blob([new Uint8Array(file.bytes)], { type: file.mimeType }),
+    file.fileName,
+  );
+  const data = await tiktokCall('/business/message/media/upload/', {
+    method: 'POST',
+    headers: { 'Access-Token': token },
+    body: form,
+    timeoutMs: 30_000,
+  });
+  const mediaId = text(data.media_id);
+  if (!mediaId)
+    throw new ProviderError('tiktok', 'TikTok accepted the picture but did not return its id.');
+  return mediaId;
+}
+
+/** Sends an uploaded picture into a conversation; it counts towards TikTok's ten replies. */
+export async function sendTikTokImage(
+  account: AccountRef,
+  token: string,
+  conversationId: string,
+  mediaId: string,
+): Promise<string> {
+  const data = await tiktokCall('/business/message/send/', {
+    method: 'POST',
+    headers: { 'Access-Token': token, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      business_id: account.externalId,
+      recipient_type: 'CONVERSATION',
+      recipient: { conversation_id: conversationId },
+      message_type: 'IMAGE',
+      image: { media_id: mediaId },
+    }),
+  });
+  const sent =
+    text((data.message as { message_id?: unknown } | undefined)?.message_id) ??
+    text(data.message_id);
+  if (!sent)
+    throw new ProviderError('tiktok', 'TikTok accepted the picture but did not return its id.');
+  return sent;
+}

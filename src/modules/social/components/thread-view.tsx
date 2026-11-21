@@ -1,14 +1,31 @@
 'use client';
 
-import { AlertTriangle, Check, CheckCheck, Clock, FileText, RotateCcw, Send } from 'lucide-react';
+import { createBrowserClient } from '@supabase/ssr';
+import {
+  AlertTriangle,
+  Check,
+  CheckCheck,
+  Clock,
+  FileText,
+  Paperclip,
+  RotateCcw,
+  Send,
+  X,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useOptimistic, useRef, useState, useTransition, type ReactNode } from 'react';
 
 import { ErrorNote } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { publicEnv } from '@/lib/env.public';
 import { cn } from '@/lib/utils';
-import { replyAction, retryReplyAction } from '@/modules/social/actions';
+import {
+  mediaReplyAction,
+  replyAction,
+  retryReplyAction,
+  startMediaUploadAction,
+} from '@/modules/social/actions';
 
 import type { StoredAttachment } from '../media';
 
@@ -115,6 +132,7 @@ export function ThreadView({
   maxChars,
   extra,
   textReply = true,
+  attach = null,
 }: {
   conversationId: string;
   messages: ThreadItem[];
@@ -127,9 +145,16 @@ export function ThreadView({
   extra?: ReactNode;
   /** False when only `extra` may be sent (WhatsApp after 24 hours): no free-text box. */
   textReply?: boolean;
+  /**
+   * What files the platform takes in a reply (type → largest size), and whether words may go
+   * with one in the same message (WhatsApp only; elsewhere they follow as a second reply).
+   */
+  attach?: { limits: Record<string, number>; captions: boolean; platformLabel: string } | null;
 }) {
   const router = useRouter();
   const [body, setBody] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [shown, addOptimistic] = useOptimistic(messages, (current, reply: ThreadItem) => [
@@ -164,6 +189,100 @@ export function ThreadView({
       router.refresh();
     });
 
+  const chooseFile = (chosen: File | null) => {
+    setError(null);
+    if (!chosen || !attach) return setFile(null);
+    const limit = attach.limits[chosen.type];
+    if (!limit) {
+      setError(`${attach.platformLabel} does not take this kind of file from here.`);
+    } else if (chosen.size > limit) {
+      setError(
+        `${attach.platformLabel} takes files of this kind up to ${Math.round(limit / 1048576)} MB.`,
+      );
+    } else {
+      setFile(chosen);
+      return;
+    }
+    if (fileInput.current) fileInput.current.value = '';
+  };
+
+  /**
+   * Sends the attached file (ADR-067): the server hands out a one-time ticket for a path it
+   * chose, the browser uploads straight to private storage, and the server checks the file
+   * before sending it. Words go with it on WhatsApp, as a second reply elsewhere.
+   */
+  const sendFile = (chosen: File, text: string) =>
+    startTransition(async () => {
+      setError(null);
+      const kind = chosen.type.startsWith('image/')
+        ? 'image'
+        : chosen.type.startsWith('video/')
+          ? 'video'
+          : chosen.type.startsWith('audio/')
+            ? 'audio'
+            : 'file';
+      addOptimistic({
+        id: `pending-${Date.now()}`,
+        direction: 'outbound',
+        body: attach?.captions ? text || null : null,
+        attachments: [{ type: kind, state: 'pending' }],
+        sentAtLabel: 'Just now',
+        status: 'sending',
+        error: null,
+        sentByName: 'You',
+      });
+      setFile(null);
+      setBody('');
+      if (fileInput.current) fileInput.current.value = '';
+      const ticket = await startMediaUploadAction({
+        conversationId,
+        fileName: chosen.name,
+        mimeType: chosen.type,
+        size: chosen.size,
+      });
+      if (!ticket.ok) {
+        setError(ticket.error.message);
+        setBody(text);
+        return router.refresh();
+      }
+      const storage = createBrowserClient(
+        publicEnv.supabaseUrl,
+        publicEnv.supabasePublishableKey,
+      ).storage.from('social-media');
+      const uploaded = await storage.uploadToSignedUrl(
+        ticket.data.path,
+        ticket.data.token,
+        chosen,
+        {
+          contentType: chosen.type,
+        },
+      );
+      if (uploaded.error) {
+        setError('The upload did not complete. Try again.');
+        setBody(text);
+        return router.refresh();
+      }
+      const sent = await mediaReplyAction({
+        conversationId,
+        path: ticket.data.path,
+        mimeType: chosen.type,
+        fileName: chosen.name,
+        caption: attach?.captions ? text || undefined : undefined,
+      });
+      if (!sent.ok) setError(sent.error.message);
+      else if (text && !attach?.captions) {
+        const words = await replyAction({ conversationId, body: text });
+        if (!words.ok) setError(words.error.message);
+      }
+      router.refresh();
+    });
+
+  const submit = () => {
+    const text = body.trim();
+    if (file) sendFile(file, text);
+    else if (text) send(text);
+  };
+
   const retry = (messageId: string) =>
     startTransition(async () => {
       setError(null);
@@ -173,7 +292,7 @@ export function ThreadView({
     });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex flex-1 flex-col gap-3">
       <ol
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 lg:min-h-24"
         aria-label="Messages"
@@ -267,14 +386,34 @@ export function ThreadView({
             className="flex flex-col gap-2 rounded-xl border bg-card p-3"
             onSubmit={(event) => {
               event.preventDefault();
-              if (body.trim()) send(body.trim());
+              submit();
             }}
           >
+            {file && (
+              <p className="flex w-fit max-w-full items-center gap-2 rounded-lg border bg-muted/40 px-2 py-1 text-sm">
+                <Paperclip aria-hidden className="size-3.5 shrink-0" />
+                <span className="truncate">{file.name}</span>
+                <button
+                  type="button"
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Remove the attachment"
+                  onClick={() => chooseFile(null)}
+                >
+                  <X aria-hidden className="size-3.5" />
+                </button>
+              </p>
+            )}
             <Textarea
               aria-label="Reply to the customer"
-              placeholder="Write your reply…"
+              placeholder={
+                file
+                  ? attach?.captions
+                    ? 'Add a caption (optional)…'
+                    : 'Add words to send after the file (optional)…'
+                  : 'Write your reply…'
+              }
               rows={2}
-              required
+              required={!file}
               maxLength={maxChars}
               value={body}
               onChange={(event) => setBody(event.target.value)}
@@ -282,7 +421,7 @@ export function ThreadView({
                 // Enter sends, Shift+Enter starts a new line, as in the platforms' own apps.
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
-                  if (body.trim()) send(body.trim());
+                  submit();
                 }
               }}
             />
@@ -292,9 +431,34 @@ export function ThreadView({
                   ? 'Sent as a reply from a person: more than 24 hours have passed since their last message.'
                   : `${body.length} / ${maxChars}`}
               </p>
-              <Button type="submit" size="sm" disabled={body.trim().length === 0}>
-                <Send aria-hidden /> Send
-              </Button>
+              <div className="flex items-center gap-1.5">
+                {attach && (
+                  <>
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      className="sr-only"
+                      tabIndex={-1}
+                      aria-hidden
+                      accept={Object.keys(attach.limits).join(',')}
+                      onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Attach a photo or file"
+                      disabled={isPending}
+                      onClick={() => fileInput.current?.click()}
+                    >
+                      <Paperclip aria-hidden />
+                    </Button>
+                  </>
+                )}
+                <Button type="submit" size="sm" disabled={!file && body.trim().length === 0}>
+                  <Send aria-hidden /> Send
+                </Button>
+              </div>
             </div>
           </form>
         ))}
