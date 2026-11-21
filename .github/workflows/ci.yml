@@ -8,7 +8,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never on main: a newer push would cancel a production migration halfway through.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -101,3 +102,39 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # Applies new migrations to the production database after a merge to main (ADR-065), once the
+  # code checks pass and every migration has applied cleanly to a fresh database above. It runs in
+  # the `production` environment: its secret lives there, and the environment can require a
+  # person's approval first. Vercel deploys main in parallel, so new code can briefly run before
+  # its migration: migrations must stay backward compatible (add first, remove in a later release).
+  migrate-production:
+    name: Migrate production database
+    needs: [checks, database]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: migrate-production
+      cancel-in-progress: false
+    env:
+      DATABASE_URL_DIRECT: ${{ secrets.PRODUCTION_DATABASE_URL_DIRECT }}
+    steps:
+      - name: Require the production database secret
+        run: |
+          if [ -z "$DATABASE_URL_DIRECT" ]; then
+            echo "::error::Add PRODUCTION_DATABASE_URL_DIRECT (Supabase direct connection, port 5432) to the 'production' environment's secrets."
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Refuses when production's migration history is missing or foreign, which would make
+      # Drizzle replay migrations onto live data; otherwise lists what will be applied.
+      - name: Check migration history
+        run: node scripts/check-migrations.mjs
+      - name: Apply migrations
+        run: npm run db:migrate

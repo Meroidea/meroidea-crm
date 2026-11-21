@@ -1410,3 +1410,33 @@ cross-user and cross-tenant refusal. `@ai-sdk/react` is added (part of the appro
 **Not covered yet.** Saved conversations (a reload starts a new one; proposals survive in the
 table); a list of open proposals outside the chat; sending invoices or publishing rosters through
 the assistant; recurring or scheduled actions; per-business spend reporting.
+
+
+## ADR-065 — Production migrations run from CI after a merge, behind a history check
+
+**Context.** The docs said migrations ran "in CI against preview/prod", but no job did: CI only
+migrated throwaway local databases for its tests, and `next build` does not migrate. Production
+migrations were therefore applied by hand, so nothing guaranteed a merged migration reached
+production at all, or in order.
+
+**Decision.**
+
+1. A `Migrate production database` job in `ci.yml` runs on pushes to `main`, after the code checks
+   and the job that applies every migration to a fresh database. It runs in the GitHub
+   `production` environment, which holds `PRODUCTION_DATABASE_URL_DIRECT` and can require a
+   person's approval. Without the secret it fails loudly rather than skipping.
+2. `scripts/check-migrations.mjs` runs first. Drizzle applies every journal entry newer than the
+   last recorded row, so it refuses when the database has the app's tables but no history, or has
+   history this repository does not know, and otherwise lists exactly what will be applied (also
+   in the job summary).
+3. CI runs on `main` are never cancelled by a newer push, so a migration cannot be stopped halfway.
+4. Vercel still deploys `main` itself, in parallel, so new code can serve requests a few minutes
+   before its migration lands. Migrations must stay backward compatible: add tables and columns
+   first; remove or rename only in a later release (already the rule for destructive changes in
+   `.claude/rules/database.md`).
+
+**Not done.** Making production wait for the migration. Vercel's documented way is to turn off
+its automatic Git deployments (`git.deploymentEnabled: false`) and deploy from this workflow with
+the Vercel CLI after migrating, which needs `VERCEL_TOKEN`, `VERCEL_ORG_ID` and
+`VERCEL_PROJECT_ID`. That changes how production deploys, so it is left for the owner to decide.
+Preview databases are not migrated by this job.
