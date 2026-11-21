@@ -49,3 +49,38 @@ export async function createDownloadUrl(path: string, fileName: string): Promise
   if (error || !data) throw new AppError('INTERNAL', 'Could not prepare the download.');
   return data.signedUrl;
 }
+
+/**
+ * The private `social-media` bucket (ADR-065): customers' photos, videos, voice notes and files
+ * from the social inbox, copied because the platforms' own links expire. Same rules as
+ * `documents`: no storage policies, server-chosen paths under the business's id, and a link
+ * only after the caller checked the person may see the message.
+ */
+const SOCIAL_BUCKET = 'social-media';
+const socialBucket = () => createSupabaseAdminClient().storage.from(SOCIAL_BUCKET);
+
+export async function writeSocialMedia(
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const { error } = await socialBucket().upload(path, bytes, { contentType, upsert: false });
+  if (error) throw new AppError('INTERNAL', 'Could not store the media.');
+}
+
+/** A link that shows the object in the browser, valid for one minute. */
+export async function socialMediaUrl(path: string): Promise<string> {
+  const { data, error } = await socialBucket().createSignedUrl(path, 60);
+  if (error || !data) throw new AppError('INTERNAL', 'Could not prepare the media.');
+  return data.signedUrl;
+}
+
+/** Removes many objects in batches; returns how many went. */
+export async function removeSocialMedia(paths: string[]): Promise<number> {
+  let removed = 0;
+  for (let start = 0; start < paths.length; start += 100) {
+    const { data, error } = await socialBucket().remove(paths.slice(start, start + 100));
+    if (!error) removed += data?.length ?? 0;
+  }
+  return removed;
+}

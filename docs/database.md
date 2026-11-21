@@ -616,7 +616,11 @@ for a colleague) but not as already read or emailed; only `read_at` is updatable
 - `app.merge_contact_references(keep, drop)` — moves everything that points at a contact; checks
   `contacts.merge` in the active business itself (docs/leads.md §3.4).
 - `app.erase_contact_traces(contact)` — clears website submissions, ticket and review contact
-  details and audit values for an erased person; checks `contacts.anonymize` (§6.5).
+  details, linked social conversations' inbound messages and the customer's name and picture,
+  and audit values for an erased person; checks `contacts.anonymize` (§6.5, ADR-065).
+- `app.contacts_merged_into(contact)` — ids of every contact merged into this one, in turn,
+  from the merge entries in `audit_logs`, so erasure reaches them without `audit.view`; checks
+  `contacts.anonymize` (ADR-063).
 - `app.sweep_lead_alerts(tenant)` — writes the SLA alerts (§6.4). Not granted to `authenticated`;
   run by the server for the scheduler and for a signed-in member's own business.
 
@@ -1497,6 +1501,91 @@ and tax codes of this business, whole cents, running number, immediate balance c
 `MB001` (locked), `MB002` (invalid), `MB003` (not set up), `42501` and `P0002`; the app maps them in
 `src/modules/books/ledger-call.ts`.
 
+## 7q. Social inbox 🟢 (ADR-064)
+
+Feature `social`; every table below also has the restrictive `feature_switch` policy (ADR-038).
+Written by `src/modules/social`: from a person's request under RLS, or from a verified webhook in
+`webhooks.ts`, the module's only code on the privileged connection.
+
+### social_accounts
+A connected Facebook Page, Instagram professional account or TikTok business account.
+```sql
+id uuid pk, tenant_id uuid not null → tenants
+platform text not null            -- facebook | instagram | tiktok
+external_id text not null         -- Page id, Instagram account id, TikTok business id (open_id)
+name text not null, username text, avatar_url text
+provider_business_id text         -- Meta: the client's business portfolio
+status text not null default 'active'   -- active | needs_reconnect | disconnected
+last_error text                   -- words for the business; never a token or payload
+connected_by uuid, connected_at, disconnected_at, last_synced_at, created_at, updated_at
+unique (tenant_id, id)
+unique (platform, external_id) where disconnected_at is null   -- one live business per account
+```
+RLS: read with `social.view` or `social.manage`; insert with `social.manage`; update (named
+columns only) with `social.manage` or `social.reply` (a reply that finds the token dead marks
+`needs_reconnect`). Reconnecting an account the business had before reuses its row, so its history
+continues.
+
+### social_account_credentials
+`account_id` pk, `tenant_id`, `access_token_ciphertext`, `access_expires_at`,
+`refresh_token_ciphertext`, `refresh_expires_at`, `updated_at`; composite FK to the account,
+`on delete cascade`. Tokens are sealed with `encryptField` bound to
+`social:<tenant>:<account>:access|refresh`, and re-sealed with the payroll numbers on a key rotation
+(ADR-040). **No grants at all to `authenticated`**: sessions use
+`app.social_store_credentials(account, access, access_expires, refresh, refresh_expires)` (connect
+needs `social.manage`; replacing existing tokens also allows `social.reply`),
+`app.social_read_credentials(account)` (`social.reply` or `social.manage`, live accounts only) and
+`app.social_clear_credentials(account)` (`social.manage`).
+
+### social_conversations
+One customer's thread with one account.
+```sql
+id uuid pk, tenant_id, account_id (composite FK)
+external_id text                  -- the provider's conversation id (needed to reply on TikTok)
+participant_id text not null      -- PSID / IGSID; TikTok: the conversation id
+participant_name text, participant_username text
+contact_id uuid                   -- composite FK to contacts, set by "Link to contact"
+last_message_at, last_message_preview, last_inbound_at   -- the reply window counts from here
+unread_count int not null default 0, status text default 'open'   -- open | done
+unique (tenant_id, id), unique (account_id, participant_id)
+index (tenant_id, last_message_at, id)
+```
+RLS: read and update (named columns) with `social.view`; insert with `social.manage` or
+`social.reply`. A linked contact's name is shown only inside the reader's contact scope.
+
+### social_messages
+```sql
+id uuid pk, tenant_id, conversation_id (composite FK), account_id (composite FK)
+external_id text                  -- provider message id; null only while sending or after failing
+direction text not null           -- inbound | outbound
+body text, attachments jsonb not null default '[]'   -- [{type, url?}], https links only
+sent_at timestamptz not null, sent_by_user_id uuid   -- who replied from Meroidea
+status text default 'received'    -- received | sending | sent | failed
+error text, created_at
+unique (tenant_id, id), unique (account_id, external_id)   -- idempotent webhook delivery
+index (tenant_id, conversation_id, sent_at)
+```
+RLS: read with `social.view`; insert and update (`external_id`, `status`, `error`) with
+`social.reply` or `social.manage`. Raw webhook payloads are not kept: messages are stored once,
+normalised (data minimisation; the lead-intake replay table is for leads).
+
+**Part two (migration `0073`, ADR-065).** `social_conversations.participant_avatar_path` (the
+customer's picture, saved); `social_messages.delivered_at`, `read_at` and statuses `received |
+sending | sent | delivered | read | failed`; check constraints on every platform, direction and
+status column. `attachments` entries are `{type, state: pending | stored | failed | skipped,
+storagePath?, mimeType?, size?, url?, mediaId?}`: media go to the private `social-media` bucket
+and the provider's link is dropped once stored. Sessions may also update `sent_at`,
+`delivered_at`, `read_at`, `attachments` and `participant_avatar_path`.
+
+Real time: triggers `social_messages_broadcast` and `social_conversations_broadcast` call
+`realtime.send({conversationId}, 'changed', 'social:<tenant>', private)` through `security
+definer` functions that skip where Realtime is absent. Policy `social_inbox_receive` on
+`realtime.messages` (select, `extension = 'broadcast'`) allows a channel only when
+`app.social_channel_allowed(realtime.topic())`: `social.view` in that business, feature on, business
+open. Erasure: `app.social_media_paths_for_contact(contact)` lists the saved files of a person's
+linked conversations (`contacts.anonymize`), and `app.erase_contact_traces` blanks their inbound
+messages, name, handle and picture.
+
 ## 8. Platform tables
 
 ### custom_field_definitions 🟢 (table + validation in MVP; admin UI milestone 9)
@@ -1702,6 +1791,14 @@ index (tenant_id, created_at desc)
 ```
 `UPDATE`/`DELETE` revoked from `authenticated`. When it grows, partition by month.
 
+Read only with `audit.view` in the active business (policy `audit_read`, migration `0071`,
+ADR-063); a member appends their own entries through `audit_append`. Features that need part of the
+log without `audit.view` go through `security definer` functions that return only that part:
+`app.record_field_changes(entity_type, entity_id, limit)` (who, when and field names for a contact's
+or opportunity's timeline, to its view permission), `app.contacts_merged_into(contact)` (§4,
+erasure) and `app.audit_actor_names(user_ids)` (names of present and former members for the viewer,
+to `audit.view`). The viewer is `/audit` (`src/modules/audit`).
+
 ---
 
 ## 9. Tenant configuration (JSONB on `tenants`)
@@ -1839,7 +1936,8 @@ soft-deleted table gains `delete`, or anyone gains `truncate`.
 
 `audit_logs` also has an insert policy (`audit_append`, migration `0006`): a member may append
 rows only for their active tenant, with `actor_user_id` = themselves and `actor_type = 'user'`.
-System, integration and API rows are written through `adminDb`.
+System, integration and API rows are written through `adminDb`. Reading needs `audit.view`
+(`audit_read`, migration `0071`, ADR-063).
 Outside `withRls` the GUC is unset, `active_tenant_id()` is null, and every policy denies —
 so PostgREST access with a user token also sees nothing.
 

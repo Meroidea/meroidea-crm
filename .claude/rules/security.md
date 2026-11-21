@@ -147,6 +147,32 @@ change as touching sensitive personal data.
 - Entries from payroll stay `payroll = true` and hidden without `books.view_payroll`. Never show
   pay amounts from the books in a query that skips RLS.
 
+## Social inbox (ADR-064)
+
+- `src/modules/social/webhooks.ts` (and `key-rotation.ts`, for platform owners) are the only social
+  code that may use `adminDb`. Store a Meta event only after `verifyMetaSignature` passes on the raw
+  bytes. Never store a TikTok notification's content: it only names a conversation to read again
+  through TikTok's API with the account's own token.
+- Account tokens are sealed with `encryptField` and live only in `social_account_credentials`,
+  which `authenticated` has no grants on. Read and write them through the `app.social_*`
+  functions; never log them, put them in a URL (send them in headers or bodies), or return them to
+  the browser.
+- Connecting runs only through the state cookie check in `/api/social/oauth/[provider]`, as the
+  signed-in person with `social.manage`; the code is never logged or redirected onwards.
+- One live business per account (`social_accounts_live_key`): never relax it, or one business's
+  customers' messages could reach another.
+- Message content never goes into `audit_logs`, logs or error messages.
+- Realtime (ADR-065): broadcasts carry ids only, never content; the browser re-reads through
+  RLS. Channels are private `social:<tenant>`, joined only through `app.social_channel_allowed`.
+  Never broadcast to a public channel or put a message's words in a payload.
+- Media go into the private `social-media` bucket only through `src/modules/social/media.ts`:
+  https, the platforms' media hosts, redirects checked at each hop, size cap, leading bytes
+  matched to an accepted type. Never fetch an address from a payload any other way, and serve
+  files only through `/api/social/media` and `/api/social/avatar` (permission check, one-minute
+  link).
+- A TikTok notification whose signature fails is treated as unsigned, never as verified; read
+  receipts need a valid signature.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a
@@ -177,3 +203,8 @@ change as touching sensitive personal data.
 Call `audit()` inside the transaction for: create/update/delete/restore of business records,
 owner changes, stage changes, permission/role/user changes, settings changes, exports,
 imports, and document downloads.
+
+Reading `audit_logs` needs `audit.view` (policy `audit_read`, ADR-063). A feature that needs part
+of the log without that permission gets a `security definer` function returning only that part
+(as `app.record_field_changes` returns field names, never values); never widen the policy and
+never read the log through `adminDb` in a request.

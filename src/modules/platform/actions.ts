@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 
 import { AppError, toActionError, type ActionResult } from '@/lib/errors';
 import { reencryptPayrollDetails } from '@/modules/hiring/key-rotation';
+import { reencryptSocialCredentials } from '@/modules/social/key-rotation';
 import { ACTIVE_TENANT_COOKIE } from '@/server/context';
 import { assertPlatformAdmin, type PlatformAdmin } from '@/server/platform';
 
@@ -87,9 +88,19 @@ export async function publishAgreementAction(raw: unknown) {
   );
 }
 
-/** Moves every stored payroll number onto the current encryption key (ADR-040). */
+/**
+ * Moves every sealed value onto the current encryption key (ADR-040): staff payroll numbers and
+ * social account tokens (ADR-064), which share the key.
+ */
 export async function reencryptPayrollDetailsAction() {
-  return platformAction((admin) => reencryptPayrollDetails(admin));
+  return platformAction(async (admin) => {
+    const payroll = await reencryptPayrollDetails(admin);
+    const social = await reencryptSocialCredentials(admin);
+    return {
+      reencrypted: payroll.reencrypted + social.reencrypted,
+      failed: payroll.failed + social.failed,
+    };
+  });
 }
 
 const cookieOptions = {

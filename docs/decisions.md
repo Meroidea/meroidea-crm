@@ -1273,3 +1273,160 @@ bills, and expense claims are staff reimbursements.
 **Not covered yet.** Attachments (the bill's PDF or photo), recurring bills, a supplier record of
 its own with payment terms and a default account (suppliers in purchasing are linked by name only),
 aged payables (milestone 5).
+
+## ADR-063 — The audit log viewer, and the log readable only with audit.view
+
+**Context.** Milestone 14 lists an audit log viewer, and `audit.view` ("Audit log viewer and
+export") was in the catalogue with nothing behind it. The log holds more than "who did what": the
+values before and after an edit (a contact's phone and address), figures behind a contract, the
+address and browser of whoever acted. Yet its policy since migration `0001` let every active member
+read every entry in their business. No screen asked, so nothing leaked, but a viewer turns "read
+the whole log" into a real code path, and the next query to touch the table would have inherited
+the open policy.
+
+**Decision.**
+1. `/audit` (Admin menu, `audit.view`): entries newest first with who, what, which record, the
+   changed values and the request details; filters by day range in the business's timezone,
+   person, action, record type and one record ("History of this record"); keyset pages of 50 over
+   `(created_at, id)` carried at microsecond precision, since a millisecond cursor skips entries
+   written together. Ids and dates only in the URL: no free-text search, because what people
+   search an audit log for is names and email addresses (rules/security.md).
+2. Export to CSV under the same filters, up to 10,000 entries, needs `audit.view` and is itself an
+   audit entry recording the filters and row count.
+3. Migration `0071` replaces the select policy with `audit_read`, which needs `audit.view` in the
+   active business. Inserting is unchanged (`audit_append`). Only the Admin role holds
+   `audit.view` by default; a custom role can be given it.
+4. Two features read the log without being the log viewer, and get exactly what they need through
+   `security definer` functions instead of the rows:
+   - a record's timeline ("Changed phone, city") — `app.record_field_changes(type, id, limit)`
+     returns who, when and the field names, never values, for contacts and opportunities, to a
+     member holding that record's view permission. The caller still checks the record's scope
+     first, as before;
+   - erasing a person on request also erases records merged into them, found from the merge
+     entries — `app.contacts_merged_into(contact)` returns record ids to `contacts.anonymize`. A
+     person allowed to erase but not to read the log must still find every merged copy, or the
+     person's details would survive in it without anyone noticing.
+5. `app.audit_actor_names(ids)` names the people behind entries, including those who have left:
+   the `users` policies show former members only to `users.manage`, and an audit is often read
+   about someone who has gone. Names only, of people who are or were members of the active
+   business, to `audit.view`.
+
+**Consequences.** Granting `audit.view` grants every value the log recorded, across all records
+and payroll, whatever the person's other permissions; give it only to someone trusted with all of
+it. Sensitive values are masked when written (`diffChanges`) and stay masked here. Not built: a
+retention period and archiving, monthly partitioning (docs/database.md), and platform owners'
+own log (`platform_audit_logs`, ADR-056) in the console.
+
+## ADR-064 — Social inbox: Facebook, Instagram and TikTok direct messages in one place
+
+**Context.** Businesses asked to connect their social media accounts and see customers' direct
+messages inside Meroidea instead of three apps. What each platform allows (checked against their
+documentation in November 2026):
+- *Meta.* One Meta app serves Facebook Pages (Messenger) and Instagram professional accounts.
+  Meta recommends "Instagram API with Unified Login" for new integrations: the business logs in
+  with Facebook or Instagram through Facebook Login for Business with a configuration, no Facebook
+  Page is needed for Instagram, and the app receives a Business Integration System User token
+  that belongs to the business's portfolio and by default does not expire. Serving businesses that
+  have no role on the app needs Advanced Access (App Review) and a verified business. Webhooks are
+  signed with `X-Hub-Signature-256`. Replies: within 24 hours of the customer's last message, or
+  up to 7 days with the Human Agent tag (which needs its own approval). Message content is
+  available only for the 20 most recent messages of a conversation.
+- *TikTok.* The Business Messaging API is in open beta for developers who pass TikTok's data
+  security and privacy review (US accounts need an extra US review; accounts registered in the
+  EEA, Switzerland or the UK cannot be served). Accounts must be Verified Business Accounts (or
+  have Advanced Access), owned by someone over 18, and set to accept messages from everyone.
+  Access tokens last a day, refresh tokens a year. Replies: up to 10 within 48 hours of the
+  customer's message. Only the last 90 days of conversations and 20 most recent messages are
+  readable. The webhook documentation names no signature this app can verify.
+
+**Decision.**
+1. A feature `social` with `social.view`, `social.reply` and `social.manage`. New businesses'
+   Admin gets all three and Manager the first two; existing businesses' Admin gets all three
+   (migration `0072`). Pages: `/social` (inbox), `/social/[id]` (thread, reply, link to contact,
+   done), `/social/accounts` (connect, disconnect, status).
+2. Connecting: a server action sets a ten-minute, http-only state cookie holding a hash of the
+   `state` bound to the person and business, then sends the browser to Meta or TikTok. The
+   callback `/api/social/oauth/[provider]` runs as the signed-in person, checks the state, swaps
+   the code for tokens on the server and saves every account shared: Pages with their Page token,
+   Instagram accounts with the system user token, TikTok with its token pair. Each is subscribed
+   to our webhook and its recent conversations imported (not counted as unread).
+3. Tokens are sealed with `encryptField` and kept in `social_account_credentials`, which sessions
+   cannot read at all; `app.social_*` functions check the permission. They move with the payroll
+   numbers on a key rotation. They travel to providers only in headers or bodies, never in URLs.
+4. One live business per account (a partial unique index), so an incoming message has exactly
+   one destination; a business trying to connect an account that is live elsewhere is told only
+   that it was skipped.
+5. Webhooks: Meta events are stored only after the signature over the raw bytes checks out, and
+   idempotently on Meta's message id. A TikTok notification is never stored as it stands: it
+   only says which conversation to read again through TikTok's API with the account's own token
+   (renewed first if expired), so a forged one costs one read and plants nothing.
+6. Replies are checked against each platform's window before sending, stored as `sending`, then
+   `sent` or `failed` with the provider's reason. An echo of our own reply that arrives before the
+   provider's answer claims the pending row instead of adding a copy. A token the provider rejects
+   marks the account `needs_reconnect`.
+7. Disconnecting unsubscribes, forgets the tokens and keeps the conversations as the business's
+   record; connecting the same account again continues them.
+
+**Consequences.** Nothing works for client businesses until the platform owner has a Meta app
+through App Review with a verified business, and a TikTok developer app through TikTok's review
+(docs/social-inbox.md). Not built: images and files in replies, conversations on a contact's
+timeline, assigning conversations, notifications for new messages, comments and mentions,
+WhatsApp, a data deletion callback for Meta (instructions page instead), and reading TikTok
+messages from EEA, Swiss or UK users, which TikTok does not allow.
+
+## ADR-065 — Social inbox, part two: real time, saved media, receipts and rate limits
+
+**Context.** The owner asked for a true instant-messaging experience instead of the 20-second
+refresh of ADR-064, for customers' photos and files to survive the platforms' expiring links,
+and for delivery and read status, rate-limit handling and a two-pane inbox. Facts that shaped it
+(Supabase, Meta and TikTok documentation, November 2026): `realtime.send` inserts a broadcast
+into `realtime.messages`, catches its own errors, and is executable only by `postgres`; private
+channels are authorised by RLS on `realtime.messages`, evaluated when a browser joins and cached
+for the connection. Meta's attachment and profile picture links expire ("in a few days" for
+Instagram). Meta throttles with codes 4, 17, 32, 613 and 80000–80014 and reports the wait in
+`X-Business-Use-Case-Usage`. TikTok's return code 40100 means throttled, 40105 an invalid token
+(ADR-064's client wrongly treated 40100–40105 alike, so throttling would have asked businesses
+to reconnect: fixed). TikTok's media are fetched by media id through
+`/business/message/media/download/` (a 24-hour link).
+
+**Decision.**
+1. *Supabase Realtime is added to the stack* (owner's approval, 18 November 2026), for this use:
+   database triggers on `social_conversations` and `social_messages` call `realtime.send` on
+   the private channel `social:<tenant id>` with **only the conversation id**; the browser then
+   reloads through the ordinary RLS-checked server components. The channel never carries what
+   anyone wrote, so a mistake in channel authorisation cannot leak a message. The policy
+   `social_inbox_receive` lets a browser join only with `social.view` in that business, while the
+   feature is on and the business open (`app.social_channel_allowed`). The triggers are `security
+   definer`, skip quietly where Realtime is not installed and can never stop a message being
+   stored. Without a live channel the page refreshes every 30 seconds. CI now starts Realtime.
+2. *Media are copied into the private `social-media` bucket* (25 MB cap, no storage policies)
+   at `{tenant}/social/{conversation}/{message}/...` and avatars at `{tenant}/social/avatars/...`,
+   after the webhook has been answered (`after()`), or after an import. The download address
+   comes from a payload, so it is fetched only over https from the platforms' media hosts, with
+   redirects followed by hand and checked at every hop, a size cap, and the leading bytes matched
+   to an accepted type (images, mp4/mov, common audio, pdf). A refused file is marked `skipped`, a
+   failure `failed` with its link kept. Files are served by `/api/social/media/...` and
+   `/api/social/avatar/...`, which check `social.view` under RLS on every request and redirect to
+   a one-minute signed link. Viewing a message's media is not audited, as reading its text is not.
+3. *Erasure and deletion reach the media:* erasing a person blanks their inbound messages, name,
+   handle and picture in linked conversations and removes the files; deleting a business empties
+   its folder in both buckets.
+4. *Receipts:* Messenger deliveries and reads, Instagram's `messaging_seen` and TikTok's
+   `im_mark_read_msg` move replies `sent → delivered → read`, never back. TikTok's read receipt
+   cannot be confirmed through the API, so it is applied only from a signed notification.
+5. *TikTok signatures:* `TikTok-Signature: t=…,s=…` (HMAC-SHA256 of `t.body` with the app
+   secret, five minutes) is checked. The scheme is the one TikTok documents for its webhooks but
+   could not be confirmed on the Business Messaging pages, so a notification that fails it is
+   only ever treated as unsigned, never rejected: messages are still read through the API, and
+   unsigned reads are limited to six per conversation a minute.
+6. *Rate limits* become `RATE_LIMITED` with the wait when known; the reply is kept as failed and
+   **Retry** sends the same message again after re-running every check. A throttled account is
+   not marked for reconnecting.
+7. *UI:* two panes from the `lg` breakpoint (list left, thread right), one pane on phones; each
+   message line names its platform; replies appear at once (`useOptimistic`) and then show sent,
+   delivered, read or failed.
+
+**Consequences.** Hosted Realtime must have "Allow public access" switched off so only private
+channels exist (docs/social-inbox.md). Media storage grows with use and is paid by the platform.
+Revoking a person's access stops their Realtime signals only when their session token renews
+(Supabase caches channel authorisation per connection); the signals carry ids alone.

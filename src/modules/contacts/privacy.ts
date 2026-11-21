@@ -8,6 +8,7 @@ import { assertCanAccess } from '@/lib/permissions/scope';
 import { recordSystemActivity, redactContactActivities } from '@/modules/activities/service';
 import { redactContactTasks } from '@/modules/tasks/service';
 import { audit } from '@/server/audit';
+import { removeSocialMedia } from '@/server/storage';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 
@@ -195,7 +196,7 @@ export async function mergeContacts(
  */
 export async function anonymizeContact(ctx: TenantContext, id: string): Promise<{ id: string }> {
   requirePermission(ctx, 'contacts.anonymize');
-  return withRls(ctx, async (tx) => {
+  const erased = await withRls(ctx, async (tx) => {
     const [contact] = await tx
       .select()
       .from(contacts)
@@ -208,20 +209,15 @@ export async function anonymizeContact(ctx: TenantContext, id: string): Promise<
 
     const now = new Date();
     // Records merged into this one were folded in, not deleted: they still hold the person's
-    // details, so they are erased with it (and anything merged into them in turn).
-    const merged = (await tx.execute(sql`
-      with recursive folded(id) as (
-        select entity_id from audit_logs
-        where tenant_id = ${ctx.tenantId} and entity_type = 'contact'
-          and context ->> 'mergedInto' = ${contact.id}
-        union
-        select a.entity_id from audit_logs a
-        join folded f on a.context ->> 'mergedInto' = f.id::text
-        where a.tenant_id = ${ctx.tenantId} and a.entity_type = 'contact'
-      )
-      select id from folded where id is not null`)) as unknown as { id: string }[];
+    // details, so they are erased with it (and anything merged into them in turn). The merges
+    // are recorded in the audit log, which needs audit.view, so the database walks them for
+    // whoever may erase (ADR-063).
+    const merged = (await tx.execute(
+      sql`select id from app.contacts_merged_into(${contact.id}::uuid) as id`,
+    )) as unknown as { id: string }[];
+    const media: string[] = [];
     for (const id of [contact.id, ...merged.map((row) => row.id)]) {
-      await eraseRecord(tx, ctx, id, now);
+      media.push(...(await eraseRecord(tx, ctx, id, now)));
     }
     await audit(tx, ctx, {
       action: 'update',
@@ -229,12 +225,14 @@ export async function anonymizeContact(ctx: TenantContext, id: string): Promise<
       entityId: contact.id,
       context: { erasedOnRequest: true, mergedRecordsErased: merged.length },
     });
-    return { id: contact.id };
+    return { id: contact.id, media };
   });
+  if (erased.media.length > 0) await removeSocialMedia(erased.media);
+  return { id: erased.id };
 }
 
 /** Clears one record's personal details and the traces they left elsewhere. */
-async function eraseRecord(tx: Tx, ctx: TenantContext, id: string, now: Date) {
+async function eraseRecord(tx: Tx, ctx: TenantContext, id: string, now: Date): Promise<string[]> {
   await tx
     .update(contacts)
     .set({
@@ -270,5 +268,11 @@ async function eraseRecord(tx: Tx, ctx: TenantContext, id: string, now: Date) {
     .where(and(eq(contacts.tenantId, ctx.tenantId), eq(contacts.id, id)));
   await redactContactActivities(tx, ctx, id);
   await redactContactTasks(tx, ctx, id);
+  // Media they sent on social media is listed before erase_contact_traces clears the messages;
+  // the files are removed from storage once the erasure has committed (ADR-065).
+  const media = (await tx.execute(
+    sql`select path from app.social_media_paths_for_contact(${id}::uuid) as path`,
+  )) as unknown as { path: string }[];
   await tx.execute(sql`select app.erase_contact_traces(${id}::uuid)`);
+  return media.map((row) => row.path);
 }

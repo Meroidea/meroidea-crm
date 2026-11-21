@@ -92,6 +92,12 @@ export const FEATURES = [
     description: 'Authorising rosters for pay and payslips for staff.',
   },
   {
+    key: 'social',
+    label: 'Social inbox',
+    description:
+      'Connect Facebook, Instagram and TikTok business accounts and answer customers’ direct messages from one inbox.',
+  },
+  {
     key: 'books',
     label: 'Bookkeeping',
     description:
@@ -132,6 +138,7 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
   concerns: 'concerns',
   training: 'training',
   books: 'books',
+  social: 'social',
 };
 
 /** The feature a permission needs, or null for workspace basics such as settings and users. */

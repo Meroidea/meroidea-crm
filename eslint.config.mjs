@@ -68,6 +68,11 @@ const eslintConfig = defineConfig([
       'src/modules/enquiries/public.ts',
       // Website enquiries are platform data, read only by platform owners (ADR-029).
       'src/modules/enquiries/service.ts',
+      // Social inbox webhooks: Meta's verified by signature, TikTok's only trigger a read through
+      // TikTok's API with the account's own token; no session (ADR-064).
+      'src/modules/social/webhooks.ts',
+      // Re-sealing account tokens onto a new key with the payroll numbers (ADR-040, ADR-064).
+      'src/modules/social/key-rotation.ts',
     ],
     rules: { 'no-restricted-imports': 'off' },
   },
