@@ -129,17 +129,33 @@ export function StatusButton({
   const done = status === 'done';
   return (
     <div className="flex flex-col gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={isPending}
-        onClick={() =>
-          run(() => setConversationStatusAction({ conversationId, status: done ? 'open' : 'done' }))
-        }
-      >
-        {done ? <RotateCcw aria-hidden /> : <CheckCheck aria-hidden />}
-        {done ? 'Reopen' : 'Mark done'}
-      </Button>
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isPending}
+          onClick={() =>
+            run(() =>
+              setConversationStatusAction({ conversationId, status: done ? 'open' : 'done' }),
+            )
+          }
+        >
+          {done ? <RotateCcw aria-hidden /> : <CheckCheck aria-hidden />}
+          {done ? 'Reopen' : 'Mark done'}
+        </Button>
+        {status === 'snoozed' && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isPending}
+            onClick={() =>
+              run(() => setConversationStatusAction({ conversationId, status: 'open' }))
+            }
+          >
+            <RotateCcw aria-hidden /> Unsnooze
+          </Button>
+        )}
+      </div>
       <ErrorNote error={error} />
     </div>
   );

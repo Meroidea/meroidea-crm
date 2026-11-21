@@ -484,3 +484,65 @@ export async function deleteWhatsAppTemplate(
     headers: authorized(token),
   });
 }
+
+/** Uploads a reply's file to WhatsApp (ADR-067); its id is valid for 30 days. */
+export async function uploadWhatsAppMedia(
+  token: string,
+  phoneNumberId: string,
+  file: { bytes: Uint8Array; mimeType: string; fileName: string },
+): Promise<string> {
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', file.mimeType);
+  form.append(
+    'file',
+    new Blob([new Uint8Array(file.bytes)], { type: file.mimeType }),
+    file.fileName,
+  );
+  const body = (await call(graph(`/${id(phoneNumberId)}/media`), {
+    method: 'POST',
+    headers: authorized(token),
+    body: form,
+    timeoutMs: 60_000,
+  })) as { id?: unknown };
+  if (typeof body.id !== 'string') {
+    throw new ProviderError('whatsapp', 'WhatsApp accepted the file but did not return its id.');
+  }
+  return body.id;
+}
+
+export type WhatsAppMediaKind = 'image' | 'video' | 'audio' | 'document';
+
+/** Sends an uploaded file; images, videos and documents may carry a caption. */
+export function sendWhatsAppMedia(
+  token: string,
+  phoneNumberId: string,
+  participantId: string,
+  media: { kind: WhatsAppMediaKind; id: string; caption?: string | null; fileName?: string },
+): Promise<string> {
+  const object: Record<string, string> = { id: media.id };
+  if (media.caption && media.kind !== 'audio') object.caption = media.caption;
+  if (media.kind === 'document' && media.fileName) object.filename = media.fileName;
+  return sendMessage(token, phoneNumberId, {
+    ...whatsappRecipient(participantId),
+    type: media.kind,
+    [media.kind]: object,
+  });
+}
+
+/**
+ * Marks the customer's messages read in WhatsApp (their blue ticks): marking the latest marks
+ * every earlier one in the chat too.
+ */
+export async function markWhatsAppRead(
+  token: string,
+  phoneNumberId: string,
+  messageId: string,
+): Promise<void> {
+  await call(graph(`/${id(phoneNumberId)}/messages`), {
+    method: 'POST',
+    headers: authorized(token, true),
+    body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: messageId }),
+    timeoutMs: 5_000,
+  });
+}

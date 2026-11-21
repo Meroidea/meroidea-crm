@@ -35,6 +35,10 @@ test('an admin opens the social inbox and sees what can be connected', async ({
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('heading', { level: 1, name: 'Social inbox' })).toBeVisible();
   await expect(page.getByText('No accounts connected yet')).toBeVisible();
+  // Search, and the views for one's own and snoozed conversations (ADR-067).
+  await expect(page.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Mine', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Snoozed', exact: true })).toBeVisible();
 
   await page.getByRole('link', { name: 'Connect an account' }).click();
   await expect(page).toHaveURL(/\/social\/accounts$/);
@@ -53,6 +57,12 @@ test('an admin opens the social inbox and sees what can be connected', async ({
   await page.goto('/social/templates');
   await expect(page.getByRole('heading', { level: 1, name: 'WhatsApp templates' })).toBeVisible();
   await expect(page.getByText('Connect a WhatsApp number first')).toBeVisible();
+
+  // Settings → Channels shows connection health and leads to the accounts page, with no secrets.
+  await page.goto('/settings?tab=channels');
+  await expect(page.getByText('No accounts connected yet.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Connect or manage accounts' })).toBeVisible();
+  await expect(page.getByText(/verify token/i)).toHaveCount(0);
 
   // A login callback that did not start here is refused, and nothing is connected.
   await page.goto('/api/social/oauth/meta?code=forged&state=forged');

@@ -11,13 +11,17 @@ import { metaAuthorizeUrl, metaConfigured } from './providers/meta';
 import { tiktokAuthorizeUrl, tiktokConfigured } from './providers/tiktok';
 import {
   accountIdSchema,
+  assignSchema,
   connectWhatsAppSchema,
   conversationIdSchema,
   conversationStatusSchema,
   createTemplateSchema,
   linkContactSchema,
+  mediaReplySchema,
+  mediaUploadSchema,
   messageIdSchema,
   replySchema,
+  snoozeSchema,
   startConnectSchema,
   templateIdSchema,
   templateReplySchema,
@@ -114,4 +118,26 @@ export const createTemplateAction = authedAction(
 export const deleteTemplateAction = authedAction(
   { permission: 'social.manage', input: templateIdSchema, revalidate: paths },
   (ctx, input) => whatsapp.deleteTemplate(ctx, input.templateId),
+);
+
+/** Gives a conversation to a colleague, or back to the team (ADR-067). */
+export const assignAction = authedAction(
+  { permission: 'social.reply', input: assignSchema, revalidate: paths },
+  (ctx, input) => social.assignConversation(ctx, input),
+);
+
+export const snoozeAction = authedAction(
+  { permission: 'social.reply', input: snoozeSchema, revalidate: paths },
+  (ctx, input) => social.snoozeConversation(ctx, input),
+);
+
+/** A one-time upload ticket for a reply's attachment, at a path the server chooses. */
+export const startMediaUploadAction = authedAction(
+  { permission: 'social.reply', input: mediaUploadSchema },
+  (ctx, input) => social.startMediaUpload(ctx, input),
+);
+
+export const mediaReplyAction = authedAction(
+  { permission: 'social.reply', input: mediaReplySchema, revalidate: paths },
+  (ctx, input) => social.sendMediaReply(ctx, input),
 );

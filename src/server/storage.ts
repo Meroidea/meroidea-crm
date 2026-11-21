@@ -75,6 +75,35 @@ export async function socialMediaUrl(path: string): Promise<string> {
   return data.signedUrl;
 }
 
+/**
+ * A one-time ticket for the browser to upload a reply's attachment straight to the bucket, at a
+ * path the server chose (ADR-067). The server checks the file afterwards before anything is sent.
+ */
+export async function createSocialUploadTicket(
+  path: string,
+): Promise<{ path: string; token: string }> {
+  const { data, error } = await socialBucket().createSignedUploadUrl(path);
+  if (error || !data) throw new AppError('INTERNAL', 'Could not prepare the upload.');
+  return { path: data.path, token: data.token };
+}
+
+/** The object's bytes, or null when it is not there. */
+export async function readSocialMedia(path: string): Promise<Uint8Array | null> {
+  const { data, error } = await socialBucket().download(path);
+  if (error || !data) return null;
+  return new Uint8Array(await data.arrayBuffer());
+}
+
+/**
+ * A link a platform fetches the attachment from when it delivers a reply (Messenger and
+ * Instagram send by link): valid ten minutes, for one object the business itself is sending.
+ */
+export async function socialMediaLinkForPlatform(path: string): Promise<string> {
+  const { data, error } = await socialBucket().createSignedUrl(path, 600);
+  if (error || !data) throw new AppError('INTERNAL', 'Could not prepare the media.');
+  return data.signedUrl;
+}
+
 /** Removes many objects in batches; returns how many went. */
 export async function removeSocialMedia(paths: string[]): Promise<number> {
   let removed = 0;

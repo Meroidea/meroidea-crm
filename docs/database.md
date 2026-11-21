@@ -1608,6 +1608,21 @@ messages, name, handle and picture.
 - `app.erase_contact_traces` also clears `participant_phone` and, on WhatsApp, replaces
   `participant_id` with `erased:<conversation id>`.
 
+**Workflow (migration `0075`, ADR-067).**
+- `social_conversations.assigned_user_id uuid`: composite foreign key
+  `(tenant_id, assigned_user_id)` → `tenant_memberships (tenant_id, user_id)`, indexed
+  `(tenant_id, assigned_user_id)`.
+- `social_conversations.snoozed_until timestamptz`. `status` is now `open | snoozed | done`; the
+  check `(status = 'snoozed') = (snoozed_until is not null)` keeps them together. The Open view
+  treats a snooze whose time has passed as open.
+- Sessions may update `assigned_user_id` and `snoozed_until`.
+- Trigram indexes for search:
+  - on `coalesce(participant_name,'') || ' ' || coalesce(participant_username,'') || ' ' ||
+    coalesce(participant_phone,'')`;
+  - on `social_messages.body`.
+- A reply's own attachment is an `attachments` entry with `state: stored` and a `storagePath`
+  under `{tenant}/social/{conversation}/outbound/`.
+
 ### social_message_templates
 A WhatsApp template of a connected number's WhatsApp Business Account. Each live number of the
 account holds the account's templates.

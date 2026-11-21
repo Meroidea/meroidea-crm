@@ -14,6 +14,7 @@ import {
 } from '@/db/schema';
 import { scopeFilter } from '@/lib/permissions/scope';
 import { contactScope } from '@/modules/contacts/access';
+import { listActiveMembers, listMemberIdsWithPermission } from '@/modules/members/queries';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
@@ -77,7 +78,22 @@ export type InboxRow = {
   contactId: string | null;
   contactName: string | null;
   hasPicture: boolean;
+  snoozedUntil: Date | null;
+  /** Set aside right now (its snooze time has not come). */
+  snoozedNow: boolean;
+  assignedUserId: string | null;
+  assigneeName: string | null;
 };
+
+const snoozedNow = sql<boolean>`(${socialConversations.status} = 'snoozed' and ${socialConversations.snoozedUntil} > now())`;
+
+const assignees = alias(users, 'assignees');
+
+/** A snoozed conversation whose time has come counts as open again (ADR-067). */
+const awake = sql`(${socialConversations.status} = 'open' or (${socialConversations.status} = 'snoozed' and ${socialConversations.snoozedUntil} <= now()))`;
+
+/** `%` and `_` typed into the search box are searched for, not wildcards. */
+const likePattern = (q: string) => `%${q.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 
 /** The inbox: conversations across every connected account, newest message first. */
 export async function listConversations(
@@ -87,9 +103,23 @@ export async function listConversations(
   requirePermission(ctx, 'social.view');
   const view = filters.view ?? 'open';
   const where: (SQL | undefined)[] = [eq(socialConversations.tenantId, ctx.tenantId)];
-  if (view === 'open') where.push(eq(socialConversations.status, 'open'));
+  if (view === 'open') where.push(awake);
+  if (view === 'mine') where.push(awake, eq(socialConversations.assignedUserId, ctx.userId));
+  if (view === 'snoozed') {
+    where.push(
+      eq(socialConversations.status, 'snoozed'),
+      sql`${socialConversations.snoozedUntil} > now()`,
+    );
+  }
   if (view === 'done') where.push(eq(socialConversations.status, 'done'));
   if (view === 'unread') where.push(gt(socialConversations.unreadCount, 0));
+  if (filters.q) {
+    // The same expression as the trigram index (0075), or a message in the thread.
+    const pattern = likePattern(filters.q);
+    where.push(sql`((coalesce(${socialConversations.participantName}, '') || ' ' || coalesce(${socialConversations.participantUsername}, '') || ' ' || coalesce(${socialConversations.participantPhone}, '')) ilike ${pattern}
+      or exists (select 1 from ${socialMessages} m where m.tenant_id = ${socialConversations.tenantId}
+        and m.conversation_id = ${socialConversations.id} and m.body ilike ${pattern}))`);
+  }
   if (filters.platform) where.push(eq(socialAccounts.platform, filters.platform));
   const cursor = decodeCursor(filters.cursor);
   if (cursor) {
@@ -114,6 +144,10 @@ export async function listConversations(
         contactId: socialConversations.contactId,
         contactName: contacts.fullName,
         avatarPath: socialConversations.participantAvatarPath,
+        snoozedUntil: socialConversations.snoozedUntil,
+        snoozedNow,
+        assignedUserId: socialConversations.assignedUserId,
+        assigneeName: assignees.fullName,
         sortAt,
       })
       .from(socialConversations)
@@ -125,6 +159,7 @@ export async function listConversations(
         ),
       )
       .leftJoin(contacts, contactJoin(ctx))
+      .leftJoin(assignees, eq(assignees.id, socialConversations.assignedUserId))
       .where(and(...where))
       .orderBy(
         desc(sql`coalesce(${socialConversations.lastMessageAt}, ${socialConversations.createdAt})`),
@@ -149,6 +184,10 @@ export async function listConversations(
       contactId: row.contactId,
       contactName: row.contactName,
       hasPicture: row.avatarPath !== null,
+      snoozedUntil: row.snoozedUntil,
+      snoozedNow: row.snoozedNow,
+      assignedUserId: row.assignedUserId,
+      assigneeName: row.assigneeName,
     })),
     nextCursor:
       rows.length > INBOX_PAGE_SIZE && last
@@ -198,6 +237,10 @@ export async function getConversation(ctx: TenantContext, id: string) {
         accountStatus: socialAccounts.status,
         accountDisconnectedAt: socialAccounts.disconnectedAt,
         contactName: contacts.fullName,
+        contactEmail: contacts.email,
+        contactPhone: contacts.phone,
+        assigneeName: assignees.fullName,
+        snoozedNow,
       })
       .from(socialConversations)
       .innerJoin(
@@ -208,6 +251,7 @@ export async function getConversation(ctx: TenantContext, id: string) {
         ),
       )
       .leftJoin(contacts, contactJoin(ctx))
+      .leftJoin(assignees, eq(assignees.id, socialConversations.assignedUserId))
       .where(and(eq(socialConversations.tenantId, ctx.tenantId), eq(socialConversations.id, id)))
       .limit(1);
     if (!row) return null;
@@ -417,4 +461,18 @@ export async function sendableTemplates(
       .orderBy(asc(socialMessageTemplates.name), asc(socialMessageTemplates.language))
       .limit(500),
   );
+}
+
+/** Colleagues a conversation can be given to: active members who can read the inbox. */
+export async function assignableMembers(
+  ctx: TenantContext,
+): Promise<{ userId: string; fullName: string }[]> {
+  requirePermission(ctx, 'social.view');
+  const [members, allowed] = await Promise.all([
+    listActiveMembers(ctx),
+    listMemberIdsWithPermission(ctx, 'social.view'),
+  ]);
+  return members
+    .filter((member) => allowed.includes(member.userId))
+    .map((member) => ({ userId: member.userId, fullName: member.fullName ?? 'Colleague' }));
 }

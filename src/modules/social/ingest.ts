@@ -150,8 +150,9 @@ export async function recordMessage(
       unreadCount: counts
         ? sql`${socialConversations.unreadCount} + 1`
         : sql`${socialConversations.unreadCount}`,
-      // A customer writing again reopens a conversation marked done.
+      // A customer writing again reopens a conversation marked done or snoozed.
       status: counts ? 'open' : sql`${socialConversations.status}`,
+      snoozedUntil: counts ? null : sql`${socialConversations.snoozedUntil}`,
       updatedAt: new Date(),
     })
     .where(

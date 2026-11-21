@@ -1515,3 +1515,80 @@ November 2026):
   WhatsApp calls, and marking customers' messages as read in WhatsApp (blue ticks).
 - The SMS channel the owner also asked for is a separate decision: provider, who holds the
   account, Australia's sender ID rules.
+
+## ADR-067 — Social inbox, part four: assignment, snooze, search, three panes, files in replies, read receipts
+
+**Context.** The owner reviewed the unified inbox against a full omnichannel spec. Most of it was
+already built and live (ADR-064 to ADR-066). The owner chose four gaps to close: assigning,
+snoozing and search; a three-pane inbox with a live reply-window countdown and its own error
+code; photos and files in replies; and read receipts.
+
+The owner also confirmed what stays as it is:
+- the existing tables are extended, not rebuilt under new names;
+- no raw webhook payloads are kept (data minimisation, `docs/database.md`);
+- webhook secrets stay with the platform owner and are never shown to businesses.
+
+Facts used (developer documentation read 21 November 2026):
+- **Messenger** sends attachments by URL (`message.attachment {type, payload.url}`). The same
+  24-hour window and HUMAN_AGENT tag apply. `sender_action: mark_seen` tells the customer their
+  message was seen.
+- **Instagram** sends images (PNG/JPEG, 8 MB), video, audio and PDF files by URL. Its
+  documentation shows no mark_seen for businesses.
+- **WhatsApp** prefers media uploaded with `POST /{phone-number-id}/media` and sent by id.
+  Limits: images 5 MB, video and audio 16 MB, documents 100 MB. Captions are allowed on images,
+  video and documents. `status: read` marks the chat read.
+- **TikTok's** own pages render only in a browser. Two third-party implementations say an IMAGE
+  is uploaded with `/business/message/media/upload/` (multipart `business_id`, `media_type`,
+  `file`; JPG/PNG, 3 MB) and then sent with `message_type: IMAGE`. They also say an image cannot
+  carry text. No TikTok webhook challenge or business read receipt was found documented.
+
+**Decision.**
+1. *Assignment:*
+   - `social_conversations.assigned_user_id` references the business's memberships (composite
+     foreign key).
+   - Anyone who can reply may give a conversation to a colleague who can read the inbox, or back
+     to the whole team. The colleague gets an in-app notice that never contains what was said.
+   - Assignment changes are audited. There is a **Mine** view.
+2. *Snooze:*
+   - A snoozed conversation has status `snoozed` with `snoozed_until` (a check keeps the two
+     together). It leaves the Open view and is back on its own when the time passes: the query
+     treats an expired snooze as open, so no scheduled job is needed.
+   - A customer writing again reopens it at once. Marking it done or open clears the snooze.
+   - The quick choices are worked out in the business's timezone; a custom time is limited to
+     90 days.
+3. *Search* covers the customer's name, handle and number, and what was said. It uses
+   case-insensitive matching on trigram indexes, and a `%` or `_` typed in is searched for
+   literally.
+4. *Three panes:*
+   - From 1536 px the conversation page shows the list, the thread and a details pane (customer,
+     linked contact, assignment, status, snooze). Below that width, the details open as a sheet.
+   - The reply window counts down live, including the 7 days for a reply from a person on
+     Messenger and Instagram. When it closes, the page reloads and shows the right reply box.
+   - A closed window is refused with the new error code `WINDOW_EXPIRED` instead of `CONFLICT`.
+5. *Files in replies:*
+   - The browser asks for a one-time upload ticket for a path the server chose, under
+     `{tenant}/social/{conversation}/outbound/`, and uploads straight to the private
+     `social-media` bucket.
+   - Before sending, the server checks three things: the path belongs to this conversation, the
+     leading bytes match an accepted type, and the platform takes that type and size. A refused
+     file is deleted.
+   - Per platform:
+     - WhatsApp uploads the file to WhatsApp, then sends it by id, with the caption.
+     - Messenger and Instagram send a ten-minute signed link to the object.
+     - TikTok uploads an image and sends it by media id.
+   - Words go with a file only on WhatsApp. Elsewhere the composer sends them as a second reply.
+     Retry sends the same file again.
+6. *Read receipts:*
+   - When someone who can reply opens a conversation with new messages, Meroidea tells WhatsApp
+     (read) and Messenger (mark_seen, within its window). This is best effort and runs after the
+     page has its answer.
+   - Instagram and TikTok document no such call, so nothing is sent there.
+7. *Settings → Channels* lists each connected account and its health, and links to Connected
+   accounts and WhatsApp templates. It shows no webhook address, verify token or secret.
+
+**Consequences.**
+- An upload that is never sent stays in the bucket until the business is deleted. This is small,
+  private, and only possible for people who can reply.
+- TikTok's image fields come from third-party code. They are to be confirmed with TikTok's
+  review, as for ADR-065's signature scheme.
+- A colleague's notice of an assignment is in the app only, not by email.
