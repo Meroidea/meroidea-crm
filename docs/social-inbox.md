@@ -153,3 +153,14 @@ What the business needs:
   ticks) and Messenger ("seen"). Instagram and TikTok offer businesses no such call.
 - Conversations can be assigned to a colleague, snoozed, and searched by name, number or what
   was said.
+- Inbox foundations (ADR-068):
+  - Colleagues can leave private notes in a conversation. Notes are never sent to the customer.
+  - Saved replies are typed with `/` in the reply box (Marketing → Saved replies).
+  - The inbox shows who else has a conversation open, and who is typing.
+  - A WhatsApp sender whose number belongs to exactly one contact is linked to that contact
+    automatically. When several contacts share the number, staff choose which one it is.
+  - Each account can be set to make a new lead for unknown senders (Connected accounts). This is
+    off by default.
+  - A contact's conversations show on their timeline.
+
+  Presence uses the same Realtime setup as section 3: there is nothing extra to configure.

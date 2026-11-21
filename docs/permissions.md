@@ -114,8 +114,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `reviews.view` | | Read customer reviews, the summary and the review links |
 | `reviews.manage` | | Create and switch review links, mark reviews read or followed up, keep notes, remove a review |
 | `social.view` | | Read the social inbox: conversations and messages from connected Facebook, Instagram, WhatsApp and TikTok accounts, and the approved WhatsApp templates. Enforced again by RLS on every `social_*` table (ADR-064, ADR-066) |
-| `social.reply` | | Reply from Meroidea within each platform's reply window (text, photos and files), send an approved WhatsApp template, assign a conversation to a colleague who can read the inbox, snooze it, mark it done, and link it to a contact the person can see; opening a conversation also sends the platform's read receipt (ADR-067) |
-| `social.manage` | | Connect and disconnect the business's social media accounts (Meta, WhatsApp Embedded Signup or TikTok), and create, refresh and delete WhatsApp templates |
+| `social.reply` | | Reply from Meroidea within each platform's reply window (text, photos and files), send an approved WhatsApp template, assign a conversation to a colleague who can read the inbox, snooze it, mark it done, and link it to a contact the person can see; opening a conversation also sends the platform's read receipt (ADR-067). Also: leave private notes for colleagues in a conversation, and keep and use their own saved replies (ADR-068) |
+| `social.manage` | | Connect and disconnect the business's social media accounts (Meta, WhatsApp Embedded Signup or TikTok), create, refresh and delete WhatsApp templates, and choose per account whether unknown senders become new leads (ADR-068) |
+| `social.canned_manage` | | Write, change and delete the saved replies the whole team shares. Enforced again by RLS on `social_canned_responses` (ADR-068) |
 | `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee |
 | `tickets.manage` | | Switch the public contact form on or off, delete tickets |
 | `concerns.raise` | | Ask managers or the admin a question (about a payslip of your own, too), follow it, reply, mark it resolved or reopen it (ADR-049) |
@@ -201,6 +202,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | social.view | ✓ | ✓ | | |
 | social.reply | ✓ | ✓ | | |
 | social.manage | ✓ | | | |
+| social.canned_manage | ✓ | ✓ | | |
 | tickets.work | ✓ | ✓ | ✓ | ✓ |
 | tickets.manage | ✓ | ✓ | | |
 | concerns.raise | ✓ | ✓ | ✓ | ✓ |

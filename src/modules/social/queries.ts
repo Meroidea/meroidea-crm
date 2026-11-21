@@ -7,6 +7,7 @@ import { z } from 'zod';
 import {
   contacts,
   socialAccounts,
+  socialCannedResponses,
   socialConversations,
   socialMessages,
   socialMessageTemplates,
@@ -23,7 +24,11 @@ import { tiktokConfigured } from './providers/tiktok';
 import { whatsappConfigured } from './providers/whatsapp';
 import type { SocialPlatform } from './providers/types';
 import type { StoredAttachment } from './media';
+import type { TimelineItem } from '@/modules/activities/types';
+
+import { PLATFORM_LABELS } from './format';
 import type { InboxFilters } from './schemas';
+import { readAccountSettings, type AccountSettings } from './settings';
 
 export const INBOX_PAGE_SIZE = 50;
 
@@ -214,7 +219,8 @@ const repliers = alias(users, 'repliers');
 
 export type ThreadMessage = {
   id: string;
-  direction: 'inbound' | 'outbound';
+  /** `note`: a private note between colleagues (ADR-068). */
+  direction: 'inbound' | 'outbound' | 'note';
   body: string | null;
   attachments: StoredAttachment[];
   sentAt: Date;
@@ -271,10 +277,30 @@ export async function getConversation(ctx: TenantContext, id: string) {
       .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.conversationId, id)))
       .orderBy(desc(socialMessages.sentAt), desc(socialMessages.createdAt))
       .limit(200);
+    // Several contacts share the customer's number: offer them, rather than guessing (ADR-068).
+    const suggestions =
+      row.conversation.contactMatch === 'suggested' &&
+      row.conversation.participantPhone &&
+      hasPermission(ctx, 'contacts.view')
+        ? await tx
+            .select({ id: contacts.id, name: contacts.fullName })
+            .from(contacts)
+            .where(
+              and(
+                eq(contacts.tenantId, ctx.tenantId),
+                eq(contacts.phoneE164, `+${row.conversation.participantPhone}`),
+                isNull(contacts.deletedAt),
+                scopeFilter(ctx, 'contacts.view', contacts, contactScope),
+              ),
+            )
+            .orderBy(asc(contacts.createdAt))
+            .limit(5)
+        : [];
     return {
       ...row,
       platform: row.platform as SocialPlatform,
       messages: latest.reverse() as ThreadMessage[],
+      suggestions: suggestions.map((item) => ({ id: item.id, name: item.name ?? '' })),
     };
   });
 }
@@ -293,6 +319,7 @@ export type AccountRow = {
   coexistence: boolean;
   historySync: string | null;
   historyProgress: number | null;
+  settings: AccountSettings;
 };
 
 /** The business's connected accounts, and whether each platform is available to connect. */
@@ -316,6 +343,7 @@ export async function listAccounts(ctx: TenantContext): Promise<{
         coexistence: socialAccounts.coexistence,
         historySync: socialAccounts.historySync,
         historyProgress: socialAccounts.historyProgress,
+        settings: socialAccounts.settings,
         conversations: sql<number>`(select count(*)::int from ${socialConversations}
           where ${socialConversations.tenantId} = ${socialAccounts.tenantId}
             and ${socialConversations.accountId} = ${socialAccounts.id})`,
@@ -328,6 +356,7 @@ export async function listAccounts(ctx: TenantContext): Promise<{
     accounts: accounts.map((account) => ({
       ...account,
       platform: account.platform as SocialPlatform,
+      settings: readAccountSettings(account.settings),
     })),
     available: {
       meta: metaConfigured(),
@@ -475,4 +504,92 @@ export async function assignableMembers(
   return members
     .filter((member) => allowed.includes(member.userId))
     .map((member) => ({ userId: member.userId, fullName: member.fullName ?? 'Colleague' }));
+}
+
+export type CannedResponseRow = {
+  id: string;
+  title: string;
+  shortcut: string | null;
+  body: string;
+  /** Shared with the whole team, rather than the person's own. */
+  shared: boolean;
+};
+
+/** The saved replies a person can use: the team's shared ones and their own (ADR-068). */
+export async function listCannedResponses(ctx: TenantContext): Promise<CannedResponseRow[]> {
+  if (!hasPermission(ctx, 'social.reply')) return [];
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: socialCannedResponses.id,
+        title: socialCannedResponses.title,
+        shortcut: socialCannedResponses.shortcut,
+        body: socialCannedResponses.body,
+        ownerUserId: socialCannedResponses.ownerUserId,
+      })
+      .from(socialCannedResponses)
+      .where(eq(socialCannedResponses.tenantId, ctx.tenantId))
+      .orderBy(asc(socialCannedResponses.title))
+      // A team keeps tens of these, not thousands; the cap keeps the page bounded.
+      .limit(500),
+  );
+  return rows.map(({ ownerUserId, ...row }) => ({ ...row, shared: ownerUserId === null }));
+}
+
+/**
+ * The contact's inbox conversations for their timeline (ADR-068): which channel, how many
+ * messages and when the last one was, linking to the thread. Never what was said: the thread
+ * keeps that, behind social.view. Empty for someone without social.view.
+ */
+export async function conversationsForContact(
+  ctx: TenantContext,
+  contactId: string,
+): Promise<TimelineItem[]> {
+  if (!hasPermission(ctx, 'social.view')) return [];
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: socialConversations.id,
+        platform: socialAccounts.platform,
+        accountName: socialAccounts.name,
+        at: sql<Date>`coalesce(${socialConversations.lastMessageAt}, ${socialConversations.createdAt})`.mapWith(
+          (value: string | Date) => new Date(value),
+        ),
+        messages: sql<number>`(select count(*)::int from ${socialMessages}
+          where ${socialMessages.tenantId} = ${socialConversations.tenantId}
+            and ${socialMessages.conversationId} = ${socialConversations.id}
+            and ${socialMessages.direction} <> 'note')`,
+      })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.contactId, contactId),
+        ),
+      )
+      .orderBy(desc(socialConversations.lastMessageAt))
+      .limit(20),
+  );
+  return rows.map((row) => ({
+    id: `conversation-${row.id}`,
+    type: 'conversation',
+    subject: `${PLATFORM_LABELS[row.platform as SocialPlatform]} conversation with ${row.accountName} · ${row.messages} ${row.messages === 1 ? 'message' : 'messages'}`,
+    body: null,
+    outcome: null,
+    direction: null,
+    occurredAt: row.at,
+    actorName: null,
+    contactId,
+    contactName: null,
+    opportunityId: null,
+    opportunityName: null,
+    href: `/social/${row.id}`,
+  }));
 }

@@ -60,6 +60,12 @@ export const socialAccounts = pgTable(
     historyProgress: integer(),
     /** active | needs_reconnect | disconnected */
     status: text().notNull().default('active'),
+    /**
+     * How the inbox treats this account's senders (ADR-068): `{ createLeadForUnknown?: boolean,
+     * leadSourceId?: uuid }`. Written only through `app.social_set_account_settings`
+     * (social.manage). Read with `readAccountSettings`.
+     */
+    settings: jsonb().notNull().default({}),
     /** What went wrong last, in words for the business; never a token or a payload. */
     lastError: text(),
     connectedBy: uuid(),
@@ -141,8 +147,14 @@ export const socialConversations = pgTable(
     participantPhone: text(),
     /** The customer's picture, saved to the private `social-media` bucket (provider links expire). */
     participantAvatarPath: text(),
-    /** The CRM contact this customer is, once someone links them. */
+    /** The CRM contact this customer is, once someone links them or a match is found. */
     contactId: uuid(),
+    /**
+     * How `contactId` was set (ADR-068): auto (exactly one contact had their number or email),
+     * created (a new lead was made for them), suggested (several matched, so nobody was linked
+     * and staff choose), manual (a person linked or unlinked it). Empty: not looked up yet.
+     */
+    contactMatch: text(),
     lastMessageAt: timestamp({ withTimezone: true }),
     lastMessagePreview: text(),
     /** The customer's last message: the provider's reply window counts from here. */
@@ -179,13 +191,20 @@ export const socialConversations = pgTable(
     index('social_conversations_assignee_idx').on(table.tenantId, table.assignedUserId),
     check('social_conversations_status_check', sql`${table.status} in ('open', 'snoozed', 'done')`),
     check(
+      'social_conversations_contact_match_check',
+      sql`${table.contactMatch} in ('auto', 'created', 'suggested', 'manual')`,
+    ),
+    check(
       'social_conversations_snooze_check',
       sql`(${table.status} = 'snoozed') = (${table.snoozedUntil} is not null)`,
     ),
   ],
 );
 
-/** A message in a conversation, from the customer (inbound) or the business (outbound). */
+/**
+ * A message in a conversation, from the customer (inbound) or the business (outbound), or a
+ * private note between colleagues (`note`, ADR-068) that is never sent to the customer.
+ */
 export const socialMessages = pgTable(
   'social_messages',
   {
@@ -197,7 +216,7 @@ export const socialMessages = pgTable(
     accountId: uuid().notNull(),
     /** The provider's message id; empty only while a reply is being sent or after it failed. */
     externalId: text(),
-    /** inbound | outbound */
+    /** inbound | outbound | note (never sent; written by `sentByUserId`) */
     direction: text().notNull(),
     body: text(),
     /**
@@ -236,7 +255,14 @@ export const socialMessages = pgTable(
       foreignColumns: [socialAccounts.tenantId, socialAccounts.id],
     }),
     index('social_messages_thread_idx').on(table.tenantId, table.conversationId, table.sentAt),
-    check('social_messages_direction_check', sql`${table.direction} in ('inbound', 'outbound')`),
+    check(
+      'social_messages_direction_check',
+      sql`${table.direction} in ('inbound', 'outbound', 'note')`,
+    ),
+    check(
+      'social_messages_note_check',
+      sql`${table.direction} <> 'note' or (${table.sentByUserId} is not null and ${table.externalId} is null and ${table.status} = 'sent' and ${table.attachments} = '[]'::jsonb)`,
+    ),
     check(
       'social_messages_status_check',
       sql`${table.status} in ('received', 'sending', 'sent', 'delivered', 'read', 'failed')`,
@@ -301,6 +327,57 @@ export const socialMessageTemplates = pgTable(
     check(
       'social_message_templates_format_check',
       sql`${table.parameterFormat} in ('positional', 'named')`,
+    ),
+  ],
+);
+
+/**
+ * A saved reply (ADR-068): words an agent drops into the reply box instead of typing them again.
+ * Shared with the whole team when `ownerUserId` is empty (written with social.canned_manage), or
+ * one person's own. `{{contact.first_name}}`, `{{contact.name}}` and `{{agent.name}}` are filled
+ * in when it is inserted.
+ */
+export const socialCannedResponses = pgTable(
+  'social_canned_responses',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    /** Empty for a reply the whole team shares. */
+    ownerUserId: uuid(),
+    title: text().notNull(),
+    /** Typed after "/" in the reply box to find it: lower case letters, digits and dashes. */
+    shortcut: text(),
+    body: text().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid(),
+    updatedBy: uuid(),
+  },
+  (table) => [
+    unique('social_canned_responses_tenant_id_id_key').on(table.tenantId, table.id),
+    foreignKey({
+      name: 'social_canned_responses_owner_fkey',
+      columns: [table.tenantId, table.ownerUserId],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+    }).onDelete('cascade'),
+    // One shortcut means one reply for whoever can see it: shared ones, and each person's own.
+    uniqueIndex('social_canned_responses_shortcut_key')
+      .on(
+        table.tenantId,
+        sql`coalesce(${table.ownerUserId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+        table.shortcut,
+      )
+      .where(sql`${table.shortcut} is not null`),
+    index('social_canned_responses_list_idx').on(table.tenantId, table.ownerUserId, table.title),
+    check(
+      'social_canned_responses_shortcut_check',
+      sql`${table.shortcut} ~ '^[a-z0-9][a-z0-9-]{0,31}$'`,
+    ),
+    check(
+      'social_canned_responses_size_check',
+      sql`char_length(${table.title}) between 1 and 120 and char_length(${table.body}) between 1 and 4096`,
     ),
   ],
 );

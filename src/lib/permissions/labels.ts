@@ -44,6 +44,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'social.view': 'See customers’ social media messages',
   'social.reply': 'Reply to social media messages and link them to contacts',
   'social.manage': 'Connect and disconnect social media accounts',
+  'social.canned_manage': 'Write the saved replies the whole team shares',
   'books.view': 'See the books and reports',
   'books.view_payroll': 'See wages, tax withheld and super in the books',
   'books.record': 'Record money in, money out and transfers',

@@ -191,6 +191,17 @@ change as touching sensitive personal data.
     size, and deletes what it refuses. Never send a path the browser made up.
   - Meta gets a ten-minute signed link to that one object, never a longer or broader one.
 - An assignment notice never contains what the customer wrote.
+- Inbox foundations (ADR-068):
+  - Private notes are `social_messages` with `direction = 'note'`. Every customer-facing read
+    (email, live chat, any public page) must exclude them. Keep `social_messages_note_author` and
+    never add `body` to the update grants.
+  - Account settings are written only through `app.social_set_account_settings` (`social.manage`).
+    Never grant the `settings` column to sessions.
+  - The presence channel `social-presence:<tenant>` carries ids and a typing flag only. Never put
+    a draft, a note or a message in a presence payload.
+  - Matching a sender to a contact links exactly one match, never the first of several, and never
+    overrides `contact_match = 'manual'`. A lead made from a channel stores the conversation id,
+    never the message.
 
 ## Location (ADR-033)
 

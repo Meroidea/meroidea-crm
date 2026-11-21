@@ -1623,6 +1623,43 @@ messages, name, handle and picture.
 - A reply's own attachment is an `attachments` entry with `state: stored` and a `storagePath`
   under `{tenant}/social/{conversation}/outbound/`.
 
+**Inbox foundations (migration `0076`, ADR-068).**
+- `social_accounts.settings jsonb not null default '{}'`: `{createLeadForUnknown?: boolean,
+  leadSourceId?: uuid}`. Not granted to sessions as a column: written only by
+  `app.social_set_account_settings(account, settings)` (`social.manage`; known keys only; the lead
+  source must be the business's own).
+- `social_conversations.contact_match text`: how `contact_id` was set, `auto` (exactly one contact
+  has the customer's number or email) | `created` (a new lead was made for them) | `suggested`
+  (several matched; nobody linked) | `manual` (a person linked or unlinked it); empty when not
+  looked up or nothing matched. Rows linked before `0076` were backfilled as `manual`. Sessions may
+  update it.
+- `social_messages.direction` also allows `note`: a private note between colleagues, never sent.
+  Check `social_messages_note_check`: a note has `sent_by_user_id`, no `external_id`, status
+  `sent` and no attachments. Restrictive insert policy `social_messages_note_author`: a session
+  writes a note only as itself. The body is not in the update grants, so notes never change.
+  Notes are kept when a contact is erased, as staff notes on tickets are.
+- Presence: policies `social_presence_receive` (select) and `social_presence_track` (insert) on
+  `realtime.messages` for `extension = 'presence'`, through
+  `app.social_presence_allowed(realtime.topic())` on the private topic `social-presence:<tenant>`
+  (`social.view`, business open). The payload is a user id, a conversation id and a typing flag.
+
+### social_canned_responses
+A saved reply (ADR-068). Shared with the team when `owner_user_id` is empty, else one person's.
+```sql
+id uuid pk, tenant_id → tenants
+owner_user_id uuid                 -- composite FK (tenant_id, owner_user_id) → tenant_memberships, on delete cascade
+title text not null                -- 1–120 characters
+shortcut text                      -- ^[a-z0-9][a-z0-9-]{0,31}$, typed after "/" in the reply box
+body text not null                 -- 1–4096 characters; {{contact.first_name}}, {{contact.name}}, {{agent.name}}
+created_at, updated_at, created_by, updated_by
+unique (tenant_id, id)
+unique (tenant_id, coalesce(owner_user_id, '00000000-…'), shortcut) where shortcut is not null
+index (tenant_id, owner_user_id, title)
+```
+RLS: read with `social.reply`, shared rows and the reader's own. Write own rows with
+`social.reply`; shared rows with `social.canned_manage`. Restrictive `feature_switch` (`social`).
+Not soft-deleted: a saved reply is a tool, not a business record.
+
 ### social_message_templates
 A WhatsApp template of a connected number's WhatsApp Business Account. Each live number of the
 account holds the account's templates.

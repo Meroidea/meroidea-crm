@@ -2,10 +2,17 @@ import 'server-only';
 
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
-import { socialConversations, socialMessages } from '@/db/schema';
+import { socialAccounts, socialConversations, socialMessages } from '@/db/schema';
+import { matchChannelSender } from '@/modules/leads/channel-intake';
 import type { Tx } from '@/server/db/with-rls';
 
-import { previewOf, type ProviderConversation, type ProviderMessage } from './providers/types';
+import {
+  previewOf,
+  type ProviderConversation,
+  type ProviderMessage,
+  type SocialPlatform,
+} from './providers/types';
+import { readAccountSettings } from './settings';
 
 /*
  * Storing what providers report, the same way from a verified webhook (privileged connection)
@@ -190,4 +197,70 @@ export async function recordImportedConversation(
     if (result.hasMedia) withMedia.push(result.id);
   }
   return { stored, withMedia };
+}
+
+/**
+ * Finds the CRM contact behind a conversation's customer (ADR-068), the first time they write
+ * after it began, from a verified webhook only. Their WhatsApp number (or, later, email) is
+ * looked up; one match is linked, several are left for staff. With the account's "new lead for
+ * unknown senders" switched on, someone matching nobody becomes a new lead. A conversation a
+ * person has linked or unlinked is never touched, and one already looked up is not looked up
+ * again unless nothing was found.
+ */
+export async function linkConversationSender(
+  tx: Tx,
+  scope: AccountScope & { conversationId: string },
+): Promise<void> {
+  const [row] = await tx
+    .select({
+      contactId: socialConversations.contactId,
+      contactMatch: socialConversations.contactMatch,
+      name: socialConversations.participantName,
+      username: socialConversations.participantUsername,
+      phone: socialConversations.participantPhone,
+      platform: socialAccounts.platform,
+      settings: socialAccounts.settings,
+    })
+    .from(socialConversations)
+    .innerJoin(
+      socialAccounts,
+      and(
+        eq(socialAccounts.tenantId, socialConversations.tenantId),
+        eq(socialAccounts.id, socialConversations.accountId),
+      ),
+    )
+    .where(
+      and(
+        eq(socialConversations.tenantId, scope.tenantId),
+        eq(socialConversations.id, scope.conversationId),
+      ),
+    )
+    .limit(1);
+  if (!row || row.contactId || row.contactMatch !== null) return;
+  const settings = readAccountSettings(row.settings);
+  const match = await matchChannelSender(
+    tx,
+    {
+      tenantId: scope.tenantId,
+      channel: row.platform as SocialPlatform,
+      conversationId: scope.conversationId,
+      name: row.name ?? row.username,
+      email: null,
+      // WhatsApp keeps the number as digits in international form.
+      phone: row.phone ? `+${row.phone}` : null,
+    },
+    settings,
+  );
+  if (match.kind === 'none') return;
+  await tx
+    .update(socialConversations)
+    .set({ contactId: match.contactId, contactMatch: match.kind, updatedAt: new Date() })
+    .where(
+      and(
+        eq(socialConversations.tenantId, scope.tenantId),
+        eq(socialConversations.id, scope.conversationId),
+        isNull(socialConversations.contactId),
+        isNull(socialConversations.contactMatch),
+      ),
+    );
 }

@@ -7,7 +7,12 @@ import { PageHeader } from '@/components/data/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/format';
-import { ConnectButton, DisconnectButton } from '@/modules/social/components/social-tools';
+import { getLeadConfig } from '@/modules/leads/config';
+import {
+  AccountLeadSetting,
+  ConnectButton,
+  DisconnectButton,
+} from '@/modules/social/components/social-tools';
 import { WhatsAppConnect } from '@/modules/social/components/whatsapp-connect';
 import {
   ACCOUNT_STATUS_LABELS,
@@ -36,6 +41,13 @@ export default async function ConnectedAccountsPage({
   requirePermission(ctx, 'social.manage');
   const params = await searchParams;
   const { accounts, available } = await listAccounts(ctx);
+  // New leads for unknown senders need the CRM (ADR-068).
+  const crm = ctx.tenant.features.includes('crm');
+  const sources = crm
+    ? (await getLeadConfig(ctx)).sources
+        .filter((source) => source.isActive)
+        .map((source) => ({ id: source.id, name: source.name }))
+    : [];
   const whatsapp = available.whatsapp ? whatsappSignupSettings() : null;
   const one = (key: string) => (typeof params[key] === 'string' ? (params[key] as string) : null);
   const error = one('error');
@@ -203,6 +215,17 @@ export default async function ConnectedAccountsPage({
                   )}
                 </div>
                 <DisconnectButton accountId={account.id} name={account.name} />
+                {crm && (
+                  <div className="w-full sm:pl-13">
+                    <AccountLeadSetting
+                      accountId={account.id}
+                      createLeadForUnknown={account.settings.createLeadForUnknown}
+                      leadSourceId={account.settings.leadSourceId}
+                      sources={sources}
+                      contactLabel={ctx.tenant.labels.contact.singular}
+                    />
+                  </div>
+                )}
               </li>
             ))}
           </ul>

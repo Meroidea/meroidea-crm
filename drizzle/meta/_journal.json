@@ -533,6 +533,13 @@
       "when": 1795256433764,
       "tag": "0075_social_inbox_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1795302345231,
+      "tag": "0076_inbox_notes_canned_matching",
+      "breakpoints": true
     }
   ]
 }

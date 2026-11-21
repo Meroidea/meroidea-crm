@@ -16,11 +16,13 @@ import { MarkRead } from '@/modules/social/components/social-tools';
 import { TemplateReply } from '@/modules/social/components/template-reply';
 import { ThreadView } from '@/modules/social/components/thread-view';
 import { ACCOUNT_STATUS_LABELS, customerLabel, PLATFORM_LABELS } from '@/modules/social/format';
+import { renderCannedReply } from '@/modules/social/canned';
 import {
   assignableMembers,
   countUnread,
   getConversation,
   listAccounts,
+  listCannedResponses,
   listConversations,
   sendableTemplates,
 } from '@/modules/social/queries';
@@ -77,7 +79,20 @@ export default async function ConversationPage({
     { view: filters.view, platform: filters.platform, q: filters.q },
     {},
   );
-  const members = canReply ? await assignableMembers(ctx) : [];
+  const [members, cannedRows] = await Promise.all([
+    assignableMembers(ctx),
+    canReply ? listCannedResponses(ctx) : Promise.resolve([]),
+  ]);
+  const customerName = thread.contactName ?? conversation.participantName;
+  const cannedValues = {
+    contactName: customerName,
+    contactFirstName: customerName?.trim().split(/\s+/)[0] ?? null,
+    agentName: members.find((member) => member.userId === ctx.userId)?.fullName ?? null,
+  };
+  const canned = cannedRows.map((reply) => ({
+    ...reply,
+    body: renderCannedReply(reply.body, cannedValues),
+  }));
   const ends = windowEnds(platform, conversation.lastInboundAt);
   const snoozeOptions = snoozeChoices(ctx.tenant.timezone);
   const snoozed = thread.snoozedNow;
@@ -108,7 +123,7 @@ export default async function ConversationPage({
       }
       snoozeOptions={snoozeOptions}
       assignedUserId={conversation.assignedUserId}
-      members={members}
+      members={canReply ? members : []}
       myUserId={ctx.userId}
       canReply={canReply}
       contact={{
@@ -118,6 +133,8 @@ export default async function ConversationPage({
         email: thread.contactEmail,
         phone: thread.contactPhone,
         canLink: canReply && hasPermission(ctx, 'contacts.view'),
+        match: conversation.contactMatch,
+        suggestions: thread.suggestions,
       }}
     />
   );
@@ -185,6 +202,8 @@ export default async function ConversationPage({
             conversationId={conversation.id}
             platformLabel={PLATFORM_LABELS[platform]}
             canReply={canReply}
+            canned={canned}
+            presence={{ tenantId: ctx.tenantId, userId: ctx.userId, members }}
             blockedReason={templateOnly ? null : blockedReason}
             textReply={!templateOnly}
             humanAgent={window.ok && window.humanAgent}

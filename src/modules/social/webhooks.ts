@@ -14,7 +14,12 @@ import { serverEnv } from '@/server/env';
 import { consumeRateLimit } from '@/server/rate-limit';
 
 import { openCredentials, sealCredentials, usableToken, type Credentials } from './credentials';
-import { recordConversation, recordImportedConversation, recordMessage } from './ingest';
+import {
+  linkConversationSender,
+  recordConversation,
+  recordImportedConversation,
+  recordMessage,
+} from './ingest';
 import { fetchMetaProfile } from './providers/meta';
 import { afterResponse, persistAvatar, persistMessageMedia, type MediaAccess } from './media';
 import type { MetaMessageEvent, MetaReceiptEvent } from './providers/meta-webhook';
@@ -175,6 +180,20 @@ async function nameNewConversation(
       await markNeedsReconnect(account.id, error);
     // Otherwise the conversation simply shows without a name or picture.
   }
+  // With the name known (or not), the customer can become a lead if the account is set to.
+  await adminDb()
+    .transaction((tx) =>
+      linkConversationSender(tx, {
+        tenantId: account.tenantId,
+        accountId: account.id,
+        conversationId,
+      }),
+    )
+    .catch((error: unknown) => {
+      console.error('[social] could not look up the sender', {
+        name: error instanceof Error ? error.name : typeof error,
+      });
+    });
 }
 
 /**
@@ -360,6 +379,9 @@ export async function ingestTikTokNotification(
       count += 1;
       if (fresh.hasMedia) withMedia.push(fresh.id);
     }
+    if (ordered.some((message) => message.direction === 'inbound') && count > 0) {
+      await linkConversationSender(tx, { ...scope, conversationId: conversation.id });
+    }
     return { stored: count, media: withMedia };
   });
   if (media.length > 0) {
@@ -420,9 +442,16 @@ export async function ingestWhatsAppWebhook(webhook: WhatsAppWebhook): Promise<n
         participantUsername: null,
         participantPhone: event.participantPhone,
       });
-      return recordMessage(tx, { ...scope, conversationId: conversation.id }, event.message, {
-        countUnread: event.message.direction === 'inbound',
-      });
+      const message = await recordMessage(
+        tx,
+        { ...scope, conversationId: conversation.id },
+        event.message,
+        { countUnread: event.message.direction === 'inbound' },
+      );
+      if (message && event.message.direction === 'inbound') {
+        await linkConversationSender(tx, { ...scope, conversationId: conversation.id });
+      }
+      return message;
     });
     if (fresh) stored += 1;
     if (fresh?.hasMedia) withMedia(account, fresh.id);

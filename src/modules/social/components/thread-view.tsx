@@ -3,10 +3,13 @@
 import { createBrowserClient } from '@supabase/ssr';
 import {
   AlertTriangle,
+  BookmarkPlus,
   Check,
   CheckCheck,
   Clock,
   FileText,
+  Lock,
+  MessageSquareText,
   Paperclip,
   RotateCcw,
   Send,
@@ -22,17 +25,21 @@ import { publicEnv } from '@/lib/env.public';
 import { cn } from '@/lib/utils';
 import {
   mediaReplyAction,
+  noteAction,
   replyAction,
   retryReplyAction,
   startMediaUploadAction,
 } from '@/modules/social/actions';
 
+import { findCanned } from '../canned';
 import type { StoredAttachment } from '../media';
+import { PresenceNote, useConversationPresence, type PresenceSetup } from './conversation-presence';
 
 /** A message as the thread shows it; times arrive already in the business's timezone. */
 export type ThreadItem = {
   id: string;
-  direction: 'inbound' | 'outbound';
+  /** `note`: a private note between colleagues, never sent (ADR-068). */
+  direction: 'inbound' | 'outbound' | 'note';
   body: string | null;
   attachments: StoredAttachment[];
   sentAtLabel: string;
@@ -133,6 +140,8 @@ export function ThreadView({
   extra,
   textReply = true,
   attach = null,
+  canned = [],
+  presence = null,
 }: {
   conversationId: string;
   messages: ThreadItem[];
@@ -150,9 +159,26 @@ export function ThreadView({
    * with one in the same message (WhatsApp only; elsewhere they follow as a second reply).
    */
   attach?: { limits: Record<string, number>; captions: boolean; platformLabel: string } | null;
+  /** Saved replies, placeholders already filled in for this customer and agent. */
+  canned?: { id: string; title: string; shortcut: string | null; body: string; shared: boolean }[];
+  /** Who else is on this conversation (Realtime Presence); null without it. */
+  presence?: PresenceSetup | null;
 }) {
   const router = useRouter();
+  const [mode, setMode] = useState<'reply' | 'note'>('reply');
   const [body, setBody] = useState('');
+  const [note, setNote] = useState('');
+  const [picker, setPicker] = useState<string | null>(null);
+  const [typing, setTyping] = useState(false);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const others = useConversationPresence(presence, conversationId, typing);
+  // "Typing" while keys are pressed, and for a few seconds after.
+  const markTyping = () => {
+    setTyping(true);
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => setTyping(false), 4000);
+  };
+  useEffect(() => () => clearTimeout(typingTimer.current), []);
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +214,50 @@ export function ThreadView({
       }
       router.refresh();
     });
+
+  const saveNote = (text: string) =>
+    startTransition(async () => {
+      setError(null);
+      addOptimistic({
+        id: `pending-${Date.now()}`,
+        direction: 'note',
+        body: text,
+        attachments: [],
+        sentAtLabel: 'Just now',
+        status: 'sent',
+        error: null,
+        sentByName: 'You',
+      });
+      setNote('');
+      setTyping(false);
+      const result = await noteAction({ conversationId, body: text });
+      if (!result.ok) {
+        setError(result.error.message);
+        setNote(text);
+      }
+      router.refresh();
+    });
+
+  /** Puts a saved reply into the box: in place of a typed "/shortcut", or after what is there. */
+  const insertCanned = (text: string) => {
+    const current = mode === 'note' ? note : body;
+    const next = current.startsWith('/') ? text : current ? `${current.trimEnd()}\n${text}` : text;
+    if (mode === 'note') setNote(next);
+    else setBody(next);
+    setPicker(null);
+  };
+  const onComposerChange = (value: string) => {
+    if (mode === 'note') setNote(value);
+    else setBody(value);
+    markTyping();
+    // "/" at the start looks up saved replies by shortcut or title.
+    if (canned.length > 0 && value.startsWith('/') && !value.includes('\n')) {
+      setPicker(value.slice(1));
+    } else if (picker !== null && !value.startsWith('/')) {
+      setPicker(null);
+    }
+  };
+  const matches = picker === null ? [] : findCanned(canned, picker).slice(0, 8);
 
   const chooseFile = (chosen: File | null) => {
     setError(null);
@@ -278,10 +348,18 @@ export function ThreadView({
     });
 
   const submit = () => {
+    setPicker(null);
+    if (mode === 'note') {
+      const text = note.trim();
+      if (text) saveNote(text);
+      return;
+    }
     const text = body.trim();
+    setTyping(false);
     if (file) sendFile(file, text);
     else if (text) send(text);
   };
+  const replyOpen = textReply && !blockedReason;
 
   const retry = (messageId: string) =>
     startTransition(async () => {
@@ -300,6 +378,27 @@ export function ThreadView({
       >
         {shown.length === 0 && <li className="text-sm text-muted-foreground">No messages yet.</li>}
         {shown.map((message) => {
+          if (message.direction === 'note') {
+            return (
+              <li key={message.id} className="flex flex-col items-stretch gap-1 px-2 sm:px-8">
+                <div
+                  className={cn(
+                    'flex flex-col gap-1 rounded-xl border border-warning-border bg-warning/10 px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap',
+                    message.id.startsWith('pending-') && 'opacity-70',
+                  )}
+                  data-sensitive
+                >
+                  <span className="flex items-center gap-1 text-xs font-medium text-warning-text">
+                    <Lock aria-hidden className="size-3" /> Private note · not sent to the customer
+                  </span>
+                  <span>{message.body}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {message.sentByName ?? 'A colleague'} · {message.sentAtLabel}
+                </p>
+              </li>
+            );
+          }
           const outbound = message.direction === 'outbound';
           const status = STATUS_LABELS[message.status];
           return (
@@ -375,93 +474,199 @@ export function ThreadView({
         <li ref={end} aria-hidden />
       </ol>
 
-      {canReply &&
-        textReply &&
-        (blockedReason ? (
-          <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">
-            {blockedReason}
-          </p>
-        ) : (
-          <form
-            className="flex flex-col gap-2 rounded-xl border bg-card p-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit();
-            }}
-          >
-            {file && (
-              <p className="flex w-fit max-w-full items-center gap-2 rounded-lg border bg-muted/40 px-2 py-1 text-sm">
-                <Paperclip aria-hidden className="size-3.5 shrink-0" />
-                <span className="truncate">{file.name}</span>
-                <button
-                  type="button"
-                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                  aria-label="Remove the attachment"
-                  onClick={() => chooseFile(null)}
-                >
-                  <X aria-hidden className="size-3.5" />
-                </button>
-              </p>
-            )}
-            <Textarea
-              aria-label="Reply to the customer"
-              placeholder={
-                file
-                  ? attach?.captions
-                    ? 'Add a caption (optional)…'
-                    : 'Add words to send after the file (optional)…'
-                  : 'Write your reply…'
-              }
-              rows={2}
-              required={!file}
-              maxLength={maxChars}
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              onKeyDown={(event) => {
-                // Enter sends, Shift+Enter starts a new line, as in the platforms' own apps.
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  submit();
-                }
+      {canReply && <PresenceNote others={others} members={presence?.members ?? []} />}
+      {canReply && (
+        <div className="flex flex-col gap-2 rounded-xl border bg-card p-3">
+          <div role="tablist" aria-label="What to write" className="flex gap-1">
+            <Button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'reply'}
+              variant={mode === 'reply' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => {
+                setMode('reply');
+                setPicker(null);
               }}
-            />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground tabular-nums">
-                {humanAgent
-                  ? 'Sent as a reply from a person: more than 24 hours have passed since their last message.'
-                  : `${body.length} / ${maxChars}`}
-              </p>
-              <div className="flex items-center gap-1.5">
-                {attach && (
-                  <>
-                    <input
-                      ref={fileInput}
-                      type="file"
-                      className="sr-only"
-                      tabIndex={-1}
-                      aria-hidden
-                      accept={Object.keys(attach.limits).join(',')}
-                      onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
-                    />
+            >
+              <Send aria-hidden /> Reply
+            </Button>
+            <Button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'note'}
+              variant={mode === 'note' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => {
+                setMode('note');
+                setPicker(null);
+              }}
+            >
+              <Lock aria-hidden /> Private note
+            </Button>
+          </div>
+          {mode === 'reply' && !replyOpen ? (
+            <p className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+              {blockedReason ?? 'Send an approved template below.'} You can still leave a private
+              note for colleagues.
+            </p>
+          ) : (
+            <form
+              className="flex flex-col gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submit();
+              }}
+            >
+              {mode === 'reply' && file && (
+                <p className="flex w-fit max-w-full items-center gap-2 rounded-lg border bg-muted/40 px-2 py-1 text-sm">
+                  <Paperclip aria-hidden className="size-3.5 shrink-0" />
+                  <span className="truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    aria-label="Remove the attachment"
+                    onClick={() => chooseFile(null)}
+                  >
+                    <X aria-hidden className="size-3.5" />
+                  </button>
+                </p>
+              )}
+              <div className="relative">
+                <Textarea
+                  aria-label={
+                    mode === 'note' ? 'Private note for colleagues' : 'Reply to the customer'
+                  }
+                  placeholder={
+                    mode === 'note'
+                      ? 'Only your colleagues see this note…'
+                      : file
+                        ? attach?.captions
+                          ? 'Add a caption (optional)…'
+                          : 'Add words to send after the file (optional)…'
+                        : canned.length > 0
+                          ? 'Write your reply, or type / for a saved reply…'
+                          : 'Write your reply…'
+                  }
+                  rows={2}
+                  required={mode === 'note' || !file}
+                  maxLength={mode === 'note' ? 4000 : maxChars}
+                  value={mode === 'note' ? note : body}
+                  className={cn(mode === 'note' && 'border-warning-border bg-warning/5')}
+                  onChange={(event) => onComposerChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape' && picker !== null) {
+                      event.preventDefault();
+                      setPicker(null);
+                      return;
+                    }
+                    if (event.key === 'Enter' && picker !== null && matches[0]) {
+                      event.preventDefault();
+                      insertCanned(matches[0].body);
+                      return;
+                    }
+                    // Enter sends, Shift+Enter starts a new line, as in the platforms' own apps.
+                    if (
+                      event.key === 'Enter' &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      submit();
+                    }
+                  }}
+                />
+                {picker !== null && (
+                  <ul
+                    aria-label="Saved replies"
+                    className="absolute bottom-full left-0 z-10 mb-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover p-1 text-sm shadow-md"
+                  >
+                    {matches.length === 0 && (
+                      <li className="px-2 py-1.5 text-muted-foreground">No saved reply matches.</li>
+                    )}
+                    {matches.map((reply) => (
+                      <li key={reply.id}>
+                        <button
+                          type="button"
+                          className="flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                          onClick={() => insertCanned(reply.body)}
+                        >
+                          <span className="flex items-center gap-1.5 font-medium">
+                            {reply.title}
+                            {reply.shortcut && (
+                              <span className="text-xs font-normal text-muted-foreground">
+                                /{reply.shortcut}
+                              </span>
+                            )}
+                          </span>
+                          <span className="line-clamp-1 text-xs text-muted-foreground">
+                            {reply.body}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {mode === 'note'
+                    ? 'Saved in the thread for colleagues; never sent.'
+                    : humanAgent
+                      ? 'Sent as a reply from a person: more than 24 hours have passed since their last message.'
+                      : `${body.length} / ${maxChars}`}
+                </p>
+                <div className="flex items-center gap-1.5">
+                  {canned.length > 0 && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      aria-label="Attach a photo or file"
-                      disabled={isPending}
-                      onClick={() => fileInput.current?.click()}
+                      aria-label="Insert a saved reply"
+                      aria-expanded={picker !== null}
+                      onClick={() => setPicker(picker === null ? '' : null)}
                     >
-                      <Paperclip aria-hidden />
+                      <MessageSquareText aria-hidden />
                     </Button>
-                  </>
-                )}
-                <Button type="submit" size="sm" disabled={!file && body.trim().length === 0}>
-                  <Send aria-hidden /> Send
-                </Button>
+                  )}
+                  {mode === 'reply' && attach && (
+                    <>
+                      <input
+                        ref={fileInput}
+                        type="file"
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden
+                        accept={Object.keys(attach.limits).join(',')}
+                        onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Attach a photo or file"
+                        disabled={isPending}
+                        onClick={() => fileInput.current?.click()}
+                      >
+                        <Paperclip aria-hidden />
+                      </Button>
+                    </>
+                  )}
+                  {mode === 'note' ? (
+                    <Button type="submit" size="sm" variant="secondary" disabled={!note.trim()}>
+                      <BookmarkPlus aria-hidden /> Save note
+                    </Button>
+                  ) : (
+                    <Button type="submit" size="sm" disabled={!file && body.trim().length === 0}>
+                      <Send aria-hidden /> Send
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          </form>
-        ))}
+            </form>
+          )}
+        </div>
+      )}
       {canReply && extra && (
         // On a wide screen the thread has a fixed height: a tall template form scrolls in place
         // instead of spilling over the page.

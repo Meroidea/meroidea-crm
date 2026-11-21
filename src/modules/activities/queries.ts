@@ -122,6 +122,20 @@ export async function getTimeline(
   });
 }
 
+/**
+ * A timeline with items kept by other modules (inbox conversations, ADR-068), newest first.
+ * They are read where they live, never copied into `activities`.
+ */
+export function mergeTimeline(
+  items: TimelineItem[],
+  extra: TimelineItem[],
+  limit = 50,
+): TimelineItem[] {
+  return [...items, ...extra]
+    .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+    .slice(0, limit);
+}
+
 /** Changes the timeline already tells in its own words, or that mean nothing to a person. */
 const HIDDEN_FIELDS = new Set(['leadStatusId', 'stageId', 'checklistState', 'updatedBy']);
 

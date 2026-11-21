@@ -1592,3 +1592,71 @@ Facts used (developer documentation read 21 November 2026):
 - TikTok's image fields come from third-party code. They are to be confirmed with TikTok's
   review, as for ADR-065's signature scheme.
 - A colleague's notice of an assignment is in the app only, not by email.
+
+
+## ADR-068 — Inbox foundations: private notes, saved replies, presence, finding the sender's contact
+
+**Context.** The owner asked for a shared omnichannel inbox across the social channels, WhatsApp,
+email and live chat, plus tickets with SLA timers, a public knowledge base and links to projects.
+The owner approved a phased plan on 21 November 2026. It holds these decisions:
+- the `social_*` tables are kept and extended (ADR-067);
+- email comes in through Resend, with no IMAP or SMTP;
+- WhatsApp stays on the Cloud API, with no Twilio;
+- knowledge-base custom domains wait;
+- Realtime Presence is approved for collision detection;
+- the live-chat visitor side will poll;
+- `react-markdown` is approved for the knowledge base.
+
+This record covers phase 1: what every channel added later builds on.
+
+**Decision.**
+1. *Private notes* are `social_messages` rows with `direction = 'note'`, written by
+   `src/modules/social/team-service.ts` (`addNote`, `social.reply`).
+   - A check keeps a note free of provider fields (no external id, no attachments, status
+     `sent`). A restrictive insert policy makes a session write a note only in its own name, and
+     the body is not in the update grants, so a note never changes.
+   - A note never moves the conversation's last message, preview or reply window, and is allowed
+     whatever the platform's window says.
+   - The audit log records that a note was made, never its words. Notes are kept when a contact
+     is erased, as staff notes on tickets are (0062).
+   - Every customer-facing path added later (email, live chat) must leave `note` rows out. Their
+     tests must prove it.
+2. *Saved replies* (`social_canned_responses`):
+   - A person keeps their own with `social.reply`; the team's shared ones need the new
+     `social.canned_manage` (Admin, and Managers who can already reply). RLS enforces the same
+     split.
+   - `/` in the reply box finds a saved reply by shortcut or title.
+   - `{{contact.first_name}}`, `{{contact.name}}` and `{{agent.name}}` are filled in on the
+     server when the page is built. An unknown placeholder is left as typed so the mistake shows.
+3. *Presence:*
+   - Realtime Presence runs on its own private channel `social-presence:<tenant>`, joined
+     through `app.social_presence_allowed` (`social.view`, business open).
+   - A tab announces only `{conversationId, typing}` under its user id. The thread shows
+     "Sam is typing…" and "Alex is also looking at this".
+   - It is a hint, never a lock. A member could claim a false typing state about themselves;
+     nothing more, since the payload carries no content.
+4. *Finding the sender's contact* (`src/modules/leads/channel-intake.ts`):
+   - It runs from a verified webhook only, when the customer writes. WhatsApp senders are looked
+     up by number now, and email senders will be looked up by address.
+   - Exactly one match is linked (`contact_match = 'auto'`). Several matches link nobody and are
+     offered to staff (`suggested`), so a shared family number never merges two histories.
+   - A link a person made or removed is never touched again (`manual`).
+   - Each account can opt in to making a new lead for unknown senders (`created`). The lead is
+     routed like a website enquiry, in the "new" lead status, with the account's lead source.
+   - This is off by default, because social accounts draw spam. The setting is written only by
+     `app.social_set_account_settings` (`social.manage`), because the account update policy also
+     admits `social.reply`.
+   - The new lead's intake event and timeline entry name the conversation, never its words.
+   - Imports and WhatsApp history are not matched. Without the `crm` feature nothing is matched
+     or created.
+5. *Timeline:* a contact's conversations appear on their timeline (channel, account, message
+   count, link) for people with `social.view`. They are read where they live, never copied into
+   `activities`.
+
+**Consequences.**
+- Phase 2 (tickets and SLA) can turn any conversation into a ticket.
+- Email and live chat (phases 3 and 5) arrive as two more `platform` values. They reuse matching,
+  notes, saved replies and presence as they are.
+- Meta and TikTok senders carry no phone or email, so for them only the opt-in lead creation
+  applies.
+- Saved replies are not soft-deleted: they are tools, not business records.

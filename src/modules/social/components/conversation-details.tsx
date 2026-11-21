@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { AssignSelect, SnoozeControl } from './conversation-controls';
 import { CustomerAvatar, PlatformBadge } from './platform-badge';
 import { ReplyWindowBadge } from './reply-window';
-import { ContactLinker, StatusButton } from './social-tools';
+import { ContactLinker, StatusButton, SuggestedContacts } from './social-tools';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -46,6 +46,10 @@ export function ConversationDetails(props: {
     email: string | null;
     phone: string | null;
     canLink: boolean;
+    /** How the link was made (ADR-068): auto, created, suggested, manual or not looked up. */
+    match: string | null;
+    /** Contacts sharing the customer's number, when more than one did. */
+    suggestions: { id: string; name: string }[];
   };
 }) {
   return (
@@ -88,6 +92,21 @@ export function ConversationDetails(props: {
             contactName={props.contact.name}
             contactLabel={props.contact.label}
           />
+          {props.contact.id && props.contact.match === 'auto' && (
+            <p className="text-xs text-muted-foreground">Found by their number.</p>
+          )}
+          {props.contact.id && props.contact.match === 'created' && (
+            <p className="text-xs text-muted-foreground">
+              Made as a new lead from this conversation.
+            </p>
+          )}
+          {!props.contact.id && props.contact.suggestions.length > 0 && (
+            <SuggestedContacts
+              conversationId={props.conversationId}
+              contactLabel={props.contact.label}
+              suggestions={props.contact.suggestions}
+            />
+          )}
           {props.contact.email && (
             <p className="flex items-center gap-1.5 text-sm" data-sensitive>
               <Mail aria-hidden className="size-3.5 text-muted-foreground" /> {props.contact.email}

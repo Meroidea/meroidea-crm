@@ -16,7 +16,8 @@ import { PossibleDuplicates } from '@/modules/contacts/components/possible-dupli
 import { getContact, listPossibleDuplicates } from '@/modules/contacts/queries';
 import { ActivityComposer } from '@/modules/activities/components/activity-composer';
 import { Timeline } from '@/modules/activities/components/timeline';
-import { getTimeline } from '@/modules/activities/queries';
+import { getTimeline, mergeTimeline } from '@/modules/activities/queries';
+import { conversationsForContact } from '@/modules/social/queries';
 import { StageBadge } from '@/modules/opportunities/components/stage-badge';
 import { listOpportunitiesForContact } from '@/modules/opportunities/queries';
 import { TaskList } from '@/modules/tasks/components/task-list';
@@ -89,6 +90,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     enrollments,
     members,
     duplicates,
+    conversations,
   ] = await Promise.all([
     hasPermission(ctx, 'opportunities.view')
       ? listOpportunitiesForContact(ctx, contact.id)
@@ -103,6 +105,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     listEnrollments(ctx, contact.id),
     hasPermission(ctx, 'tasks.assign_others') ? listActiveMembers(ctx) : Promise.resolve([]),
     canEdit ? listPossibleDuplicates(ctx, contact) : Promise.resolve([]),
+    conversationsForContact(ctx, contact.id),
   ]);
   const canEmail =
     hasPermission(ctx, 'activities.create') &&
@@ -360,7 +363,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
             </CardHeader>
             <CardContent>
               <Timeline
-                items={timeline}
+                items={mergeTimeline(timeline, conversations)}
                 timezone={ctx.tenant.timezone}
                 showRecord
                 emptyText="No activity yet — log the first call or note above."

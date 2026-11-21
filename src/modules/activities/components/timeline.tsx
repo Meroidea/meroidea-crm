@@ -5,6 +5,7 @@ import {
   Inbox,
   Mail,
   MessageSquare,
+  MessagesSquare,
   Pencil,
   Phone,
   PlusCircle,
@@ -45,6 +46,7 @@ const ICONS: Record<string, LucideIcon> = {
   approval: ShieldCheck,
   enquiry: Inbox,
   field_changed: Pencil,
+  conversation: MessagesSquare,
 };
 
 const INTERACTIONS = new Set(['call', 'email', 'meeting', 'message', 'note']);
@@ -145,6 +147,14 @@ export function Timeline({
                 <p className="mt-1 rounded-lg bg-muted/50 px-3 py-2 text-sm whitespace-pre-line">
                   {item.body}
                 </p>
+              )}
+              {item.href && (
+                <Link
+                  href={item.href}
+                  className="mt-0.5 inline-block text-xs text-primary underline-offset-4 hover:underline"
+                >
+                  Open the conversation
+                </Link>
               )}
             </div>
           </li>

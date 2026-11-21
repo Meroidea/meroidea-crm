@@ -877,7 +877,8 @@ export async function linkConversationContact(
     }
     await tx
       .update(socialConversations)
-      .set({ contactId: input.contactId, updatedAt: new Date() })
+      // A person's choice: automatic matching never changes it again (ADR-068).
+      .set({ contactId: input.contactId, contactMatch: 'manual', updatedAt: new Date() })
       .where(
         and(
           eq(socialConversations.tenantId, ctx.tenantId),

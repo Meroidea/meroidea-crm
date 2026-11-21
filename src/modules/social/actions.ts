@@ -11,7 +11,10 @@ import { metaAuthorizeUrl, metaConfigured } from './providers/meta';
 import { tiktokAuthorizeUrl, tiktokConfigured } from './providers/tiktok';
 import {
   accountIdSchema,
+  accountSettingsInputSchema,
   assignSchema,
+  cannedResponseIdSchema,
+  cannedResponseSchema,
   connectWhatsAppSchema,
   conversationIdSchema,
   conversationStatusSchema,
@@ -20,6 +23,7 @@ import {
   mediaReplySchema,
   mediaUploadSchema,
   messageIdSchema,
+  noteSchema,
   replySchema,
   snoozeSchema,
   startConnectSchema,
@@ -27,6 +31,7 @@ import {
   templateReplySchema,
 } from './schemas';
 import * as social from './service';
+import * as team from './team-service';
 import * as whatsapp from './whatsapp-service';
 
 const paths = ['/social'];
@@ -140,4 +145,30 @@ export const startMediaUploadAction = authedAction(
 export const mediaReplyAction = authedAction(
   { permission: 'social.reply', input: mediaReplySchema, revalidate: paths },
   (ctx, input) => social.sendMediaReply(ctx, input),
+);
+
+/** Whether an account makes new leads for senders who match no contact (ADR-068). */
+export const accountSettingsAction = authedAction(
+  {
+    permission: 'social.manage',
+    input: accountSettingsInputSchema,
+    revalidate: ['/social/accounts'],
+  },
+  (ctx, input) => team.setAccountSettings(ctx, input),
+);
+
+/** A private note for colleagues; never sent to the customer (ADR-068). */
+export const noteAction = authedAction(
+  { permission: 'social.reply', input: noteSchema, revalidate: paths },
+  (ctx, input) => team.addNote(ctx, input),
+);
+
+export const saveCannedResponseAction = authedAction(
+  { permission: 'social.reply', input: cannedResponseSchema, revalidate: paths },
+  (ctx, input) => team.saveCannedResponse(ctx, input),
+);
+
+export const deleteCannedResponseAction = authedAction(
+  { permission: 'social.reply', input: cannedResponseIdSchema, revalidate: paths },
+  (ctx, input) => team.deleteCannedResponse(ctx, input.id),
 );

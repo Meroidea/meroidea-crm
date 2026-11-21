@@ -209,3 +209,43 @@ export const mediaReplySchema = z.object({
     .transform((value) => value || null),
 });
 export type MediaReplyInput = z.output<typeof mediaReplySchema>;
+
+/** How an account treats senders who match no contact (ADR-068). */
+export const accountSettingsInputSchema = z.object({
+  accountId: z.uuid(),
+  createLeadForUnknown: z.boolean(),
+  leadSourceId: z.uuid().nullable(),
+});
+export type AccountSettingsInput = z.output<typeof accountSettingsInputSchema>;
+
+/** A private note for colleagues in a conversation; never sent to the customer (ADR-068). */
+export const noteSchema = z.object({
+  conversationId: z.uuid(),
+  body: z.string().trim().min(1, 'Write the note first').max(4000, 'That note is too long'),
+});
+export type NoteInput = z.output<typeof noteSchema>;
+
+/** A saved reply: shared with the team, or the person's own. */
+export const cannedResponseSchema = z.object({
+  id: z.uuid().optional(),
+  title: z
+    .string()
+    .trim()
+    .min(1, 'Give it a title')
+    .max(120, 'Keep the title under 120 characters'),
+  shortcut: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(32, 'Keep the shortcut under 32 characters')
+    .regex(
+      /^([a-z0-9][a-z0-9-]*)?$/,
+      'Use letters, numbers and dashes, starting with a letter or number',
+    )
+    .transform((value) => value || null),
+  body: z.string().trim().min(1, 'Write the reply').max(4096, 'That reply is too long'),
+  shared: z.boolean(),
+});
+export type CannedResponseInput = z.output<typeof cannedResponseSchema>;
+
+export const cannedResponseIdSchema = z.object({ id: z.uuid() });

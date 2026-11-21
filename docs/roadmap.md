@@ -73,7 +73,7 @@ Same login, same people records, same audit trail — added module by module.
 - **Finance** — quotes and invoices, payments received, commissions payable, expenses, receivables ageing, accounting sync (Xero/MYOB) rather than replacing it.
 - **Resources** — assets, equipment, rooms and vehicles: what exists, who holds it, when it's due back, what it costs.
 - **Projects & delivery** — projects with phases, assignments, time logging and a simple capacity view.
-- **Inbox & channels** — email logging by BCC first, then mailbox and calendar sync; WhatsApp/SMS logging; internal notes and mentions. *Started: social inbox for Facebook, Instagram, WhatsApp and TikTok messages (ADR-064–066), under a new Marketing section; SMS next.*
+- **Inbox & channels** — email logging by BCC first, then mailbox and calendar sync; WhatsApp/SMS logging; internal notes and mentions. *Started: social inbox for Facebook, Instagram, WhatsApp and TikTok messages (ADR-064–067), under a new Marketing section, with private notes, saved replies, presence and sender-to-contact matching (ADR-068). Next: tickets with SLA timers, then email, knowledge base, live chat and project links.*
 - **Self-service portals** — a customer or partner signs in to see only their own records.
 
 ## Stage 4 — Platform
