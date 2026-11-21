@@ -2,6 +2,10 @@ import 'server-only';
 
 import { z } from 'zod';
 
+/** A blank line in an env file (`NAME=`) means "not set", not an empty value. */
+const blankAsUnset = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema);
+
 const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
@@ -37,6 +41,19 @@ const serverEnvSchema = z.object({
    * alerts. Without it the scheduled route refuses every call; alerts still run in the app.
    */
   CRON_SECRET: z.string().min(32).optional(),
+  /**
+   * Meroidea AI (ADR-063, ADR-064), on Google's Gemini API (https://aistudio.google.com/apikey).
+   * Without the key, the assistant answers "not set up" and the rest of the app is unaffected.
+   */
+  GEMINI_API_KEY: blankAsUnset(z.string().min(1).optional()),
+  /** Which Gemini model answers. Checked against Google's current list, not hardcoded here. */
+  ASSISTANT_MODEL: blankAsUnset(z.string().min(1).default('gemini-2.5-flash')),
+  /**
+   * Set to `true` only when the key belongs to a Google Cloud project with billing switched on.
+   * Google may use prompts sent on its free tier to improve its products and have people read
+   * them, so in production the assistant refuses to run without this confirmation (ADR-063).
+   */
+  ASSISTANT_PROVIDER_PAID_TIER: blankAsUnset(z.enum(['true', 'false']).default('false')),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

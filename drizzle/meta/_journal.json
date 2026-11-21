@@ -498,6 +498,20 @@
       "when": 1793765084649,
       "tag": "0070_supplier_bills",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795143188486,
+      "tag": "0071_assistant_feature",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795143811502,
+      "tag": "0072_ai_pending_actions",
+      "breakpoints": true
     }
   ]
 }

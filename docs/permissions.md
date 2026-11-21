@@ -51,7 +51,7 @@ Each permission family belongs to a feature the platform owner switches on per b
 (`src/lib/features.ts`): `contacts`, `opportunities`, `revenue`, `activities`, `documents`,
 `partners`, `organizations`, `products`, `reports` → **crm**; `tasks` → **tasks**; `rosters` →
 **roster**; `timeoff` → **timeoff**; `timesheets` → **timesheets**; `reviews` → **reviews**; `tickets` → **helpdesk**; `recruitment`, `projects`, `productivity`, `expenses`, `concerns`, `training` → features of the same name; `employees` → **staff**; `inventory`, `purchasing`, `invoices`, `payroll`, `files` → features
-of the same name; `books` → **books** (ADR-060). `settings`, `users`, `roles` and `audit` are always available. A grant whose
+of the same name; `books` → **books** (ADR-060); `assistant` → **assistant** (ADR-063). `settings`, `users`, `roles` and `audit` are always available. A grant whose
 feature is off is dropped when the context is built, for every role including Admin, and the
 database enforces the same rule: `app.has_permission` refuses it and the feature's own tables
 hide their rows (ADR-038). The SQL copy of this map is `app.permission_feature`; a DB test keeps
@@ -138,8 +138,9 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `rosters.manage` | | Create, edit, publish and delete rosters and shifts, including unpublished ones; manage teams, pay loadings, break rules and public holidays; email staff their roster. Enforced again by RLS on every roster table. Shift cost is shown only to someone who also holds `employees.manage`, because it is worked out from contract pay rates |
 | `reports.view` | ✓ | Dashboards and reports, limited to scope |
 | `reports.export` | | Download report tables as CSV (audited) |
+| `assistant.use` | | Use Meroidea AI (ADR-063, ADR-064). Grants no data and no changes: its read tools use the person's own report, task, contact, organization, opportunity, file and roster permissions; each proposal it prepares needs the permission of the change itself (`invoices.manage`, `rosters.manage`, `users.manage`, `opportunities.edit`, `tasks.manage`) to be offered and again to be approved |
 | `settings.manage` | | Pipelines, stages, sources, lost reasons, document types, custom fields, labels, branding |
-| `users.manage` | | Invite, deactivate, change role/team |
+| `users.manage` | | Invite, deactivate, change role/team; email staff (ADR-064) |
 | `roles.manage` | | Edit roles and their permissions |
 | `audit.view` | | Audit log viewer and export |
 
@@ -214,6 +215,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | rosters.manage | ✓ | | | |
 | reports.view | all | team | own | |
 | reports.export | ✓ | ✓ | | |
+| assistant.use | ✓ | ✓ (new businesses) | ✓ (new businesses) | |
 | settings.manage | ✓ | | | |
 | users.manage | ✓ | | | |
 | roles.manage | ✓ | | | |

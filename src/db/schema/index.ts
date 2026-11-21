@@ -24,3 +24,4 @@ export * from './leads';
 export * from './enquiries';
 export * from './platform-audit';
 export * from './books';
+export * from './assistant';

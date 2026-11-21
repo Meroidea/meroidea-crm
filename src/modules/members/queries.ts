@@ -4,7 +4,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 
 import { rolePermissions, tenantMemberships, users } from '@/db/schema';
 import type { PermissionKey } from '@/lib/permissions/catalog';
-import type { TenantContext } from '@/server/context';
+import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 
 export type MemberOption = { userId: string; fullName: string };
@@ -21,6 +21,30 @@ export async function listActiveMembers(ctx: TenantContext): Promise<MemberOptio
           eq(tenantMemberships.tenantId, ctx.tenantId),
           eq(tenantMemberships.status, 'active'),
           // A platform owner on support is visiting, not someone to give work to.
+          eq(tenantMemberships.isSupport, false),
+        ),
+      )
+      .orderBy(asc(users.fullName)),
+  );
+}
+
+/**
+ * Active staff with their email, for choosing who a staff email goes to. Needs `users.manage`,
+ * the same permission sending one does (emailStaff).
+ */
+export async function listStaffRecipients(
+  ctx: TenantContext,
+): Promise<{ userId: string; fullName: string; email: string }[]> {
+  requirePermission(ctx, 'users.manage');
+  return withRls(ctx, (tx) =>
+    tx
+      .select({ userId: tenantMemberships.userId, fullName: users.fullName, email: users.email })
+      .from(tenantMemberships)
+      .innerJoin(users, eq(users.id, tenantMemberships.userId))
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, ctx.tenantId),
+          eq(tenantMemberships.status, 'active'),
           eq(tenantMemberships.isSupport, false),
         ),
       )

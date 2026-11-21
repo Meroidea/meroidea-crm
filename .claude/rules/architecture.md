@@ -17,7 +17,9 @@ Full reference: `docs/architecture.md`.
 - Database access is server-side only. Client components receive data as props or call
   Server Actions. No direct Supabase DB queries from the browser.
 - Route Handlers (`src/app/api/**`) are only for: webhooks, public web-form intake,
-  cron callbacks, file streaming, and (later) the public `/api/v1`.
+  cron callbacks, file streaming, Meroidea AI (`/api/ai/*`, ADR-063, ADR-064),
+  and (later) the public `/api/v1`. A signed-in Route Handler goes through `authedRoute()`
+  (`src/server/authed-route.ts`), which repeats authedAction's checks after `isSameOrigin()`.
 - UI text that names a CRM object uses the tenant's labels: `labels.contact.singular`,
   never a literal "Student"/"Lead".
 - Mobile: every screen must work at 375px. The pipeline board falls back to a
