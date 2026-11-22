@@ -220,48 +220,56 @@ export function MarkRead({ conversationId, unread }: { conversationId: string; u
 }
 
 /**
- * Whether someone who writes to this account and matches no contact becomes a new lead
- * (ADR-068), and with which lead source. Off by default: social accounts draw spam and one-off
- * questions, so the business opts in per account.
+ * How an account's conversations are followed up (ADR-068, ADR-069): whether someone who matches
+ * no contact becomes a new lead, with which lead source, and whether each new conversation
+ * opens a helpdesk ticket. All off by default: the business opts in per account.
  */
 export function AccountLeadSetting({
   accountId,
-  createLeadForUnknown,
-  leadSourceId,
+  settings,
   sources,
   contactLabel,
+  crm,
+  helpdesk,
 }: {
   accountId: string;
-  createLeadForUnknown: boolean;
-  leadSourceId: string | null;
+  settings: {
+    createLeadForUnknown: boolean;
+    leadSourceId: string | null;
+    autoTicket: boolean;
+    autoTicketPriority: 'low' | 'normal' | 'high' | 'urgent';
+  };
   sources: { id: string; name: string }[];
   contactLabel: string;
+  /** Which features are on: leads need the CRM, tickets the helpdesk. */
+  crm: boolean;
+  helpdesk: boolean;
 }) {
   const { run, error, isPending } = useActionRunner();
-  const save = (next: { createLeadForUnknown: boolean; leadSourceId: string | null }) =>
-    run(() => accountSettingsAction({ accountId, ...next }));
+  const save = (next: Partial<typeof settings>) =>
+    run(() => accountSettingsAction({ accountId, ...settings, ...next }));
   return (
     <div className="flex flex-col gap-1.5 text-sm">
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          className="size-4 accent-primary"
-          checked={createLeadForUnknown}
-          disabled={isPending}
-          onChange={(event) => save({ createLeadForUnknown: event.target.checked, leadSourceId })}
-        />
-        Make a new lead when someone who is not a {contactLabel.toLowerCase()} writes
-      </label>
-      {createLeadForUnknown && (
+      {crm && (
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            className="size-4 accent-primary"
+            checked={settings.createLeadForUnknown}
+            disabled={isPending}
+            onChange={(event) => save({ createLeadForUnknown: event.target.checked })}
+          />
+          Make a new lead when someone who is not a {contactLabel.toLowerCase()} writes
+        </label>
+      )}
+      {crm && settings.createLeadForUnknown && (
         <label className="flex flex-wrap items-center gap-2 pl-6 text-muted-foreground">
           Lead source
           <NativeSelect
             className="h-8 w-auto min-w-40"
-            value={leadSourceId ?? ''}
+            value={settings.leadSourceId ?? ''}
             disabled={isPending}
-            onChange={(event) =>
-              save({ createLeadForUnknown, leadSourceId: event.target.value || null })
-            }
+            onChange={(event) => save({ leadSourceId: event.target.value || null })}
           >
             <option value="">None</option>
             {sources.map((source) => (
@@ -269,6 +277,36 @@ export function AccountLeadSetting({
                 {source.name}
               </option>
             ))}
+          </NativeSelect>
+        </label>
+      )}
+      {helpdesk && (
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            className="size-4 accent-primary"
+            checked={settings.autoTicket}
+            disabled={isPending}
+            onChange={(event) => save({ autoTicket: event.target.checked })}
+          />
+          Open a helpdesk ticket for each new conversation
+        </label>
+      )}
+      {helpdesk && settings.autoTicket && (
+        <label className="flex flex-wrap items-center gap-2 pl-6 text-muted-foreground">
+          Priority
+          <NativeSelect
+            className="h-8 w-auto"
+            value={settings.autoTicketPriority}
+            disabled={isPending}
+            onChange={(event) =>
+              save({ autoTicketPriority: event.target.value as typeof settings.autoTicketPriority })
+            }
+          >
+            <option value="low">Low</option>
+            <option value="normal">Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
           </NativeSelect>
         </label>
       )}

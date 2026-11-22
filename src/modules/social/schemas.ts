@@ -215,8 +215,12 @@ export const accountSettingsInputSchema = z.object({
   accountId: z.uuid(),
   createLeadForUnknown: z.boolean(),
   leadSourceId: z.uuid().nullable(),
+  /** Open a helpdesk ticket for each conversation without one (ADR-069). */
+  autoTicket: z.boolean().optional(),
+  autoTicketPriority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
 });
-export type AccountSettingsInput = z.output<typeof accountSettingsInputSchema>;
+/** The auto-ticket fields may be left out: they then stay as they are. */
+export type AccountSettingsInput = z.input<typeof accountSettingsInputSchema>;
 
 /** A private note for colleagues in a conversation; never sent to the customer (ADR-068). */
 export const noteSchema = z.object({

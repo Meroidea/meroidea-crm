@@ -255,13 +255,22 @@ export function PublicFormCard({
 }
 
 /** The reply box: answer the customer, or keep a private note for the team. */
-export function ReplyBox({ ticketId, customerLink }: { ticketId: string; customerLink: string }) {
+export function ReplyBox({
+  ticketId,
+  customerLink,
+  channel = null,
+}: {
+  ticketId: string;
+  customerLink: string;
+  /** The inbox channel a ticket from a conversation is answered on (ADR-069), e.g. WhatsApp. */
+  channel?: string | null;
+}) {
   const router = useRouter();
   const [mode, setMode] = useState<'reply' | 'note'>('reply');
   const [body, setBody] = useState('');
   const [status, setStatus] = useState<TicketStatus>('pending');
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<ReplyEmail | null>(null);
+  const [sent, setSent] = useState<ReplyEmail | 'channel' | null>(null);
   const [isPending, startTransition] = useTransition();
 
   return (
@@ -283,7 +292,7 @@ export function ReplyBox({ ticketId, customerLink }: { ticketId: string; custome
           });
           if (!result.ok) return setError(firstError(result));
           setBody('');
-          if (mode === 'reply') setSent(result.data.email);
+          if (mode === 'reply') setSent(channel ? 'channel' : result.data.email);
           router.refresh();
         });
       }}
@@ -291,7 +300,7 @@ export function ReplyBox({ ticketId, customerLink }: { ticketId: string; custome
       <div role="tablist" aria-label="What to write" className="flex gap-1">
         {(
           [
-            ['reply', 'Reply to customer'],
+            ['reply', channel ? `Reply on ${channel}` : 'Reply to customer'],
             ['note', 'Private note'],
           ] as const
         ).map(([key, label]) => (
@@ -342,12 +351,17 @@ export function ReplyBox({ ticketId, customerLink }: { ticketId: string; custome
         )}
       </div>
       <ErrorNote error={error} />
+      {sent === 'channel' && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Sent on {channel}. It appears in the conversation below.
+        </p>
+      )}
       {sent === 'sent' && (
         <p role="status" className="text-sm text-muted-foreground">
           Sent, and emailed to the customer.
         </p>
       )}
-      {sent && sent !== 'sent' && (
+      {sent && sent !== 'sent' && sent !== 'channel' && (
         <div role="status" className="flex flex-col gap-1.5 text-sm text-muted-foreground">
           <p>
             Saved.{' '}

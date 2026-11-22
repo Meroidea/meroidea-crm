@@ -3,7 +3,8 @@ import 'server-only';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
 import { socialAccounts, socialConversations, socialMessages } from '@/db/schema';
-import { matchChannelSender } from '@/modules/leads/channel-intake';
+import { ticketForInboundMessage } from '@/modules/helpdesk/customer';
+import { CHANNEL_NAMES, matchChannelSender } from '@/modules/leads/channel-intake';
 import type { Tx } from '@/server/db/with-rls';
 
 import {
@@ -263,4 +264,69 @@ export async function linkConversationSender(
         isNull(socialConversations.contactMatch),
       ),
     );
+}
+
+/**
+ * Everything a customer's new message sets off (verified webhooks only): finding their contact
+ * (ADR-068), then the helpdesk ticket that follows the conversation, reopened or, when the
+ * account is set to, opened (ADR-069).
+ */
+export async function afterInboundMessage(
+  tx: Tx,
+  scope: AccountScope & { conversationId: string },
+): Promise<void> {
+  // In a savepoint: the customer's message is already stored in this transaction, and a problem
+  // here must never undo it (the provider would retry, and in time give up on the message).
+  try {
+    await tx.transaction((savepoint) => followUpInbound(savepoint, scope));
+  } catch (error) {
+    console.error('[social] could not follow up a message', {
+      name: error instanceof Error ? error.name : typeof error,
+    });
+  }
+}
+
+async function followUpInbound(
+  tx: Tx,
+  scope: AccountScope & { conversationId: string },
+): Promise<void> {
+  await linkConversationSender(tx, scope);
+  const [row] = await tx
+    .select({
+      contactId: socialConversations.contactId,
+      name: socialConversations.participantName,
+      username: socialConversations.participantUsername,
+      phone: socialConversations.participantPhone,
+      platform: socialAccounts.platform,
+      settings: socialAccounts.settings,
+    })
+    .from(socialConversations)
+    .innerJoin(
+      socialAccounts,
+      and(
+        eq(socialAccounts.tenantId, socialConversations.tenantId),
+        eq(socialAccounts.id, socialConversations.accountId),
+      ),
+    )
+    .where(
+      and(
+        eq(socialConversations.tenantId, scope.tenantId),
+        eq(socialConversations.id, scope.conversationId),
+      ),
+    )
+    .limit(1);
+  if (!row) return;
+  const settings = readAccountSettings(row.settings);
+  const channelName = CHANNEL_NAMES[row.platform as SocialPlatform];
+  await ticketForInboundMessage(tx, {
+    tenantId: scope.tenantId,
+    conversationId: scope.conversationId,
+    contactId: row.contactId,
+    customerName:
+      row.name ??
+      (row.username ? `@${row.username}` : row.phone ? `+${row.phone}` : `${channelName} customer`),
+    channelName,
+    autoTicket: settings.autoTicket,
+    priority: settings.autoTicketPriority,
+  });
 }

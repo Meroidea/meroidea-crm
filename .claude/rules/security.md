@@ -84,6 +84,19 @@ change as touching sensitive personal data.
   (`src/server/request.ts`), never `request.json()` after a `Content-Length` check: a chunked
   request declares no length. Count senders with `enforceRateLimit` (`src/server/rate-limit.ts`),
   which stores only a keyed hash of the address.
+- Response targets (ADR-069):
+  - Only the `tickets_sla` trigger and `app.sla_sweep` write the SLA columns of `tickets`. Never
+    grant them to sessions. Application code passes only the ADR-037 fallback `response_due_at`,
+    which the trigger replaces whenever a policy applies. Keep `first_response_at` set once, by
+    the trigger, to the moment it happens.
+  - `app.business_add` / `app.business_minutes_between` refuse a signed-in person outside the
+    hours' business; keep that check if they change.
+  - SLA notices name the ticket number and the target, never its subject or what the customer
+    wrote.
+  - A ticket's channel reply goes through `replyToConversation`, which needs `social.reply` and
+    the channel's own checks. A ticket from a conversation never sends an email.
+  - Following up a customer's message (matching, tickets) runs in a savepoint after the message
+    is stored, so a failure there never loses the message.
 
 ## Platform owners (ADR-029)
 

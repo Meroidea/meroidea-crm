@@ -30,6 +30,8 @@ export const NOTIFICATION_EMAIL: Record<string, string> = {
   enquiry_received: 'A new enquiry arrived from your website',
   features_enabled: 'New features have been switched on for your business',
   conversation_assigned: 'A customer conversation has been assigned to you',
+  sla_at_risk: 'A ticket is close to missing its response target',
+  sla_breached: 'A ticket has missed its response target',
 };
 
 export type NoticeInput = {

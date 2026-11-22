@@ -16,6 +16,8 @@ import { MarkRead } from '@/modules/social/components/social-tools';
 import { TemplateReply } from '@/modules/social/components/template-reply';
 import { ThreadView } from '@/modules/social/components/thread-view';
 import { ACCOUNT_STATUS_LABELS, customerLabel, PLATFORM_LABELS } from '@/modules/social/format';
+import { ConversationTicket } from '@/modules/helpdesk/components/conversation-ticket';
+import { ticketsForConversation } from '@/modules/helpdesk/queries';
 import { renderCannedReply } from '@/modules/social/canned';
 import {
   assignableMembers,
@@ -79,9 +81,11 @@ export default async function ConversationPage({
     { view: filters.view, platform: filters.platform, q: filters.q },
     {},
   );
-  const [members, cannedRows] = await Promise.all([
+  const canTicket = hasPermission(ctx, 'tickets.work');
+  const [members, cannedRows, conversationTickets] = await Promise.all([
     assignableMembers(ctx),
     canReply ? listCannedResponses(ctx) : Promise.resolve([]),
+    canTicket ? ticketsForConversation(ctx, conversation.id) : Promise.resolve([]),
   ]);
   const customerName = thread.contactName ?? conversation.participantName;
   const cannedValues = {
@@ -136,6 +140,15 @@ export default async function ConversationPage({
         match: conversation.contactMatch,
         suggestions: thread.suggestions,
       }}
+      ticket={
+        canTicket ? (
+          <ConversationTicket
+            conversationId={conversation.id}
+            tickets={conversationTickets}
+            defaultSubject={`${PLATFORM_LABELS[platform]} conversation with ${name}`.slice(0, 160)}
+          />
+        ) : null
+      }
     />
   );
 

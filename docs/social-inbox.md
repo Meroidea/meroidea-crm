@@ -164,3 +164,10 @@ What the business needs:
   - A contact's conversations show on their timeline.
 
   Presence uses the same Realtime setup as section 3: there is nothing extra to configure.
+- Helpdesk (ADR-069):
+  - Any conversation can be made into a ticket from its details panel. The ticket is linked to
+    the customer's contact, their organization and their open opportunities.
+  - Replies written on the ticket go to the customer on the conversation's channel.
+  - Each account can open a ticket for every new conversation (Connected accounts). This is off
+    by default.
+  - A customer writing again reopens a ticket that was waiting on them or solved.

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import {
   auditLogs,
@@ -208,6 +208,9 @@ export async function provisionTenant(
     await tx
       .insert(leaveTypes)
       .values(DEFAULT_LEAVE_TYPES.map((type) => ({ tenantId: tenant.id, ...type })));
+
+    // Response targets for helpdesk tickets (ADR-069), changed later in Helpdesk settings.
+    await tx.execute(sql`select app.create_default_sla_policy(${tenant.id}::uuid)`);
 
     const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
     await tx.insert(tenantSubscriptions).values({

@@ -593,3 +593,57 @@ export async function conversationsForContact(
     href: `/social/${row.id}`,
   }));
 }
+
+/**
+ * What a ticket made from a conversation needs to know about it (ADR-069): who the customer is
+ * and on which channel. Null when the person cannot read the inbox or it is not their business's.
+ */
+export async function getConversationForTicket(
+  ctx: TenantContext,
+  id: string,
+): Promise<{
+  id: string;
+  contactId: string | null;
+  customerName: string;
+  platform: SocialPlatform;
+  accountName: string;
+} | null> {
+  if (!hasPermission(ctx, 'social.view')) return null;
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: socialConversations.id,
+        contactId: socialConversations.contactId,
+        participantName: socialConversations.participantName,
+        participantUsername: socialConversations.participantUsername,
+        participantPhone: socialConversations.participantPhone,
+        platform: socialAccounts.platform,
+        accountName: socialAccounts.name,
+      })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(and(eq(socialConversations.tenantId, ctx.tenantId), eq(socialConversations.id, id)))
+      .limit(1),
+  );
+  if (!row) return null;
+  const platform = row.platform as SocialPlatform;
+  return {
+    id: row.id,
+    contactId: row.contactId,
+    customerName:
+      row.participantName ??
+      (row.participantUsername
+        ? `@${row.participantUsername}`
+        : row.participantPhone
+          ? `+${row.participantPhone}`
+          : `${PLATFORM_LABELS[platform]} customer`),
+    platform,
+    accountName: row.accountName,
+  };
+}

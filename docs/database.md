@@ -1335,7 +1335,7 @@ helpdesk_forms   tenant_id pk, public_token unique, is_open, timestamps     -- o
 tickets          id, tenant_id, number (unique per tenant), subject, requester_name, requester_email,
                  contact_id, category, priority (low|normal|high|urgent),
                  status (open|pending|on_hold|solved|closed), assignee_user_id,
-                 source (web_form|manual), public_token unique,
+                 source (web_form|manual|conversation), public_token unique,
                  response_due_at, first_response_at, solved_at, last_activity_at, timestamps, deleted_at
 ticket_messages  id, tenant_id, ticket_id → tickets (cascade), author_user_id (null = customer),
                  author_name, body, is_internal, created_at
@@ -1345,6 +1345,56 @@ RLS: tickets and messages need `tickets.work`; a message can only be inserted wi
 colleague. Form settings and deleting need `tickets.manage`. Numbers are allocated under a
 per-tenant advisory lock. Customer messages and form submissions are written by
 `src/modules/helpdesk/public.ts` (ADR-037).
+
+**Response targets and CRM links (migrations `0077`–`0078`, ADR-069).**
+```sql
+business_hours        id, tenant_id, name, timezone (checked by app.valid_timezone),
+                      weekly jsonb  -- [{day 0-6 (Sunday 0), opens "HH:MM", closes "HH:MM"|"24:00"}],
+                                    -- 1-70 spans, opens < closes (app.valid_business_week)
+                      skip_public_holidays bool default true   -- uses public_holidays (Rosters)
+                      created/updated_at/by; unique (tenant_id, id)
+sla_policies          id, tenant_id, name, is_default (one per business, partial unique index),
+                      business_hours_id (composite FK; null = around the clock),
+                      at_risk_percent smallint 1-99 default 75,
+                      escalate_to_user_id (composite FK → tenant_memberships), created/updated_at/by
+sla_targets           tenant_id, policy_id (composite FK, cascade), priority (low|normal|high|urgent),
+                      first_response_minutes, resolution_minutes (1-525600, resolution >= first)
+                      pk (policy_id, priority)
+ticket_opportunities  tenant_id, ticket_id (composite FK, cascade), opportunity_id (composite FK,
+                      cascade), created_at, created_by; pk (ticket_id, opportunity_id)
+tickets               + organization_id, conversation_id → social_conversations, sla_policy_id
+                        (all composite FKs; contact_id now has one too: 0077 cleared orphans)
+                      + resolution_due_at, first_response_at_risk_at, resolution_at_risk_at,
+                        sla_paused_at, sla_paused_minutes int default 0,
+                        first_response_breached_at, resolution_breached_at
+                      indexes (tenant_id, conversation_id) where conversation_id is not null;
+                        (response_due_at, resolution_due_at) where active and not deleted
+```
+- `app.business_add(hours, from, minutes)` and `app.business_minutes_between(hours, from, to)` count
+  time inside the opening hours in their timezone (daylight saving included), skipping holidays when
+  asked; null hours = clock time. `security definer`, refused to a signed-in person outside the
+  hours' business.
+- Trigger `tickets_sla` (before insert or update) owns every SLA column:
+  - A new ticket gets the default policy, with due times measured from `created_at`.
+  - `pending`, `solved` and `closed` stop the resolution clock (`sla_paused_at`). Leaving them adds
+    the counted standing time to `sla_paused_minutes` and moves the resolution times on.
+  - The first-response clock never pauses.
+  - A priority or policy change recalculates every time; a breach whose new time is still ahead is
+    lifted.
+  - `first_response_at` is set once, to the moment it happens.
+- Sessions have no update grant on the SLA columns. They may update `status, priority, category,
+  assignee_user_id, first_response_at, solved_at, last_activity_at, updated_at, updated_by,
+  deleted_at, contact_id, organization_id` only.
+- `0040`'s `tickets_source_known` now also allows `conversation`.
+- RLS: hours, policies and targets are read with `tickets.work` and written with `tickets.manage`;
+  `ticket_opportunities` read and written with `tickets.work`. All four carry the restrictive
+  `feature_switch` (`helpdesk`).
+- `app.create_default_sla_policy(tenant)` gives every business "Standard": urgent 1 h / 4 h, high
+  4 h / 1 day, normal 24 h / 3 days, low 72 h / 7 days, around the clock. It runs in the migration
+  for existing businesses and in provisioning for new ones.
+- `app.sla_reapply_policy(policy)` (`tickets.manage`) recalculates the open tickets on a policy after
+  its settings change.
+- `app.social_set_account_settings` also accepts `autoTicket` (boolean) and `autoTicketPriority`.
 
 ## 7n. Questions and concerns 🟢
 
@@ -2067,6 +2117,7 @@ Defined in custom migrations; each calls a SQL function that inserts `notificati
 | `notify_stale_opportunities` | hourly; acts for tenants where local time is 08:00 | open opps with `last_activity_at` older than stage/tenant threshold → owner |
 | `notify_expiring_documents` | hourly; tenants at local 08:00 | requirements with `expires_on` within 60 days (passports, English tests, visas) → owner |
 | `purge_soft_deleted` 🟡 | weekly | hard-delete rows soft-deleted > 90 days (and their files) |
+| `sla_sweep` 🟢 | every 5 min | `app.sla_sweep()` (ADR-069): sets `*_breached_at` on running targets past due, and notifies (`sla_at_risk`, `sla_breached`, dedupe key per ticket and target) the assignee, the policy's escalation person on a breach, or everyone with `tickets.manage` when nobody else applies. Scheduled by migration `0078` where `pg_cron` is available |
 
 pg_cron runs in UTC. "Tenant local time" jobs run hourly and select tenants whose
 `now() at time zone tenants.timezone` is in the target hour — this handles Sydney's daylight

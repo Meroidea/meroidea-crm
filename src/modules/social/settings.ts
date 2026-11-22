@@ -9,6 +9,10 @@ export const accountSettingsSchema = z.object({
   createLeadForUnknown: z.boolean().default(false),
   /** The lead source new leads from this account get. */
   leadSourceId: z.uuid().nullable().default(null),
+  /** Open a helpdesk ticket for each conversation that has none (ADR-069). Off until chosen. */
+  autoTicket: z.boolean().default(false),
+  /** The priority such tickets start at. */
+  autoTicketPriority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
 });
 
 export type AccountSettings = z.output<typeof accountSettingsSchema>;

@@ -43,6 +43,8 @@ export default async function ConnectedAccountsPage({
   const { accounts, available } = await listAccounts(ctx);
   // New leads for unknown senders need the CRM (ADR-068).
   const crm = ctx.tenant.features.includes('crm');
+  // Tickets for new conversations need the helpdesk (ADR-069).
+  const helpdesk = ctx.tenant.features.includes('helpdesk');
   const sources = crm
     ? (await getLeadConfig(ctx)).sources
         .filter((source) => source.isActive)
@@ -215,14 +217,15 @@ export default async function ConnectedAccountsPage({
                   )}
                 </div>
                 <DisconnectButton accountId={account.id} name={account.name} />
-                {crm && (
+                {(crm || helpdesk) && (
                   <div className="w-full sm:pl-13">
                     <AccountLeadSetting
                       accountId={account.id}
-                      createLeadForUnknown={account.settings.createLeadForUnknown}
-                      leadSourceId={account.settings.leadSourceId}
+                      settings={account.settings}
                       sources={sources}
                       contactLabel={ctx.tenant.labels.contact.singular}
+                      crm={crm}
+                      helpdesk={helpdesk}
                     />
                   </div>
                 )}

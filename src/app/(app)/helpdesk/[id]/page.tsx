@@ -8,9 +8,18 @@ import { Badge } from '@/components/ui/badge';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CopyField, ReplyBox, TicketControls } from '@/modules/helpdesk/components/helpdesk-tools';
-import { getTicket } from '@/modules/helpdesk/queries';
-import { PRIORITY_LABELS, RESPONSE_HOURS, STATUS_LABELS } from '@/modules/helpdesk/schemas';
-import { helpdeskAssignees } from '@/modules/helpdesk/queries';
+import { SlaBadge } from '@/modules/helpdesk/components/sla-badge';
+import { TicketLinks } from '@/modules/helpdesk/components/ticket-links';
+import {
+  getSlaSettings,
+  getTicket,
+  getTicketCustomer,
+  helpdeskAssignees,
+} from '@/modules/helpdesk/queries';
+import { PRIORITY_LABELS, STATUS_LABELS } from '@/modules/helpdesk/schemas';
+import { firstResponseTarget, resolutionTarget, targetProps } from '@/modules/helpdesk/sla';
+import { PLATFORM_LABELS } from '@/modules/social/format';
+import { getConversation } from '@/modules/social/queries';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 import { serverEnv } from '@/server/env';
 
@@ -22,10 +31,63 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
   const parsed = z.object({ id: z.uuid() }).safeParse(await params);
   const ticket = parsed.success ? await getTicket(ctx, parsed.data.id) : null;
   if (!ticket) notFound();
-  const people = await helpdeskAssignees(ctx);
+  const [people, customer, sla, conversation] = await Promise.all([
+    helpdeskAssignees(ctx),
+    getTicketCustomer(ctx, ticket),
+    getSlaSettings(ctx),
+    ticket.conversationId && hasPermission(ctx, 'social.view')
+      ? getConversation(ctx, ticket.conversationId)
+      : Promise.resolve(null),
+  ]);
   const customerLink = `${serverEnv().APP_URL}/support/ticket/${ticket.publicToken}`;
-  const active = ['open', 'pending', 'on_hold'].includes(ticket.status);
-  const overdue = active && !ticket.firstResponseAt && ticket.responseDueAt < new Date();
+  const channel = conversation ? PLATFORM_LABELS[conversation.platform] : null;
+  const now = new Date();
+  const serverNow = now.toISOString();
+  const first = firstResponseTarget(ticket);
+  const resolve = resolutionTarget(ticket);
+  const labels = ctx.tenant.labels;
+  // One thread: the ticket's own messages and notes, and the channel conversation it follows.
+  type Item = {
+    id: string;
+    at: Date;
+    author: string;
+    kind: 'customer' | 'reply' | 'note';
+    body: string;
+    where: string | null;
+  };
+  const items: Item[] = [
+    ...ticket.messages.map((message, index): Item => ({
+      id: message.id,
+      at: message.createdAt,
+      author: message.authorName,
+      kind: message.isInternal
+        ? 'note'
+        : (index === 0 && ticket.source !== 'conversation') || message.authorUserId === null
+          ? 'customer'
+          : 'reply',
+      body: message.body,
+      where: null,
+    })),
+    ...(conversation?.messages ?? []).map((message): Item => ({
+      id: `channel-${message.id}`,
+      at: message.sentAt,
+      author:
+        message.direction === 'inbound'
+          ? ticket.requesterName
+          : (message.sentByName ?? `${channel} app`),
+      kind:
+        message.direction === 'inbound'
+          ? 'customer'
+          : message.direction === 'note'
+            ? 'note'
+            : 'reply',
+      body: message.body ?? (message.attachments.length > 0 ? 'A photo or file' : ''),
+      where: channel,
+    })),
+  ].sort((a, b) => a.at.getTime() - b.at.getTime());
+  const hoursText = sla.useBusinessHours
+    ? `Counted in business hours (${sla.timezone})${sla.skipPublicHolidays ? ', skipping public holidays' : ''}.`
+    : 'Counted around the clock.';
 
   return (
     <div className="flex w-full max-w-5xl flex-col gap-5">
@@ -38,49 +100,67 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
       <header className="flex flex-col gap-2">
         <p className="text-sm text-muted-foreground tabular-nums">
           Ticket #{ticket.number} ·{' '}
-          {ticket.source === 'web_form' ? 'from the contact form' : 'logged by your team'} ·{' '}
-          {formatDateTime(ctx, ticket.createdAt)}
+          {ticket.source === 'web_form'
+            ? 'from the contact form'
+            : ticket.source === 'conversation'
+              ? `from ${channel ? `a ${channel}` : 'an inbox'} conversation`
+              : 'logged by your team'}{' '}
+          · {formatDateTime(ctx, ticket.createdAt)}
         </p>
         <h1 className="text-2xl font-semibold tracking-tight text-balance">{ticket.subject}</h1>
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">{STATUS_LABELS[ticket.status]}</Badge>
           <Badge variant="secondary">{PRIORITY_LABELS[ticket.priority]} priority</Badge>
-          {overdue && <Badge variant="destructive">First reply overdue</Badge>}
+          <SlaBadge target={targetProps(first)} serverNow={serverNow} prefix="First reply" />
+          <SlaBadge target={targetProps(resolve)} serverNow={serverNow} prefix="Resolution" />
         </div>
       </header>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_17rem]">
         <div className="flex min-w-0 flex-col gap-3">
+          {ticket.conversationId && !conversation && (
+            <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">
+              This ticket follows an inbox conversation you cannot open.
+            </p>
+          )}
           <ol className="flex flex-col gap-3">
-            {ticket.messages.map((message, index) => {
-              const fromCustomer = index === 0 || message.authorUserId === null;
-              return (
-                <li
-                  key={message.id}
-                  className={cn(
-                    'rounded-xl border bg-card p-4',
-                    message.isInternal && 'border-warning-border bg-warning/40',
-                    !fromCustomer && !message.isInternal && 'border-primary/30 bg-accent',
-                  )}
-                >
-                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    {message.isInternal && <Lock aria-hidden className="size-3" />}
-                    <span className="font-medium text-foreground" data-sensitive>
-                      {message.authorName}
-                    </span>
-                    {message.isInternal
-                      ? '· private note'
-                      : fromCustomer
-                        ? '· customer'
-                        : '· reply'}
-                    <span>· {formatDateTime(ctx, message.createdAt)}</span>
-                  </p>
-                  <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap">{message.body}</p>
-                </li>
-              );
-            })}
+            {items.map((item) => (
+              <li
+                key={item.id}
+                className={cn(
+                  'rounded-xl border bg-card p-4',
+                  item.kind === 'note' && 'border-warning-border bg-warning/40',
+                  item.kind === 'reply' && 'border-primary/30 bg-accent',
+                )}
+              >
+                <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  {item.kind === 'note' && <Lock aria-hidden className="size-3" />}
+                  <span className="font-medium text-foreground" data-sensitive>
+                    {item.author}
+                  </span>
+                  {item.kind === 'note'
+                    ? '· private note'
+                    : item.kind === 'customer'
+                      ? '· customer'
+                      : '· reply'}
+                  {item.where && <span>· on {item.where}</span>}
+                  <span>· {formatDateTime(ctx, item.at)}</span>
+                </p>
+                <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap" data-sensitive>
+                  {item.body}
+                </p>
+              </li>
+            ))}
           </ol>
-          <ReplyBox ticketId={ticket.id} customerLink={customerLink} />
+          {conversation && (
+            <Link
+              href={`/social/${conversation.conversation.id}`}
+              className="w-fit text-sm text-primary underline-offset-4 hover:underline"
+            >
+              Open the conversation in the inbox
+            </Link>
+          )}
+          <ReplyBox ticketId={ticket.id} customerLink={customerLink} channel={channel} />
         </div>
 
         <aside className="flex flex-col gap-4">
@@ -104,8 +184,29 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
                 Open their record
               </Link>
             )}
-            <p className="mt-1 text-xs text-muted-foreground">Their page to follow this ticket:</p>
-            <CopyField value={customerLink} label="Customer's ticket page" />
+            {!ticket.conversationId && (
+              <>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Their page to follow this ticket:
+                </p>
+                <CopyField value={customerLink} label="Customer's ticket page" />
+              </>
+            )}
+            <div className="mt-2 border-t pt-3">
+              <TicketLinks
+                ticketId={ticket.id}
+                organization={customer.organization}
+                canPickOrganization={hasPermission(ctx, 'organizations.view')}
+                linked={customer.linked}
+                candidates={customer.candidates}
+                canLinkOpportunities={hasPermission(ctx, 'opportunities.view')}
+                labels={{
+                  organization: labels.organization.singular,
+                  opportunity: labels.opportunity.singular,
+                  opportunities: labels.opportunity.plural,
+                }}
+              />
+            </div>
           </section>
           <section className="rounded-xl border bg-card p-4">
             <TicketControls
@@ -122,32 +223,38 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
             />
           </section>
           <section className="rounded-xl border bg-card p-4 text-sm">
-            <h2 className="font-medium">Response target</h2>
-            <dl className="mt-2 flex flex-col gap-1.5 text-muted-foreground">
-              <div className="flex justify-between gap-2">
-                <dt>First reply due</dt>
-                <dd className={cn('text-right', overdue && 'font-medium text-destructive-text')}>
-                  {formatDateTime(ctx, ticket.responseDueAt)}
+            <h2 className="font-medium">Response targets</h2>
+            <dl className="mt-2 flex flex-col gap-2 text-muted-foreground">
+              <div className="flex flex-col gap-1">
+                <dt className="flex items-center justify-between gap-2">
+                  First reply
+                  <SlaBadge target={targetProps(first)} serverNow={serverNow} />
+                </dt>
+                <dd>
+                  {ticket.firstResponseAt
+                    ? `Sent ${formatDateTime(ctx, ticket.firstResponseAt)}`
+                    : `Due ${formatDateTime(ctx, ticket.responseDueAt)}`}
                 </dd>
               </div>
-              <div className="flex justify-between gap-2">
-                <dt>First reply sent</dt>
-                <dd className="text-right">
-                  {ticket.firstResponseAt ? formatDateTime(ctx, ticket.firstResponseAt) : 'Not yet'}
-                </dd>
-              </div>
-              {ticket.solvedAt && (
-                <div className="flex justify-between gap-2">
-                  <dt>Solved</dt>
-                  <dd className="text-right">{formatDateTime(ctx, ticket.solvedAt)}</dd>
+              {ticket.resolutionDueAt && (
+                <div className="flex flex-col gap-1">
+                  <dt className="flex items-center justify-between gap-2">
+                    Resolution
+                    <SlaBadge target={targetProps(resolve)} serverNow={serverNow} />
+                  </dt>
+                  <dd>
+                    {ticket.solvedAt && ['solved', 'closed'].includes(ticket.status)
+                      ? `Solved ${formatDateTime(ctx, ticket.solvedAt)}`
+                      : ticket.slaPausedAt
+                        ? 'Paused while waiting on the customer'
+                        : `Due ${formatDateTime(ctx, ticket.resolutionDueAt)}`}
+                  </dd>
                 </div>
               )}
             </dl>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {PRIORITY_LABELS[ticket.priority]} priority aims for a first reply within{' '}
-              {RESPONSE_HOURS[ticket.priority]}{' '}
-              {RESPONSE_HOURS[ticket.priority] === 1 ? 'hour' : 'hours'} of the ticket being
-              created.
+            <p className="mt-3 text-xs text-muted-foreground">
+              {PRIORITY_LABELS[ticket.priority]} priority. {hoursText} The resolution clock stops
+              while the ticket is pending the customer.
             </p>
           </section>
         </aside>

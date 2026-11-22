@@ -15,6 +15,7 @@ import { consumeRateLimit } from '@/server/rate-limit';
 
 import { openCredentials, sealCredentials, usableToken, type Credentials } from './credentials';
 import {
+  afterInboundMessage,
   linkConversationSender,
   recordConversation,
   recordImportedConversation,
@@ -119,7 +120,12 @@ const refOf = (account: LiveAccount) => ({
 export async function ingestMetaEvents(events: MetaMessageEvent[]): Promise<number> {
   let stored = 0;
   const media: string[] = [];
-  const named: { account: LiveAccount; conversationId: string; participantId: string }[] = [];
+  const named: {
+    account: LiveAccount;
+    conversationId: string;
+    participantId: string;
+    inbound: boolean;
+  }[] = [];
   for (const event of events) {
     const account = await liveAccountFor(event.platform, event.accountExternalId);
     if (!account) continue;
@@ -137,16 +143,32 @@ export async function ingestMetaEvents(events: MetaMessageEvent[]): Promise<numb
         event.message,
         { countUnread: true },
       );
+      // A new conversation is followed up once the customer's name is known (below).
+      if (message && !conversation.created && event.message.direction === 'inbound') {
+        await afterInboundMessage(tx, { ...scope, conversationId: conversation.id });
+      }
       return { conversationId: conversation.id, created: conversation.created, fresh: message };
     });
     if (fresh) stored += 1;
     if (fresh?.hasMedia) media.push(fresh.id);
-    if (created) named.push({ account, conversationId, participantId: event.participantId });
+    if (created) {
+      named.push({
+        account,
+        conversationId,
+        participantId: event.participantId,
+        inbound: event.message.direction === 'inbound',
+      });
+    }
   }
   if (media.length > 0 || named.length > 0) {
     await afterResponse(async () => {
       for (const item of named)
-        await nameNewConversation(item.account, item.conversationId, item.participantId);
+        await nameNewConversation(
+          item.account,
+          item.conversationId,
+          item.participantId,
+          item.inbound,
+        );
       // Meta's attachment links are fetched directly; no token is needed.
       if (media.length > 0) await persistMessageMedia(adminDb(), media, null);
     });
@@ -159,6 +181,7 @@ async function nameNewConversation(
   account: LiveAccount,
   conversationId: string,
   participantId: string,
+  inbound: boolean,
 ) {
   try {
     const credentials = await readCredentialsAsSystem(account.tenantId, account.id);
@@ -180,14 +203,12 @@ async function nameNewConversation(
       await markNeedsReconnect(account.id, error);
     // Otherwise the conversation simply shows without a name or picture.
   }
-  // With the name known (or not), the customer can become a lead if the account is set to.
+  // With the name known (or not), the customer can become a lead and get a ticket, if the
+  // account is set to (ADR-068, ADR-069).
+  const scope = { tenantId: account.tenantId, accountId: account.id, conversationId };
   await adminDb()
     .transaction((tx) =>
-      linkConversationSender(tx, {
-        tenantId: account.tenantId,
-        accountId: account.id,
-        conversationId,
-      }),
+      inbound ? afterInboundMessage(tx, scope) : linkConversationSender(tx, scope),
     )
     .catch((error: unknown) => {
       console.error('[social] could not look up the sender', {
@@ -380,7 +401,7 @@ export async function ingestTikTokNotification(
       if (fresh.hasMedia) withMedia.push(fresh.id);
     }
     if (ordered.some((message) => message.direction === 'inbound') && count > 0) {
-      await linkConversationSender(tx, { ...scope, conversationId: conversation.id });
+      await afterInboundMessage(tx, { ...scope, conversationId: conversation.id });
     }
     return { stored: count, media: withMedia };
   });
@@ -449,7 +470,7 @@ export async function ingestWhatsAppWebhook(webhook: WhatsAppWebhook): Promise<n
         { countUnread: event.message.direction === 'inbound' },
       );
       if (message && event.message.direction === 'inbound') {
-        await linkConversationSender(tx, { ...scope, conversationId: conversation.id });
+        await afterInboundMessage(tx, { ...scope, conversationId: conversation.id });
       }
       return message;
     });

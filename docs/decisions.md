@@ -1660,3 +1660,87 @@ This record covers phase 1: what every channel added later builds on.
 - Meta and TikTok senders carry no phone or email, so for them only the opt-in lead creation
   applies.
 - Saved replies are not soft-deleted: they are tools, not business records.
+
+
+## ADR-069 — Tickets with response targets: SLA policies, business hours, and links to the CRM and inbox
+
+**Context.** Phase 2 of the plan the owner approved on 21 November 2026 (ADR-068). The owner's
+decisions:
+- SLA policies are per business and per priority: Low, Medium, High, Urgent. The stored values
+  stay `low | normal | high | urgent`, and `normal` is shown as Medium.
+- Each policy has a first-response target and a resolution target, counted in business hours.
+- The clock pauses while a ticket is pending the customer, **for resolution only** (owner's
+  answer).
+- A background job warns about tickets at risk and breached, and live badges show On track, At
+  risk or Breached.
+- Any conversation can become a ticket, linked to its contact, organization and open
+  opportunities.
+
+Before this, ADR-037 had first-reply targets in clock hours only, no resolution target, no
+escalation, and a `tickets` table whose whole row `authenticated` could update.
+
+**Decision.**
+1. *All SLA time lives in the database.*
+   - `app.business_add` and `app.business_minutes_between` count minutes inside a business's
+     opening hours, in its timezone (daylight saving included). They skip its public holidays when
+     asked, reusing the Rosters list (`public_holidays`).
+   - The `tickets_sla` trigger sets every SLA column on insert and on each status, priority or
+     policy change.
+   - So a ticket changed by staff (RLS), by the customer on their ticket page (`public.ts`), or by
+     a channel webhook follows exactly the same rules, and the browser never needs to know the
+     opening hours.
+2. *The clock model.*
+   - Due time = `business_add(created_at, target + paused minutes)`. At risk is the same with
+     `at_risk_percent` of the target.
+   - `pending`, `solved` and `closed` stop the resolution clock. Leaving them adds the counted
+     standing time and moves the resolution times on. A ticket solved and reopened therefore
+     resumes with the time it had left.
+   - The first-response clock never pauses. It is met by the first reply, which the trigger
+     records once, at the moment it happens, so it cannot be back-dated.
+   - Changing the priority or policy recalculates everything and lifts a breach whose new time is
+     still ahead.
+3. *Nobody types SLA times.* Sessions lose update on `tickets` and get it back column by column,
+   without the SLA columns. This closes the 0040/0054 grant that let anyone with `tickets.work`
+   rewrite the whole row through the API.
+4. *Policies.*
+   - Every business gets "Standard": first replies as ADR-037 had them, and resolutions in 4 h,
+     1 day, 3 days and 7 days, around the clock. It is created in migration `0078` and at
+     provisioning.
+   - Helpdesk → Response targets (`tickets.manage`) edits the targets, the at-risk point
+     (default 75%), an escalation person and the business hours (several spans a day allowed).
+   - Saving re-applies the policy to the tickets still being worked.
+   - The schema allows several policies; one default is used for now.
+5. *The sweep* (`app.sla_sweep`, pg_cron every 5 minutes, ADR-011):
+   - It marks targets that are past due and sends in-app notices.
+   - Recipients: the assignee; on a breach, also the policy's escalation person; when neither
+     applies, everyone with `tickets.manage`.
+   - A notice names the ticket number and the target only, and lands once per ticket and target
+     (dedupe key). Paused targets are skipped.
+   - Badges do not depend on the sweep: the server stores the at-risk and due instants, and the
+     browser compares them with its clock every 30 seconds.
+6. *The CRM and the inbox.*
+   - Tickets gain `organization_id`, `conversation_id` and `ticket_opportunities`. These are
+     filled from the contact's primary organization and open opportunities, within what the
+     creator may see.
+   - `contact_id` finally gets its composite foreign key (`0077` clears any orphans first).
+   - A conversation becomes a ticket from its details panel (`tickets.work` + `social.view`). One
+     ticket follows a conversation at a time: asking again returns the open one.
+   - Replies on such a ticket go to the customer on the channel through `replyToConversation`,
+     with its permission and reply-window checks, and live in the conversation; no email is sent.
+   - A customer writing again reopens a ticket that was pending or solved. Each account can also
+     open a ticket for every new conversation (off by default).
+   - That follow-up runs in a savepoint after the message is stored, so it can never lose the
+     message.
+7. The queue gains an **At risk** view and sorts by the soonest running due time.
+
+**Consequences.**
+- Hosted Supabase needs `pg_cron` enabled; the migration creates it where available. Without
+  it, badges still work but nobody is notified.
+- Public holidays are edited in Rosters settings. A business without the Rosters feature has
+  none to skip.
+- Policy changes apply to open tickets at once, which can turn some At risk or Breached
+  immediately.
+- Only one policy is chosen automatically (the default). Rules by channel or category are a
+  later step.
+- Notices are in-app only. Emailing them needs the notification email path, which runs from the
+  application rather than the database.

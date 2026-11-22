@@ -51,6 +51,8 @@ export function ConversationDetails(props: {
     /** Contacts sharing the customer's number, when more than one did. */
     suggestions: { id: string; name: string }[];
   };
+  /** The helpdesk tickets for this conversation (ADR-069); empty for people who cannot work them. */
+  ticket?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -119,6 +121,8 @@ export function ConversationDetails(props: {
           )}
         </Section>
       )}
+
+      {props.ticket && <Section title="Helpdesk">{props.ticket}</Section>}
 
       {props.canReply && (
         <>

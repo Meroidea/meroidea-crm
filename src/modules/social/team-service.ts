@@ -90,6 +90,9 @@ export async function setAccountSettings(
     const after = {
       createLeadForUnknown: input.createLeadForUnknown,
       leadSourceId: input.leadSourceId,
+      // Left out: kept as they are, so changing one setting never resets another.
+      autoTicket: input.autoTicket ?? before.autoTicket,
+      autoTicketPriority: input.autoTicketPriority ?? before.autoTicketPriority,
     };
     try {
       await tx.execute(
@@ -112,6 +115,8 @@ export async function setAccountSettings(
       changes: {
         createLeadForUnknown: [before.createLeadForUnknown, after.createLeadForUnknown],
         leadSourceId: [before.leadSourceId, after.leadSourceId],
+        autoTicket: [before.autoTicket, after.autoTicket],
+        autoTicketPriority: [before.autoTicketPriority, after.autoTicketPriority],
       },
     });
   });
