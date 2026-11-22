@@ -216,6 +216,25 @@ change as touching sensitive personal data.
     overrides `contact_match = 'manual'`. A lead made from a channel stores the conversation id,
     never the message.
 
+## Email inbox (ADR-070)
+
+- `/api/webhooks/resend` reads nothing before `verifyResendSignature` passes on the raw bytes
+  (Svix: `id.timestamp.body`, HMAC-SHA256 with the key after `whsec_`, five minutes). Keep the
+  body cap and the 500-on-failure (Resend retries); storing is idempotent on Resend's email id.
+- Only `src/modules/social/webhooks.ts` writes received email, `email_message_id` and
+  `email_meta`, through `adminDb` after the signature check. Never grant those columns to
+  sessions: `email_meta.verified` decides whether a sender may be linked to a contact.
+- An email's From address can be forged. Link a sender to a contact, or make them a lead, only
+  when Resend reports DKIM or DMARC `pass`; otherwise only offer the match.
+- A message joins a thread by its reply token or Message-ID **and** only when it comes from that
+  thread's customer. Never relax that, or anyone could write into another customer's thread.
+- Received HTML is reduced to text and shown as text; never render an email's HTML. Outgoing
+  bodies are escaped (`emailHtml`).
+- Reply tokens are 24 random characters from `newReplyToken`; never derive them from ids.
+- Attachment links are fetched only through `media.ts`, from `inbound-cdn.resend.com`; a file
+  from anywhere else is refused.
+- Nothing an email says goes into logs, audit rows or error messages.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

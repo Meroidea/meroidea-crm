@@ -1,4 +1,4 @@
-export const SOCIAL_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'whatsapp'] as const;
+export const SOCIAL_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'whatsapp', 'email'] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 /**
@@ -21,6 +21,9 @@ export type ProviderMessage = {
   sentAt: Date;
   /** A business message's state when the provider reports it (WhatsApp history); else sent. */
   status?: 'sent' | 'delivered' | 'read' | 'failed';
+  /** Email (ADR-070): its RFC Message-ID and what its headers said. */
+  emailMessageId?: string | null;
+  emailMeta?: Record<string, unknown> | null;
 };
 
 /** A customer's thread as a provider reports it. */

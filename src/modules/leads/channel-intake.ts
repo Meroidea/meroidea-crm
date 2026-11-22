@@ -70,7 +70,15 @@ export function senderNames(
 export async function matchChannelSender(
   tx: Tx,
   sender: ChannelSender,
-  options: { createLeadForUnknown: boolean; leadSourceId: string | null },
+  options: {
+    createLeadForUnknown: boolean;
+    leadSourceId: string | null;
+    /**
+     * Whether the sender is who they say (an email that passed DKIM or DMARC, ADR-070). An
+     * untrusted single match is offered to staff instead of being linked.
+     */
+    trusted?: boolean;
+  },
 ): Promise<ChannelMatch> {
   const [tenant] = await tx
     .select({
@@ -104,8 +112,10 @@ export async function matchChannelSender(
         ),
       )
       .limit(2);
-    if (found.length === 1) return { kind: 'auto', contactId: found[0]!.id };
-    if (found.length > 1) return { kind: 'suggested', contactId: null };
+    if (found.length === 1 && options.trusted !== false) {
+      return { kind: 'auto', contactId: found[0]!.id };
+    }
+    if (found.length > 0) return { kind: 'suggested', contactId: null };
   }
   if (!options.createLeadForUnknown) return { kind: 'none', contactId: null };
 

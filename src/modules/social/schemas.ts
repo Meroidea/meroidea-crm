@@ -253,3 +253,18 @@ export const cannedResponseSchema = z.object({
 export type CannedResponseInput = z.output<typeof cannedResponseSchema>;
 
 export const cannedResponseIdSchema = z.object({ id: z.uuid() });
+
+/** A new email inbox (ADR-070): its name and the address's local part at the platform's domain. */
+export const emailInboxSchema = z.object({
+  name: z.string().trim().min(2, 'Give it a name').max(80, 'Keep the name under 80 characters'),
+  localPart: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      /^[a-z0-9](?:[a-z0-9.-]{1,38}[a-z0-9])$/,
+      'Use 3 to 40 letters, numbers, dots or dashes, starting and ending with a letter or number',
+    ),
+  createLeadForUnknown: z.boolean().default(true),
+});
+export type EmailInboxInput = z.output<typeof emailInboxSchema>;

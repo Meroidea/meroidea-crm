@@ -1744,3 +1744,79 @@ escalation, and a `tickets` table whose whole row `authenticated` could update.
   later step.
 - Notices are in-app only. Emailing them needs the notification email path, which runs from the
   application rather than the database.
+
+
+## ADR-070 — Email inbox: Resend inbound and outbound, threads, and its own feature
+
+**Context.** Phase 3 of the plan the owner approved on 21 November 2026 (ADR-068), with the
+owner's choices: Resend rather than IMAP/SMTP, and threading that keeps `Message-ID` and
+`In-Reply-To`. Resend's documentation, read on 22 November 2026, says:
+- the `email.received` webhook carries metadata only;
+- the words, headers, `message_id` and an `authentication` result (SPF, DKIM, DMARC as `pass |
+  fail | gray | …`) come from `GET /emails/receiving/{id}`, and attachments' short-lived
+  `download_url`s from `GET /emails/receiving/{id}/attachments`;
+- a receiving domain gets mail for any address at it;
+- `POST /emails` takes custom `headers`, `reply_to`, attachments by `path`, and an
+  `Idempotency-Key`;
+- whether a custom Message-ID is honoured is not documented, but the RFC Message-ID arrives as
+  `data.message_id` on `email.sent` and later events;
+- webhooks are signed the Svix way.
+
+Two details were not documented: whether `headers` holds `In-Reply-To` and `References`, and
+whether plus-addressing works.
+
+**Decision.**
+1. *A fifth inbox channel, not a new table set.*
+   - `social_accounts.platform = 'email'`; the account is the business's address at the
+     platform's `INBOX_EMAIL_DOMAIN`, created from Connected accounts (`social.manage`).
+   - Addresses are unique while live, and the platform's own and reply addresses are reserved.
+   - Email conversations are threads (`participant_id = email:<uuid>`) with `participant_email`,
+     `subject` and a secret `reply_token`.
+   - Messages carry `email_message_id` and `email_meta`.
+   - Notes, saved replies, presence, assignment, snooze, search, tickets and SLA all apply
+     unchanged.
+2. *Threading that does not depend on undocumented headers.*
+   - Every reply's Reply-To is the thread's own address `r-<24 random characters>@<domain>`. The
+     catch-all receiving domain delivers it, and a message sent to it joins its thread.
+   - `In-Reply-To` and `References` are used as well when Resend passes them. Our replies' real
+     Message-IDs are recorded from `email.sent`, and replies set `In-Reply-To` and `References`
+     so they thread in the customer's mail program.
+   - A message joins a thread only from that thread's customer address. Anyone else starts their
+     own thread.
+3. *The sender is trusted only when authenticated.*
+   - A From address can be forged. A sender is linked to a contact or made a lead only when
+     Resend reports DKIM or DMARC `pass`.
+   - Otherwise the match is only offered (`contact_match = 'suggested'`) and the message shows
+     "Sender not verified".
+   - Machine mail (Auto-Submitted, Precedence, List-Id and similar, mailer-daemon and no-reply
+     senders) never makes a lead or opens a ticket.
+4. *Words, not HTML.*
+   - The text part is kept, or HTML reduced to text, without the quoted history, up to 20,000
+     characters, and always shown as text.
+   - Replies go as text plus an escaped HTML copy.
+   - Attachments are copied through the media pipeline from Resend's attachment host, at most ten
+     per email. Replies can attach one image, PDF or Office file up to 10 MB, sent by a ten-minute
+     link.
+5. *The webhook* `/api/webhooks/resend`:
+   - It verifies the Svix signature on the raw body (5-minute tolerance, any `v1` signature in the
+     list), checked against Svix's published test vector.
+   - It is idempotent on Resend's email id, rate-limits 60 emails an hour per sender per inbox and
+     2,000 per inbox, and answers 500 on failure so Resend retries.
+   - Delivered, bounced, complained, failed and suppressed events move a reply's status, never
+     backwards.
+6. *Its own feature, shared permissions.*
+   - The new feature is `email_channel`. The `social` permission family now needs the group
+     `inbox` (`social` or `email_channel`), in `app.permission_feature`, `app.feature_enabled`,
+     `app.my_context` and `src/lib/features.ts` (`FEATURE_GROUPS`).
+   - Restrictive `inbox_channel` policies hide each account's rows while its own channel's
+     feature is off. A business can have email without social media, or the other way round.
+   - The menu says **Inbox**.
+
+**Consequences.**
+- The platform owner sets up a Resend receiving and sending subdomain, its MX, SPF and DKIM
+  records, and a webhook with the events above (docs/email-inbox.md).
+- Replies come from the inbox address, not the business's own domain (later).
+- A forwarded email whose DKIM did not survive forwarding stays "not verified" until a person
+  links it.
+- No new email to someone who has not written first; the received HTML is not kept.
+- Rate-limited mail is dropped, not queued.

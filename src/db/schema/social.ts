@@ -30,11 +30,11 @@ export const socialAccounts = pgTable(
     tenantId: uuid()
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
-    /** facebook | instagram | tiktok | whatsapp */
+    /** facebook | instagram | tiktok | whatsapp | email (ADR-070) */
     platform: text().notNull(),
     /**
-     * The provider's id: Page id, Instagram account id, TikTok business id (open_id), or the
-     * WhatsApp business phone number's id.
+     * The provider's id: Page id, Instagram account id, TikTok business id (open_id), the
+     * WhatsApp business phone number's id, or an email inbox's address (lower case).
      */
     externalId: text().notNull(),
     name: text().notNull(),
@@ -83,7 +83,7 @@ export const socialAccounts = pgTable(
     index('social_accounts_tenant_idx').on(table.tenantId, table.status),
     check(
       'social_accounts_platform_check',
-      sql`${table.platform} in ('facebook', 'instagram', 'tiktok', 'whatsapp')`,
+      sql`${table.platform} in ('facebook', 'instagram', 'tiktok', 'whatsapp', 'email')`,
     ),
     check(
       'social_accounts_history_sync_check',
@@ -145,6 +145,18 @@ export const socialConversations = pgTable(
     participantUsername: text(),
     /** WhatsApp: the customer's phone number in international form, digits only. */
     participantPhone: text(),
+    /**
+     * Email (ADR-070): the customer's address, lower case. An email conversation is one thread,
+     * so `participantId` is `email:<random>` and a customer can have several.
+     */
+    participantEmail: text(),
+    /** Email: the thread's subject, as the customer first wrote it. */
+    subject: text(),
+    /**
+     * Email: the secret in this thread's own reply address (`r-<token>@<inbox domain>`), so a
+     * customer's reply finds its thread whatever their mail program does with the headers.
+     */
+    replyToken: text(),
     /** The customer's picture, saved to the private `social-media` bucket (provider links expire). */
     participantAvatarPath: text(),
     /** The CRM contact this customer is, once someone links them or a match is found. */
@@ -189,6 +201,12 @@ export const socialConversations = pgTable(
     }),
     index('social_conversations_inbox_idx').on(table.tenantId, table.lastMessageAt, table.id),
     index('social_conversations_assignee_idx').on(table.tenantId, table.assignedUserId),
+    uniqueIndex('social_conversations_reply_token_key')
+      .on(table.replyToken)
+      .where(sql`${table.replyToken} is not null`),
+    index('social_conversations_email_idx')
+      .on(table.tenantId, table.participantEmail)
+      .where(sql`${table.participantEmail} is not null`),
     check('social_conversations_status_check', sql`${table.status} in ('open', 'snoozed', 'done')`),
     check(
       'social_conversations_contact_match_check',
@@ -239,10 +257,23 @@ export const socialMessages = pgTable(
     /** When the customer's app received and read a reply, from the provider's receipts. */
     deliveredAt: timestamp({ withTimezone: true }),
     readAt: timestamp({ withTimezone: true }),
+    /**
+     * Email (ADR-070): the message's RFC Message-ID, for threading replies. For a reply sent from
+     * Meroidea it arrives with the provider's "sent" event.
+     */
+    emailMessageId: text(),
+    /**
+     * Email: `{ from, fromName, to: [], cc: [], subject, verified, inReplyTo, references: [] }`;
+     * `verified` is whether the sender passed DKIM or DMARC when it was received.
+     */
+    emailMeta: jsonb(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique('social_messages_tenant_id_id_key').on(table.tenantId, table.id),
+    uniqueIndex('social_messages_email_message_key')
+      .on(table.accountId, table.emailMessageId)
+      .where(sql`${table.emailMessageId} is not null`),
     uniqueIndex('social_messages_external_key').on(table.accountId, table.externalId),
     foreignKey({
       name: 'social_messages_conversation_fkey',

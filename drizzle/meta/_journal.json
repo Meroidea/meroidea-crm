@@ -554,6 +554,13 @@
       "when": 1795305069865,
       "tag": "0078_helpdesk_sla",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1795307669628,
+      "tag": "0079_email_inbox",
+      "breakpoints": true
     }
   ]
 }

@@ -125,16 +125,23 @@ export function SuggestedContacts({
   conversationId,
   contactLabel,
   suggestions,
+  matchedBy = 'phone',
 }: {
   conversationId: string;
   contactLabel: string;
   suggestions: { id: string; name: string }[];
+  /** What matched: a WhatsApp number, or an email address that failed the sender checks. */
+  matchedBy?: 'phone' | 'email';
 }) {
   const { run, error, isPending } = useActionRunner();
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-dashed p-2 text-sm">
       <p className="text-xs text-muted-foreground">
-        More than one {contactLabel.toLowerCase()} has this number. Which one is it?
+        {matchedBy === 'email'
+          ? suggestions.length === 1
+            ? `A ${contactLabel.toLowerCase()} has this email address, but the email did not pass the sender checks, so it may not be them. Link it only if you are sure.`
+            : `More than one ${contactLabel.toLowerCase()} has this email address. Which one is it?`
+          : `More than one ${contactLabel.toLowerCase()} has this number. Which one is it?`}
       </p>
       <ul className="flex flex-col gap-1">
         {suggestions.map((suggestion) => (

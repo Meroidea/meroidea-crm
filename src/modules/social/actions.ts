@@ -18,6 +18,7 @@ import {
   connectWhatsAppSchema,
   conversationIdSchema,
   conversationStatusSchema,
+  emailInboxSchema,
   createTemplateSchema,
   linkContactSchema,
   mediaReplySchema,
@@ -30,6 +31,7 @@ import {
   templateIdSchema,
   templateReplySchema,
 } from './schemas';
+import * as email from './email-service';
 import * as social from './service';
 import * as team from './team-service';
 import * as whatsapp from './whatsapp-service';
@@ -171,4 +173,10 @@ export const saveCannedResponseAction = authedAction(
 export const deleteCannedResponseAction = authedAction(
   { permission: 'social.reply', input: cannedResponseIdSchema, revalidate: paths },
   (ctx, input) => team.deleteCannedResponse(ctx, input.id),
+);
+
+/** Creates an email inbox for the business (ADR-070). */
+export const createEmailInboxAction = authedAction(
+  { permission: 'social.manage', input: emailInboxSchema, revalidate: paths },
+  (ctx, input) => email.createEmailInbox(ctx, input),
 );

@@ -392,7 +392,7 @@ export async function createTicketFromConversation(
         number,
         subject: input.subject,
         requesterName: (contact?.name || conversation.customerName).slice(0, 120),
-        requesterEmail: contact?.email?.toLowerCase() ?? null,
+        requesterEmail: contact?.email?.toLowerCase() ?? conversation.customerEmail,
         contactId: conversation.contactId,
         organizationId: context.organizationId,
         conversationId: conversation.id,

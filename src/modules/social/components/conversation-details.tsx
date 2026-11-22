@@ -29,9 +29,12 @@ export function ConversationDetails(props: {
   platform: Parameters<typeof PlatformBadge>[0]['platform'];
   handle: string | null;
   phone: string | null;
+  /** Email (ADR-070): the customer's address. */
+  email?: string | null;
   accountName: string;
   accountBadge: string | null;
-  window: { normal: string | null; human: string | null };
+  /** The platform's reply windows; null for email, which has none (ADR-070). */
+  window: { normal: string | null; human: string | null } | null;
   status: string;
   snoozedLabel: string | null;
   snoozeOptions: { label: string; until: string }[];
@@ -74,6 +77,11 @@ export function ConversationDetails(props: {
             </div>
           </div>
         </div>
+        {props.email && (
+          <p className="flex items-center gap-1.5 truncate text-sm" data-sensitive>
+            <Mail aria-hidden className="size-3.5 shrink-0 text-muted-foreground" /> {props.email}
+          </p>
+        )}
         {props.phone && (
           <p className="flex items-center gap-1.5 text-sm" data-sensitive>
             <Phone aria-hidden className="size-3.5 text-muted-foreground" /> +{props.phone}
@@ -83,7 +91,9 @@ export function ConversationDetails(props: {
           Writing to {props.accountName}{' '}
           {props.accountBadge && <Badge variant="destructive">{props.accountBadge}</Badge>}
         </p>
-        <ReplyWindowBadge normalEndsAt={props.window.normal} humanEndsAt={props.window.human} />
+        {props.window && (
+          <ReplyWindowBadge normalEndsAt={props.window.normal} humanEndsAt={props.window.human} />
+        )}
       </Section>
 
       {props.contact.canLink && (
@@ -95,7 +105,9 @@ export function ConversationDetails(props: {
             contactLabel={props.contact.label}
           />
           {props.contact.id && props.contact.match === 'auto' && (
-            <p className="text-xs text-muted-foreground">Found by their number.</p>
+            <p className="text-xs text-muted-foreground">
+              Found by their {props.email ? 'email address' : 'number'}.
+            </p>
           )}
           {props.contact.id && props.contact.match === 'created' && (
             <p className="text-xs text-muted-foreground">
@@ -104,6 +116,7 @@ export function ConversationDetails(props: {
           )}
           {!props.contact.id && props.contact.suggestions.length > 0 && (
             <SuggestedContacts
+              matchedBy={props.email ? 'email' : 'phone'}
               conversationId={props.conversationId}
               contactLabel={props.contact.label}
               suggestions={props.contact.suggestions}

@@ -13,7 +13,9 @@ import {
   ConnectButton,
   DisconnectButton,
 } from '@/modules/social/components/social-tools';
+import { EmailInboxConnect } from '@/modules/social/components/email-inbox-connect';
 import { WhatsAppConnect } from '@/modules/social/components/whatsapp-connect';
+import { inboxDomain } from '@/modules/social/providers/resend';
 import {
   ACCOUNT_STATUS_LABELS,
   HISTORY_SYNC_LABELS,
@@ -45,6 +47,10 @@ export default async function ConnectedAccountsPage({
   const crm = ctx.tenant.features.includes('crm');
   // Tickets for new conversations need the helpdesk (ADR-069).
   const helpdesk = ctx.tenant.features.includes('helpdesk');
+  // Each channel is its own feature (ADR-070): social media, and the email inbox.
+  const socialOn = ctx.tenant.features.includes('social');
+  const emailOn = ctx.tenant.features.includes('email_channel');
+  const domain = inboxDomain();
   const sources = crm
     ? (await getLeadConfig(ctx)).sources
         .filter((source) => source.isActive)
@@ -63,11 +69,11 @@ export default async function ConnectedAccountsPage({
         href="/social"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft aria-hidden className="size-4" /> Social inbox
+        <ArrowLeft aria-hidden className="size-4" /> Inbox
       </Link>
       <PageHeader
         title="Connected accounts"
-        description="The business accounts whose direct messages arrive in your social inbox."
+        description="The email addresses and business accounts whose messages arrive in your inbox."
       />
 
       {error && ERRORS[error] && (
@@ -90,70 +96,100 @@ export default async function ConnectedAccountsPage({
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Facebook and Instagram</CardTitle>
-            <CardDescription>
-              Log in with Facebook or Instagram and choose your Facebook Pages and Instagram
-              professional accounts. Messenger and Instagram Direct messages then arrive here.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {available.meta ? (
-              <ConnectButton provider="meta" label="Connect Facebook or Instagram" />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Not available yet: the platform owner has not finished setting it up.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>WhatsApp</CardTitle>
-            <CardDescription>
-              Connect your business&rsquo;s WhatsApp number through Meta. Customers&rsquo; WhatsApp
-              messages then arrive here, and you can answer them.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {whatsapp ? (
-              <WhatsAppConnect
-                appId={whatsapp.appId}
-                configId={whatsapp.configId}
-                graphVersion={whatsapp.graphVersion}
-              />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Not available yet: the platform owner has not finished setting it up.
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Meta charges your business directly: approved templates, and replies beyond 1,000 a
-              month per number. Add a payment method in Meta Business Suite (Billing &amp;
-              payments), or replies past the free 1,000 are not delivered.
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>TikTok</CardTitle>
-            <CardDescription>
-              Log in with your TikTok business account. It needs to be a Verified Business Account
-              set to accept messages from everyone. Not available for accounts registered in the EU,
-              Switzerland or the UK.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {available.tiktok ? (
-              <ConnectButton provider="tiktok" label="Connect TikTok" />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Not available yet: the platform owner has not finished setting it up.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        {emailOn && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Email</CardTitle>
+              <CardDescription>
+                An address whose emails arrive here, threaded, with replies sent from it. Publish
+                it, or forward your own support address to it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {available.email && domain ? (
+                <EmailInboxConnect
+                  domain={domain}
+                  defaultName={ctx.tenant.name}
+                  defaultLocal={ctx.tenant.slug.slice(0, 40)}
+                  contactLabel={ctx.tenant.labels.contact.singular}
+                  crm={crm}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Not available yet: the platform owner has not finished setting it up.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        {socialOn && (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Facebook and Instagram</CardTitle>
+                <CardDescription>
+                  Log in with Facebook or Instagram and choose your Facebook Pages and Instagram
+                  professional accounts. Messenger and Instagram Direct messages then arrive here.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {available.meta ? (
+                  <ConnectButton provider="meta" label="Connect Facebook or Instagram" />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Not available yet: the platform owner has not finished setting it up.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>WhatsApp</CardTitle>
+                <CardDescription>
+                  Connect your business&rsquo;s WhatsApp number through Meta. Customers&rsquo;
+                  WhatsApp messages then arrive here, and you can answer them.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {whatsapp ? (
+                  <WhatsAppConnect
+                    appId={whatsapp.appId}
+                    configId={whatsapp.configId}
+                    graphVersion={whatsapp.graphVersion}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Not available yet: the platform owner has not finished setting it up.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Meta charges your business directly: approved templates, and replies beyond 1,000
+                  a month per number. Add a payment method in Meta Business Suite (Billing &amp;
+                  payments), or replies past the free 1,000 are not delivered.
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>TikTok</CardTitle>
+                <CardDescription>
+                  Log in with your TikTok business account. It needs to be a Verified Business
+                  Account set to accept messages from everyone. Not available for accounts
+                  registered in the EU, Switzerland or the UK.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {available.tiktok ? (
+                  <ConnectButton provider="tiktok" label="Connect TikTok" />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Not available yet: the platform owner has not finished setting it up.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       <section
@@ -183,7 +219,7 @@ export default async function ConnectedAccountsPage({
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
                     {account.username
-                      ? account.platform === 'whatsapp'
+                      ? account.platform === 'whatsapp' || account.platform === 'email'
                         ? `${account.username} · `
                         : `@${account.username} · `
                       : ''}

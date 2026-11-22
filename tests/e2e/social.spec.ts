@@ -14,7 +14,7 @@ test('an admin opens the social inbox and sees what can be connected', async ({
 
   // The inbox is a feature the platform owner switches on per business (ADR-029, ADR-064).
   await page.goto('/social');
-  await expect(page.getByRole('heading', { level: 1, name: 'Social inbox' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toHaveCount(0);
 
   const consoleContext = await browser.newContext({ storageState: PLATFORM_OWNER_STATE });
   const consolePage = await consoleContext.newPage();
@@ -33,7 +33,7 @@ test('an admin opens the social inbox and sees what can be connected', async ({
 
   await page.goto('/social');
   await page.waitForLoadState('networkidle');
-  await expect(page.getByRole('heading', { level: 1, name: 'Social inbox' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible();
   await expect(page.getByText('No accounts connected yet')).toBeVisible();
   // Search, and the views for one's own and snoozed conversations (ADR-067).
   await expect(page.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();

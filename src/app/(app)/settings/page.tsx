@@ -20,7 +20,7 @@ import { PageHeader } from '@/components/data/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { featureForPermission } from '@/lib/features';
+import { permissionAvailable } from '@/lib/features';
 import { isScoped, PERMISSION_KEYS, ROLE_TEMPLATES } from '@/lib/permissions/catalog';
 import { permissionGroups } from '@/lib/permissions/labels';
 import { CrmSettingsForm } from '@/modules/crm-config/components/crm-settings-form';
@@ -619,10 +619,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
                 <RolesEditor
                   roles={roleRows}
                   groups={permissionGroups(
-                    PERMISSION_KEYS.filter((key) => {
-                      const feature = featureForPermission(key);
-                      return !feature || ctx.tenant.features.includes(feature);
-                    }),
+                    PERMISSION_KEYS.filter((key) => permissionAvailable(key, ctx.tenant.features)),
                     isScoped,
                   )}
                   templates={ROLE_TEMPLATES.map((template) => ({

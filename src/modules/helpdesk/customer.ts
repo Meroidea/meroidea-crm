@@ -97,6 +97,8 @@ export async function ticketForInboundMessage(
     conversationId: string;
     contactId: string | null;
     customerName: string;
+    /** The customer's email address, when the channel gives one (ADR-070). */
+    customerEmail?: string | null;
     channelName: string;
     autoTicket: boolean;
     priority: Priority;
@@ -157,7 +159,7 @@ export async function ticketForInboundMessage(
       // Not what they wrote: the subject names the channel and the customer only.
       subject: `${input.channelName} conversation with ${requesterName}`.slice(0, 160),
       requesterName,
-      requesterEmail: contact?.email?.toLowerCase() ?? null,
+      requesterEmail: contact?.email?.toLowerCase() ?? input.customerEmail ?? null,
       contactId: input.contactId,
       organizationId: context.organizationId,
       conversationId: input.conversationId,

@@ -20,6 +20,7 @@ import { hasPermission, requirePermission, type TenantContext } from '@/server/c
 import { withRls } from '@/server/db/with-rls';
 
 import { metaConfigured } from './providers/meta';
+import { emailInboxConfigured } from './providers/resend';
 import { tiktokConfigured } from './providers/tiktok';
 import { whatsappConfigured } from './providers/whatsapp';
 import type { SocialPlatform } from './providers/types';
@@ -74,6 +75,9 @@ export type InboxRow = {
   participantName: string | null;
   participantUsername: string | null;
   participantPhone: string | null;
+  /** Email (ADR-070): the customer's address and the thread's subject. */
+  participantEmail: string | null;
+  subject: string | null;
   lastMessageAt: Date | null;
   lastMessagePreview: string | null;
   unreadCount: number;
@@ -122,6 +126,8 @@ export async function listConversations(
     // The same expression as the trigram index (0075), or a message in the thread.
     const pattern = likePattern(filters.q);
     where.push(sql`((coalesce(${socialConversations.participantName}, '') || ' ' || coalesce(${socialConversations.participantUsername}, '') || ' ' || coalesce(${socialConversations.participantPhone}, '')) ilike ${pattern}
+      or coalesce(${socialConversations.participantEmail}, '') ilike ${pattern}
+      or coalesce(${socialConversations.subject}, '') ilike ${pattern}
       or exists (select 1 from ${socialMessages} m where m.tenant_id = ${socialConversations.tenantId}
         and m.conversation_id = ${socialConversations.id} and m.body ilike ${pattern}))`);
   }
@@ -140,6 +146,8 @@ export async function listConversations(
         participantName: socialConversations.participantName,
         participantUsername: socialConversations.participantUsername,
         participantPhone: socialConversations.participantPhone,
+        participantEmail: socialConversations.participantEmail,
+        subject: socialConversations.subject,
         lastMessageAt: socialConversations.lastMessageAt,
         lastMessagePreview: socialConversations.lastMessagePreview,
         unreadCount: socialConversations.unreadCount,
@@ -180,6 +188,8 @@ export async function listConversations(
       participantName: row.participantName,
       participantUsername: row.participantUsername,
       participantPhone: row.participantPhone,
+      participantEmail: row.participantEmail,
+      subject: row.subject,
       lastMessageAt: row.lastMessageAt,
       lastMessagePreview: row.lastMessagePreview,
       unreadCount: row.unreadCount,
@@ -227,6 +237,8 @@ export type ThreadMessage = {
   status: string;
   error: string | null;
   sentByName: string | null;
+  /** Email: whether the sender passed DKIM or DMARC, and whether a machine sent it. */
+  emailMeta: { verified?: boolean; automated?: boolean } | null;
 };
 
 /** One conversation with its latest messages, oldest first, for the thread page. */
@@ -271,6 +283,7 @@ export async function getConversation(ctx: TenantContext, id: string) {
         status: socialMessages.status,
         error: socialMessages.error,
         sentByName: repliers.fullName,
+        emailMeta: socialMessages.emailMeta,
       })
       .from(socialMessages)
       .leftJoin(repliers, eq(repliers.id, socialMessages.sentByUserId))
@@ -278,9 +291,10 @@ export async function getConversation(ctx: TenantContext, id: string) {
       .orderBy(desc(socialMessages.sentAt), desc(socialMessages.createdAt))
       .limit(200);
     // Several contacts share the customer's number: offer them, rather than guessing (ADR-068).
+    const { participantPhone, participantEmail } = row.conversation;
     const suggestions =
       row.conversation.contactMatch === 'suggested' &&
-      row.conversation.participantPhone &&
+      (participantPhone || participantEmail) &&
       hasPermission(ctx, 'contacts.view')
         ? await tx
             .select({ id: contacts.id, name: contacts.fullName })
@@ -288,7 +302,9 @@ export async function getConversation(ctx: TenantContext, id: string) {
             .where(
               and(
                 eq(contacts.tenantId, ctx.tenantId),
-                eq(contacts.phoneE164, `+${row.conversation.participantPhone}`),
+                participantPhone
+                  ? eq(contacts.phoneE164, `+${participantPhone}`)
+                  : eq(contacts.emailNormalized, participantEmail!),
                 isNull(contacts.deletedAt),
                 scopeFilter(ctx, 'contacts.view', contacts, contactScope),
               ),
@@ -325,7 +341,7 @@ export type AccountRow = {
 /** The business's connected accounts, and whether each platform is available to connect. */
 export async function listAccounts(ctx: TenantContext): Promise<{
   accounts: AccountRow[];
-  available: { meta: boolean; tiktok: boolean; whatsapp: boolean };
+  available: { meta: boolean; tiktok: boolean; whatsapp: boolean; email: boolean };
 }> {
   if (!hasPermission(ctx, 'social.manage')) requirePermission(ctx, 'social.view');
   const accounts = await withRls(ctx, (tx) =>
@@ -362,6 +378,7 @@ export async function listAccounts(ctx: TenantContext): Promise<{
       meta: metaConfigured(),
       tiktok: tiktokConfigured(),
       whatsapp: whatsappConfigured(),
+      email: emailInboxConfigured(),
     },
   };
 }
@@ -605,6 +622,8 @@ export async function getConversationForTicket(
   id: string;
   contactId: string | null;
   customerName: string;
+  /** Email conversations: the customer's address (ADR-070). */
+  customerEmail: string | null;
   platform: SocialPlatform;
   accountName: string;
 } | null> {
@@ -617,6 +636,7 @@ export async function getConversationForTicket(
         participantName: socialConversations.participantName,
         participantUsername: socialConversations.participantUsername,
         participantPhone: socialConversations.participantPhone,
+        participantEmail: socialConversations.participantEmail,
         platform: socialAccounts.platform,
         accountName: socialAccounts.name,
       })
@@ -642,7 +662,8 @@ export async function getConversationForTicket(
         ? `@${row.participantUsername}`
         : row.participantPhone
           ? `+${row.participantPhone}`
-          : `${PLATFORM_LABELS[platform]} customer`),
+          : (row.participantEmail ?? `${PLATFORM_LABELS[platform]} customer`)),
+    customerEmail: row.participantEmail,
     platform,
     accountName: row.accountName,
   };

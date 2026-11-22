@@ -98,6 +98,12 @@ export const FEATURES = [
       'Connect Facebook, Instagram, WhatsApp and TikTok business accounts and answer customers’ messages from one inbox.',
   },
   {
+    key: 'email_channel',
+    label: 'Email inbox',
+    description:
+      'A shared email address whose messages arrive in the inbox, with replies sent from it, threaded, and linked to contacts and tickets.',
+  },
+  {
     key: 'books',
     label: 'Bookkeeping',
     description:
@@ -138,12 +144,40 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
   concerns: 'concerns',
   training: 'training',
   books: 'books',
-  social: 'social',
 };
 
-/** The feature a permission needs, or null for workspace basics such as settings and users. */
-export function featureForPermission(permission: PermissionKey | string): FeatureKey | null {
-  return FAMILY_FEATURE[permission.split('.')[0] ?? ''] ?? null;
+/**
+ * Groups of features of which any one switches a family on (ADR-070): the inbox's permissions
+ * serve social media and email alike, so they count as granted while either is on, and each
+ * account then follows its own channel's feature in the database. The group's name is what
+ * `app.permission_feature` returns for the family, and `app.feature_enabled` understands it.
+ */
+export const FEATURE_GROUPS = {
+  inbox: ['social', 'email_channel'],
+} as const satisfies Record<string, readonly FeatureKey[]>;
+
+const FAMILY_GROUP: Record<string, keyof typeof FEATURE_GROUPS> = { social: 'inbox' };
+
+/**
+ * The feature (or feature group) a permission needs, as the database names it, or null for
+ * workspace basics such as settings and users.
+ */
+export function featureForPermission(
+  permission: PermissionKey | string,
+): FeatureKey | keyof typeof FEATURE_GROUPS | null {
+  const family = permission.split('.')[0] ?? '';
+  return FAMILY_FEATURE[family] ?? FAMILY_GROUP[family] ?? null;
+}
+
+/** Whether a permission is usable with these features switched on. */
+export function permissionAvailable(
+  permission: PermissionKey | string,
+  features: readonly string[],
+): boolean {
+  const needed = featureForPermission(permission);
+  if (!needed) return true;
+  const group = (FEATURE_GROUPS as Record<string, readonly string[]>)[needed];
+  return group ? group.some((feature) => features.includes(feature)) : features.includes(needed);
 }
 
 export const isFeatureKey = (value: string): value is FeatureKey =>

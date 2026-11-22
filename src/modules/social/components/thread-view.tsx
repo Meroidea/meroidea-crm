@@ -46,6 +46,10 @@ export type ThreadItem = {
   status: string;
   error: string | null;
   sentByName: string | null;
+  /** Email (ADR-070): the sender failed DKIM and DMARC, so their address may be forged. */
+  unverified?: boolean;
+  /** Email: sent by a machine (an auto-reply or a bounce). */
+  automated?: boolean;
 };
 
 const STATUS_LABELS: Record<string, { label: string; icon: typeof Check }> = {
@@ -439,6 +443,15 @@ export function ThreadView({
                   <span>{platformLabel} ·</span>
                 )}
                 <span>{message.sentAtLabel}</span>
+                {message.unverified && (
+                  <span
+                    className="rounded border border-warning-border bg-warning/10 px-1 text-warning-text"
+                    title="This email did not pass the sender checks (DKIM or DMARC), so the address it came from may be forged. It is not linked to a contact automatically."
+                  >
+                    Sender not verified
+                  </span>
+                )}
+                {message.automated && <span>· automatic message</span>}
                 {status && (
                   <span className="flex items-center gap-0.5">
                     ·{' '}

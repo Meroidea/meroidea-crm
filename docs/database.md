@@ -1693,6 +1693,29 @@ messages, name, handle and picture.
   `app.social_presence_allowed(realtime.topic())` on the private topic `social-presence:<tenant>`
   (`social.view`, business open). The payload is a user id, a conversation id and a typing flag.
 
+**Email inbox (migration `0079`, ADR-070).**
+- `social_accounts.platform` also allows `email`: `external_id` is the inbox's address (lower case,
+  unique while live like any account), `username` the same. Email accounts have no credentials.
+- `social_conversations` + `participant_email` (lower case), `subject`, `reply_token` (24 lower-case
+  letters and digits, unique where set: the thread's own reply address `r-<token>@<inbox domain>`).
+  An email conversation is one thread, so `participant_id` is `email:<random uuid>`.
+  Index `(tenant_id, participant_email)`.
+- `social_messages` + `email_message_id` (RFC Message-ID; unique per account where set),
+  `email_meta jsonb` (`{from, fromName, to, cc, subject, verified, automated, inReplyTo}`). Both
+  are written only by the privileged webhook path. Sessions have no update grant on them, so an
+  inbound message's sender check cannot be altered.
+- Feature: `email_channel`. The `social` permission family now needs the feature group `inbox`
+  (`social` or `email_channel`):
+  - `app.permission_feature` returns `inbox` for it, and `app.feature_enabled` and
+    `app.my_context` understand the group.
+  - The six inbox tables' `feature_switch` policies use `inbox`.
+- Restrictive `inbox_channel` policies hide each account's rows while its own channel's feature is
+  off:
+  - on `social_accounts` via `app.inbox_platform_enabled(tenant, platform)`;
+  - on credentials, conversations, messages and templates via `app.inbox_account_enabled(account)`.
+- `app.erase_contact_traces` also clears `participant_email`, `subject` and inbound messages'
+  `email_meta`.
+
 ### social_canned_responses
 A saved reply (ADR-068). Shared with the team when `owner_user_id` is empty, else one person's.
 ```sql

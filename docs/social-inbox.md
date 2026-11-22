@@ -1,5 +1,8 @@
 # Social inbox: setting it up
 
+The inbox also takes email, under its own feature: see [email-inbox.md](email-inbox.md)
+(ADR-070). In the app the menu now says **Inbox**.
+
 The social inbox (ADR-064, ADR-066) lets a business connect its Facebook Pages, Instagram
 professional accounts, WhatsApp number and TikTok business account, and read and answer customers'
 messages in Meroidea. It lives under **Marketing** in the menu.

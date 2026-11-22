@@ -23,7 +23,7 @@ export default async function SavedRepliesPage() {
         href="/social"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft aria-hidden className="size-4" /> Social inbox
+        <ArrowLeft aria-hidden className="size-4" /> Inbox
       </Link>
       <PageHeader
         title="Saved replies"

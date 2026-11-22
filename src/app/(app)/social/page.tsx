@@ -10,7 +10,7 @@ import { countUnread, listAccounts, listConversations } from '@/modules/social/q
 import { inboxFiltersSchema } from '@/modules/social/schemas';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
-export const metadata: Metadata = { title: 'Social inbox' };
+export const metadata: Metadata = { title: 'Inbox' };
 
 export default async function SocialInboxPage({ searchParams }: PageProps<'/social'>) {
   const ctx = await requireTenantContext();
@@ -26,8 +26,8 @@ export default async function SocialInboxPage({ searchParams }: PageProps<'/soci
   return (
     <div className="flex w-full max-w-7xl flex-col gap-4">
       <PageHeader
-        title="Social inbox"
-        description="Messages from customers on your connected WhatsApp, Facebook, Instagram and TikTok accounts."
+        title="Inbox"
+        description="Messages from customers on your connected email, WhatsApp, Facebook, Instagram and TikTok accounts."
         actions={
           <>
             <InboxRealtime tenantId={ctx.tenantId} />

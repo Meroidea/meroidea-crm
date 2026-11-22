@@ -145,7 +145,7 @@ export const NAVIGATION: NavGroup[] = [
       {
         href: '/social',
         icon: MessagesSquare,
-        label: { title: 'Social inbox' },
+        label: { title: 'Inbox' },
         permission: 'social.view',
         available: true,
       },

@@ -22,6 +22,13 @@ import { readAccountSettings } from './settings';
  * an import can overlap them.
  */
 
+/**
+ * How far a message's sender can be believed (ADR-070). Platform webhooks identify the customer
+ * themselves; an email's From address is only trusted when it passed DKIM or DMARC.
+ */
+export type SenderTrust = { trusted: boolean; automated: boolean };
+const TRUSTED: SenderTrust = { trusted: true, automated: false };
+
 /** A transaction under RLS, or the privileged client in webhooks.ts; both write the same way. */
 type Db = Pick<Tx, 'insert' | 'update'>;
 type AccountScope = { tenantId: string; accountId: string };
@@ -134,6 +141,8 @@ export async function recordMessage(
         attachments,
         sentAt: message.sentAt,
         status: message.direction === 'inbound' ? 'received' : (message.status ?? 'sent'),
+        emailMessageId: message.emailMessageId ?? null,
+        emailMeta: message.emailMeta ?? null,
       })
       .onConflictDoNothing({ target: [socialMessages.accountId, socialMessages.externalId] })
       .returning({ id: socialMessages.id });
@@ -211,6 +220,7 @@ export async function recordImportedConversation(
 export async function linkConversationSender(
   tx: Tx,
   scope: AccountScope & { conversationId: string },
+  sender: SenderTrust = TRUSTED,
 ): Promise<void> {
   const [row] = await tx
     .select({
@@ -219,6 +229,7 @@ export async function linkConversationSender(
       name: socialConversations.participantName,
       username: socialConversations.participantUsername,
       phone: socialConversations.participantPhone,
+      email: socialConversations.participantEmail,
       platform: socialAccounts.platform,
       settings: socialAccounts.settings,
     })
@@ -246,11 +257,18 @@ export async function linkConversationSender(
       channel: row.platform as SocialPlatform,
       conversationId: scope.conversationId,
       name: row.name ?? row.username,
-      email: null,
+      email: row.email,
       // WhatsApp keeps the number as digits in international form.
       phone: row.phone ? `+${row.phone}` : null,
     },
-    settings,
+    {
+      ...settings,
+      // An email's sender address can be forged: only one that passed DKIM or DMARC is linked
+      // or made a lead; otherwise the match is only offered to staff (ADR-070). A machine's
+      // message (an auto-reply, a bounce) never makes a lead.
+      createLeadForUnknown: settings.createLeadForUnknown && sender.trusted && !sender.automated,
+      trusted: sender.trusted,
+    },
   );
   if (match.kind === 'none') return;
   await tx
@@ -274,11 +292,12 @@ export async function linkConversationSender(
 export async function afterInboundMessage(
   tx: Tx,
   scope: AccountScope & { conversationId: string },
+  sender: SenderTrust = TRUSTED,
 ): Promise<void> {
   // In a savepoint: the customer's message is already stored in this transaction, and a problem
   // here must never undo it (the provider would retry, and in time give up on the message).
   try {
-    await tx.transaction((savepoint) => followUpInbound(savepoint, scope));
+    await tx.transaction((savepoint) => followUpInbound(savepoint, scope, sender));
   } catch (error) {
     console.error('[social] could not follow up a message', {
       name: error instanceof Error ? error.name : typeof error,
@@ -289,14 +308,16 @@ export async function afterInboundMessage(
 async function followUpInbound(
   tx: Tx,
   scope: AccountScope & { conversationId: string },
+  sender: SenderTrust,
 ): Promise<void> {
-  await linkConversationSender(tx, scope);
+  await linkConversationSender(tx, scope, sender);
   const [row] = await tx
     .select({
       contactId: socialConversations.contactId,
       name: socialConversations.participantName,
       username: socialConversations.participantUsername,
       phone: socialConversations.participantPhone,
+      email: socialConversations.participantEmail,
       platform: socialAccounts.platform,
       settings: socialAccounts.settings,
     })
@@ -324,9 +345,15 @@ async function followUpInbound(
     contactId: row.contactId,
     customerName:
       row.name ??
-      (row.username ? `@${row.username}` : row.phone ? `+${row.phone}` : `${channelName} customer`),
+      (row.username
+        ? `@${row.username}`
+        : row.phone
+          ? `+${row.phone}`
+          : (row.email ?? `${channelName} customer`)),
+    customerEmail: row.email,
     channelName,
-    autoTicket: settings.autoTicket,
+    // An auto-reply or bounce never opens a ticket (it still reopens one it answers).
+    autoTicket: settings.autoTicket && !sender.automated,
     priority: settings.autoTicketPriority,
   });
 }

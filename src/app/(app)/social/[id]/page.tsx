@@ -113,12 +113,17 @@ export default async function ConversationPage({
       platform={platform}
       handle={conversation.participantUsername}
       phone={conversation.participantPhone}
+      email={conversation.participantEmail}
       accountName={thread.accountName}
       accountBadge={accountBadge}
-      window={{
-        normal: ends.normal?.toISOString() ?? null,
-        human: ends.human?.toISOString() ?? null,
-      }}
+      window={
+        platform === 'email'
+          ? null
+          : {
+              normal: ends.normal?.toISOString() ?? null,
+              human: ends.human?.toISOString() ?? null,
+            }
+      }
       status={
         snoozed ? 'snoozed' : conversation.status === 'snoozed' ? 'open' : conversation.status
       }
@@ -160,7 +165,7 @@ export default async function ConversationPage({
           href={back}
           className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft aria-hidden className="size-4" /> Social inbox
+          <ArrowLeft aria-hidden className="size-4" /> Inbox
         </Link>
         <div className="flex items-center gap-2">
           <InboxRealtime tenantId={ctx.tenantId} />
@@ -197,6 +202,11 @@ export default async function ConversationPage({
               <h1 className="truncate text-lg font-semibold tracking-tight" data-sensitive>
                 {name}
               </h1>
+              {conversation.subject && (
+                <p className="truncate text-sm font-medium" data-sensitive>
+                  {conversation.subject}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <PlatformBadge platform={platform} />
                 <span>to {thread.accountName}</span>
@@ -205,10 +215,12 @@ export default async function ConversationPage({
                 )}
               </div>
             </div>
-            <ReplyWindowBadge
-              normalEndsAt={ends.normal?.toISOString() ?? null}
-              humanEndsAt={ends.human?.toISOString() ?? null}
-            />
+            {platform !== 'email' && (
+              <ReplyWindowBadge
+                normalEndsAt={ends.normal?.toISOString() ?? null}
+                humanEndsAt={ends.human?.toISOString() ?? null}
+              />
+            )}
           </header>
 
           <ThreadView
@@ -266,14 +278,18 @@ export default async function ConversationPage({
               status: message.status,
               error: message.error,
               sentByName: message.sentByName,
+              unverified: message.direction === 'inbound' && message.emailMeta?.verified === false,
+              automated: message.emailMeta?.automated === true,
             }))}
           />
           <p className={templateOnly ? 'hidden' : 'text-xs text-muted-foreground'}>
-            {platform === 'tiktok'
-              ? 'TikTok allows up to 10 replies within 48 hours of the customer’s last message.'
-              : platform === 'whatsapp'
-                ? 'Free-form replies within 24 hours of the customer’s last message; after that, an approved template. Meta charges for templates and for replies beyond 1,000 a month.'
-                : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
+            {platform === 'email'
+              ? `Replies are emailed from ${thread.accountName} with the subject “Re: ${conversation.subject ?? 'your message'}”, and the customer’s answers come back here.`
+              : platform === 'tiktok'
+                ? 'TikTok allows up to 10 replies within 48 hours of the customer’s last message.'
+                : platform === 'whatsapp'
+                  ? 'Free-form replies within 24 hours of the customer’s last message; after that, an approved template. Meta charges for templates and for replies beyond 1,000 a month.'
+                  : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
           </p>
         </section>
 
