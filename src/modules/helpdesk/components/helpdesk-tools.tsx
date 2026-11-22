@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { ArticlePicker } from '@/modules/kb/components/article-picker';
 import {
   createTicketAction,
   deleteTicketAction,
@@ -259,9 +260,12 @@ export function ReplyBox({
   ticketId,
   customerLink,
   channel = null,
+  articles = false,
 }: {
   ticketId: string;
   customerLink: string;
+  /** Whether help articles can be linked from the reply box (ADR-071). */
+  articles?: boolean;
   /** The inbox channel a ticket from a conversation is answered on (ADR-069), e.g. WhatsApp. */
   channel?: string | null;
 }) {
@@ -332,6 +336,14 @@ export function ReplyBox({
         <Button type="submit" disabled={isPending}>
           <Send aria-hidden /> {mode === 'reply' ? 'Send reply' : 'Add note'}
         </Button>
+        {articles && mode === 'reply' && (
+          <ArticlePicker
+            target={{ ticketId }}
+            onInsert={(text) =>
+              setBody((current) => (current.trim() ? `${current.trimEnd()}\n${text}` : text))
+            }
+          />
+        )}
         {mode === 'reply' && (
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             and set to

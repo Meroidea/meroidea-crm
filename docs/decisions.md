@@ -1820,3 +1820,54 @@ whether plus-addressing works.
   links it.
 - No new email to someone who has not written first; the received HTML is not kept.
 - Rate-limited mail is dropped, not queued.
+
+
+## ADR-071 — Knowledge base: a public help portal, Markdown articles, and reads by known contacts
+
+**Context.** Phase 4 of the plan the owner approved on 21 November 2026 (ADR-068). The owner
+approved `react-markdown` for article text. Custom domains wait. As noted in the plan, an
+anonymous visitor cannot be tied to a contact without tracking cookies. So a contact's reads
+come only from links sent to them.
+
+**Decision.**
+1. *Feature and permission.*
+   - The new feature `knowledge_base` brings the permission `kb.manage` (Admin and Manager).
+   - People who answer customers (`social.reply`, `tickets.work`) can find **published** articles
+     and link them from replies. RLS keeps drafts to editors too.
+2. *Articles.*
+   - Markdown, with a title, summary, category and an address made from the title, unique per
+     business. The editor has Write and Preview tabs.
+   - Postgres full-text search on a generated `tsvector` (`simple` configuration, so it works in
+     any language) plus title matching. No search engine, as the roadmap requires.
+   - Read counts and feedback tallies are written by the public module only; editors cannot
+     change them (column grants).
+3. *Safe rendering.*
+   - One `Markdown` component renders articles, with react-markdown's `skipHtml` and its URL
+     filter.
+   - Links are `rel="noopener noreferrer nofollow ugc"`; pictures load over https only and send no
+     referrer.
+   - Unit tests render hostile Markdown (script tags, `onerror`, `javascript:` links) and check
+     nothing executable survives.
+4. *The portal* `/help/<business slug>`:
+   - It is closed until the business opens it. It serves only an open business with the feature on.
+   - Pages: a home page with search and categories, article pages with title, description,
+     canonical and Open Graph metadata, and an XML sitemap at `/help/<slug>/sitemap.xml`.
+   - "Was this helpful?" goes to `/api/help/<slug>/feedback`, with a honeypot, size cap, Zod and a
+     per-sender limit. A reason is kept only with a "no".
+5. *Reads by known contacts.*
+   - An agent inserts an article from the reply box (inbox or ticket). When the conversation or
+     ticket has a contact, the link carries a random 32-character token; only its sha256 is stored,
+     with the contact, the source and a 365-day expiry.
+   - The article page reports the read from the browser to `/api/help/<slug>/view`, then removes
+     the token from the address bar. The page sends no referrer.
+   - A read counts once per link per day, only when the token, the business and the article all
+     match.
+   - Reads show on the contact's timeline ("Read the help article …") and on their tickets.
+   - Erasing the person deletes their links and reads.
+
+**Consequences.**
+- Mail security scanners that run scripts can still register a "read". The record means "the
+  link was opened", not certainly by the person.
+- Anonymous portal reads are counted only in totals, rate-limited per visitor.
+- Not built: custom domains, article versions, several languages per article, and pictures
+  uploaded to Meroidea (articles link pictures hosted elsewhere, over https).

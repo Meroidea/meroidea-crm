@@ -73,6 +73,9 @@ const eslintConfig = defineConfig([
       'src/modules/social/webhooks.ts',
       // Re-sealing account tokens onto a new key with the payroll numbers (ADR-040, ADR-064).
       'src/modules/social/key-rotation.ts',
+      // The public help portal: no session; starts from the business's slug, reads published
+      // articles and writes only read counts, feedback and a linked customer's read (ADR-071).
+      'src/modules/kb/public.ts',
     ],
     rules: { 'no-restricted-imports': 'off' },
   },

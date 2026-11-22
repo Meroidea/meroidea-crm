@@ -1,5 +1,6 @@
 import {
   ArrowRightLeft,
+  BookOpen,
   CheckCircle2,
   GitMerge,
   Inbox,
@@ -47,6 +48,7 @@ const ICONS: Record<string, LucideIcon> = {
   enquiry: Inbox,
   field_changed: Pencil,
   conversation: MessagesSquare,
+  kb_viewed: BookOpen,
 };
 
 const INTERACTIONS = new Set(['call', 'email', 'meeting', 'message', 'note']);
@@ -153,7 +155,7 @@ export function Timeline({
                   href={item.href}
                   className="mt-0.5 inline-block text-xs text-primary underline-offset-4 hover:underline"
                 >
-                  Open the conversation
+                  {item.hrefLabel ?? 'Open the conversation'}
                 </Link>
               )}
             </div>

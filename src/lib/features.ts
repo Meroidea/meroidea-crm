@@ -98,6 +98,12 @@ export const FEATURES = [
       'Connect Facebook, Instagram, WhatsApp and TikTok business accounts and answer customers’ messages from one inbox.',
   },
   {
+    key: 'knowledge_base',
+    label: 'Knowledge base',
+    description:
+      'A public help portal of articles, with search and “Was this helpful?”, and links to articles sent from replies.',
+  },
+  {
     key: 'email_channel',
     label: 'Email inbox',
     description:
@@ -144,6 +150,7 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
   concerns: 'concerns',
   training: 'training',
   books: 'books',
+  kb: 'knowledge_base',
 };
 
 /**

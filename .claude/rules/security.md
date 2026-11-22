@@ -235,6 +235,22 @@ change as touching sensitive personal data.
   from anywhere else is refused.
 - Nothing an email says goes into logs, audit rows or error messages.
 
+## Knowledge base (ADR-071)
+
+- `src/modules/kb/public.ts` is the only knowledge base code that may use `adminDb`. It starts
+  from the business's slug and serves only an open business with the feature on, an open portal,
+  and published, live articles. It never takes a business, article or contact id from a visitor.
+- Article Markdown is rendered only through `Markdown` (`skipHtml`, react-markdown's URL filter,
+  https-only pictures without a referrer). Never add `rehype-raw` or render an article's HTML.
+- Drafts are for `kb.manage` only, in RLS as well as in queries. Never widen `kb_articles_read`.
+- A tracked link carries a random token; only its sha256 is stored. The token never names a person
+  or record, and the page drops it from the address bar after reporting the read.
+- A linked read counts only when the token, the business and the article all match and the link is
+  live. Reads are reported from the browser, so mail scanners that do not run scripts are not
+  counted; they can still count where they do.
+- The portal's public routes keep their size caps, Zod parsing, honeypot and per-sender limits.
+- Erasing a person deletes their `kb_article_views` and `kb_article_links`.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

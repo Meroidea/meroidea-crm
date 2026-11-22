@@ -360,9 +360,10 @@ export async function listAccounts(ctx: TenantContext): Promise<{
         historySync: socialAccounts.historySync,
         historyProgress: socialAccounts.historyProgress,
         settings: socialAccounts.settings,
-        conversations: sql<number>`(select count(*)::int from ${socialConversations}
-          where ${socialConversations.tenantId} = ${socialAccounts.tenantId}
-            and ${socialConversations.accountId} = ${socialAccounts.id})`,
+        // Written out in full: in a one-table select Drizzle leaves columns unqualified, which
+        // inside a subquery would bind to the inner table and always count nothing.
+        conversations: sql<number>`(select count(*)::int from public.social_conversations c
+          where c.tenant_id = social_accounts.tenant_id and c.account_id = social_accounts.id)`,
       })
       .from(socialAccounts)
       .where(and(eq(socialAccounts.tenantId, ctx.tenantId), isNull(socialAccounts.disconnectedAt)))

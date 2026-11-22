@@ -92,6 +92,8 @@ export const PERMISSIONS = {
   'reviews.manage': { scoped: false },
   'tickets.work': { scoped: false },
   'tickets.manage': { scoped: false },
+  /** Write, publish and organise the knowledge base, and run its public portal (ADR-071). */
+  'kb.manage': { scoped: false },
   'projects.view': { scoped: false },
   'projects.manage': { scoped: false },
   'productivity.view': { scoped: false },
@@ -189,6 +191,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'social.canned_manage': true,
       'tickets.work': true,
       'tickets.manage': true,
+      'kb.manage': true,
       'projects.view': true,
       'projects.manage': true,
       'productivity.view': true,

@@ -561,6 +561,13 @@
       "when": 1795307669628,
       "tag": "0079_email_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1795310264329,
+      "tag": "0080_knowledge_base",
+      "breakpoints": true
     }
   ]
 }

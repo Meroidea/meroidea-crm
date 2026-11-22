@@ -7,7 +7,7 @@ import { POST as resendWebhook } from '@/app/api/webhooks/resend/route';
 import { AppError } from '@/lib/errors';
 import { anonymizeContact } from '@/modules/contacts/privacy';
 import { createEmailInbox } from '@/modules/social/email-service';
-import { getConversation, listConversations } from '@/modules/social/queries';
+import { getConversation, listAccounts, listConversations } from '@/modules/social/queries';
 import { replyToConversation } from '@/modules/social/service';
 import { setAccountSettings } from '@/modules/social/team-service';
 import type { TenantContext } from '@/server/context';
@@ -229,6 +229,17 @@ describe('creating an email inbox', () => {
     });
     accountId = id;
     expect(address).toBe(INBOX);
+  });
+
+  it('counts each connected account’s conversations', async () => {
+    await adminDb().execute(sql`
+      insert into social_conversations (tenant_id, account_id, participant_id, participant_email)
+      values (${tenantId}, ${accountId}, ${`email:count-${stamp}`}, ${`count-${stamp}@example.com`})`);
+    const { accounts } = await listAccounts(owner);
+    expect(accounts.find((account) => account.id === accountId)?.conversations).toBe(1);
+    await adminDb().execute(
+      sql`delete from social_conversations where participant_id = ${`email:count-${stamp}`}`,
+    );
   });
 
   it('keeps an address to one business, and the platform’s own addresses to nobody', async () => {

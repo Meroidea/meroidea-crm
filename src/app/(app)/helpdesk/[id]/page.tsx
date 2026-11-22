@@ -18,6 +18,7 @@ import {
 } from '@/modules/helpdesk/queries';
 import { PRIORITY_LABELS, STATUS_LABELS } from '@/modules/helpdesk/schemas';
 import { firstResponseTarget, resolutionTarget, targetProps } from '@/modules/helpdesk/sla';
+import { articleUrl, articleViewsForContact } from '@/modules/kb/queries';
 import { PLATFORM_LABELS } from '@/modules/social/format';
 import { getConversation } from '@/modules/social/queries';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
@@ -31,13 +32,14 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
   const parsed = z.object({ id: z.uuid() }).safeParse(await params);
   const ticket = parsed.success ? await getTicket(ctx, parsed.data.id) : null;
   if (!ticket) notFound();
-  const [people, customer, sla, conversation] = await Promise.all([
+  const [people, customer, sla, conversation, articleReads] = await Promise.all([
     helpdeskAssignees(ctx),
     getTicketCustomer(ctx, ticket),
     getSlaSettings(ctx),
     ticket.conversationId && hasPermission(ctx, 'social.view')
       ? getConversation(ctx, ticket.conversationId)
       : Promise.resolve(null),
+    ticket.contactId ? articleViewsForContact(ctx, ticket.contactId, 5) : Promise.resolve([]),
   ]);
   const customerLink = `${serverEnv().APP_URL}/support/ticket/${ticket.publicToken}`;
   const channel = conversation ? PLATFORM_LABELS[conversation.platform] : null;
@@ -160,7 +162,12 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
               Open the conversation in the inbox
             </Link>
           )}
-          <ReplyBox ticketId={ticket.id} customerLink={customerLink} channel={channel} />
+          <ReplyBox
+            ticketId={ticket.id}
+            customerLink={customerLink}
+            channel={channel}
+            articles={ctx.tenant.features.includes('knowledge_base')}
+          />
         </div>
 
         <aside className="flex flex-col gap-4">
@@ -208,6 +215,28 @@ export default async function TicketPage({ params }: PageProps<'/helpdesk/[id]'>
               />
             </div>
           </section>
+          {articleReads.length > 0 && (
+            <section className="flex flex-col gap-2 rounded-xl border bg-card p-4 text-sm">
+              <h2 className="font-medium">Help articles they read</h2>
+              <ul className="flex flex-col gap-1.5">
+                {articleReads.map((read) => (
+                  <li key={read.id} className="flex flex-col">
+                    <a
+                      href={articleUrl(ctx.tenant.slug, read.slug)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {read.title}
+                    </a>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDateTime(ctx, read.viewedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section className="rounded-xl border bg-card p-4">
             <TicketControls
               key={`${ticket.status}-${ticket.priority}-${ticket.assigneeUserId}-${ticket.category}`}

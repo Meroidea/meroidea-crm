@@ -17,6 +17,7 @@ import { getContact, listPossibleDuplicates } from '@/modules/contacts/queries';
 import { ActivityComposer } from '@/modules/activities/components/activity-composer';
 import { Timeline } from '@/modules/activities/components/timeline';
 import { getTimeline, mergeTimeline } from '@/modules/activities/queries';
+import { articleViewsTimeline } from '@/modules/kb/queries';
 import { conversationsForContact } from '@/modules/social/queries';
 import { StageBadge } from '@/modules/opportunities/components/stage-badge';
 import { listOpportunitiesForContact } from '@/modules/opportunities/queries';
@@ -91,6 +92,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     members,
     duplicates,
     conversations,
+    articleReads,
   ] = await Promise.all([
     hasPermission(ctx, 'opportunities.view')
       ? listOpportunitiesForContact(ctx, contact.id)
@@ -106,6 +108,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
     hasPermission(ctx, 'tasks.assign_others') ? listActiveMembers(ctx) : Promise.resolve([]),
     canEdit ? listPossibleDuplicates(ctx, contact) : Promise.resolve([]),
     conversationsForContact(ctx, contact.id),
+    articleViewsTimeline(ctx, contact.id),
   ]);
   const canEmail =
     hasPermission(ctx, 'activities.create') &&
@@ -363,7 +366,7 @@ export default async function ContactPage({ params }: PageProps<'/contacts/[id]'
             </CardHeader>
             <CardContent>
               <Timeline
-                items={mergeTimeline(timeline, conversations)}
+                items={mergeTimeline(timeline, [...conversations, ...articleReads])}
                 timezone={ctx.tenant.timezone}
                 showRecord
                 emptyText="No activity yet — log the first call or note above."

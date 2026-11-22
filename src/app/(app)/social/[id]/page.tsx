@@ -228,6 +228,7 @@ export default async function ConversationPage({
             platformLabel={PLATFORM_LABELS[platform]}
             canReply={canReply}
             canned={canned}
+            articles={ctx.tenant.features.includes('knowledge_base')}
             presence={{ tenantId: ctx.tenantId, userId: ctx.userId, members }}
             blockedReason={templateOnly ? null : blockedReason}
             textReply={!templateOnly}

@@ -1396,6 +1396,45 @@ tickets               + organization_id, conversation_id → social_conversation
   its settings change.
 - `app.social_set_account_settings` also accepts `autoTicket` (boolean) and `autoTicketPriority`.
 
+## 7m-2. Knowledge base 🟢 (migration `0080`, ADR-071)
+
+Feature `knowledge_base`; every table below carries the restrictive `feature_switch` policy.
+```sql
+kb_portals           tenant_id pk, is_public bool default false, title, intro, created/updated_at, updated_by
+                     -- the portal lives at /help/<tenants.slug>; closed until is_public
+kb_categories        id, tenant_id, name, slug (^[a-z0-9]([a-z0-9-]{0,78}[a-z0-9])?$), description,
+                     position, created/updated_at/by, deleted_at
+                     unique (tenant_id, id); unique (tenant_id, slug) where deleted_at is null
+kb_articles          id, tenant_id, category_id (composite FK), title (1-200), slug (unique per tenant
+                     while live, up to 120), summary (<= 300), body_markdown (<= 100,000),
+                     status draft|published, published_at,
+                     search tsvector generated always ('simple': title, summary, body) + gin index,
+                     view_count, helpful_count, not_helpful_count, created/updated_at/by, deleted_at
+kb_article_feedback  id, tenant_id, article_id (composite FK, cascade), helpful bool,
+                     comment (<= 1000, only with a "no"), created_at
+kb_article_links     id, tenant_id, article_id, contact_id (composite FKs, cascade), source inbox|ticket,
+                     conversation_id, ticket_id (composite FKs), token_hash (sha256, unique),
+                     expires_at (365 days), created_at, created_by
+kb_article_views     id, tenant_id, article_id, contact_id (composite FKs, cascade), link_id → links
+                     (cascade), source, viewed_at; index (tenant_id, contact_id, viewed_at)
+```
+RLS:
+- `kb_portals`: read with `kb.manage`, `social.reply` or `tickets.work` (so nobody links to a
+  closed portal); written with `kb.manage`.
+- `kb_categories`: read with `kb.manage`, `social.reply` or `tickets.work`; written with
+  `kb.manage`.
+- `kb_articles`: read in full with `kb.manage`; people with `social.reply` or `tickets.work` read
+  **published, live** articles only. Written with `kb.manage`. Sessions may update only the
+  editable columns: never the counters.
+- `kb_article_feedback`: read with `kb.manage`; no session writes.
+- `kb_article_links`: inserted by `social.reply` / `tickets.work` holders as themselves
+  (`created_by`); read by their creator or `kb.manage`.
+- `kb_article_views`: read with `contacts.view`, `tickets.work` or `social.view`; no session writes.
+
+Public reads, counters, feedback and linked reads are written only by `src/modules/kb/public.ts`
+(privileged, starting from the slug). `app.erase_contact_traces` also deletes the person's
+`kb_article_views` and `kb_article_links`.
+
 ## 7n. Questions and concerns 🟢
 
 A question a member of staff sends to managers or to the admin only (ADR-049). Kept as the record

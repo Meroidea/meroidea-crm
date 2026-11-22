@@ -31,6 +31,8 @@ import {
   startMediaUploadAction,
 } from '@/modules/social/actions';
 
+import { ArticlePicker } from '@/modules/kb/components/article-picker';
+
 import { findCanned } from '../canned';
 import type { StoredAttachment } from '../media';
 import { PresenceNote, useConversationPresence, type PresenceSetup } from './conversation-presence';
@@ -146,6 +148,7 @@ export function ThreadView({
   attach = null,
   canned = [],
   presence = null,
+  articles = false,
 }: {
   conversationId: string;
   messages: ThreadItem[];
@@ -167,6 +170,8 @@ export function ThreadView({
   canned?: { id: string; title: string; shortcut: string | null; body: string; shared: boolean }[];
   /** Who else is on this conversation (Realtime Presence); null without it. */
   presence?: PresenceSetup | null;
+  /** Whether help articles can be linked from the reply box (ADR-071). */
+  articles?: boolean;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<'reply' | 'note'>('reply');
@@ -630,6 +635,16 @@ export function ThreadView({
                       : `${body.length} / ${maxChars}`}
                 </p>
                 <div className="flex items-center gap-1.5">
+                  {articles && mode === 'reply' && (
+                    <ArticlePicker
+                      target={{ conversationId }}
+                      onInsert={(text) =>
+                        setBody((current) =>
+                          current.trim() ? `${current.trimEnd()}\n${text}` : text,
+                        )
+                      }
+                    />
+                  )}
                   {canned.length > 0 && (
                     <Button
                       type="button"

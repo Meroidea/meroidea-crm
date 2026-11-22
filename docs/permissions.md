@@ -118,6 +118,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `social.manage` | | Connect and disconnect the business's social media accounts (Meta, WhatsApp Embedded Signup or TikTok) and create or remove email inboxes (ADR-070), create, refresh and delete WhatsApp templates, and choose per account whether unknown senders become new leads (ADR-068) |
 | `social.canned_manage` | | Write, change and delete the saved replies the whole team shares. Enforced again by RLS on `social_canned_responses` (ADR-068) |
 | `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee; make a ticket from an inbox conversation (also needs `social.view`; replying there needs `social.reply`); set the ticket's organization and link the customer's opportunities (within `organizations.view` / `opportunities.view` and its scope); read the response targets (ADR-069) |
+| `kb.manage` | | Write, publish and delete knowledge base articles and categories, open or close the public help portal, and read readers' feedback. Feature `knowledge_base`. People with `social.reply` or `tickets.work` can find published articles and send tracked links to them from replies (ADR-071) |
 | `tickets.manage` | | Switch the public contact form on or off, delete tickets, and set the response targets: targets by priority, at-risk point, escalation person and business hours (ADR-069) |
 | `concerns.raise` | | Ask managers or the admin a question (about a payslip of your own, too), follow it, reply, mark it resolved or reopen it (ADR-049) |
 | `concerns.handle` | | Read, answer and change the status of questions sent to managers. Never those sent to the admin only. Enforced again by RLS on `concerns` / `concern_messages` |
@@ -205,6 +206,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | social.canned_manage | ✓ | ✓ | | |
 | tickets.work | ✓ | ✓ | ✓ | ✓ |
 | tickets.manage | ✓ | ✓ | | |
+| kb.manage | ✓ | ✓ | | |
 | concerns.raise | ✓ | ✓ | ✓ | ✓ |
 | concerns.handle | ✓ | ✓ | | |
 | concerns.handle_all | ✓ | | | |

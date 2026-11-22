@@ -76,6 +76,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'reviews.manage': 'Manage reviews',
   'tickets.work': 'Work helpdesk tickets',
   'tickets.manage': 'Manage the helpdesk',
+  'kb.manage': 'Write and publish knowledge base articles and run the help portal',
   'projects.view': 'See projects',
   'projects.manage': 'Manage projects',
   'productivity.view': 'See productivity',
@@ -103,7 +104,7 @@ const GROUPS: { title: string; families: string[] }[] = [
   },
   { title: 'Marketing', families: ['social'] },
   { title: 'Work', families: ['tasks', 'projects', 'files', 'productivity'] },
-  { title: 'Customer care', families: ['reviews', 'tickets'] },
+  { title: 'Customer care', families: ['reviews', 'tickets', 'kb'] },
   {
     title: 'People',
     families: [

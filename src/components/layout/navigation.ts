@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   LifeBuoy,
   Star,
   FolderKanban,
@@ -208,6 +209,13 @@ export const NAVIGATION: NavGroup[] = [
         icon: LifeBuoy,
         label: { title: 'Helpdesk' },
         permission: 'tickets.work',
+        available: true,
+      },
+      {
+        href: '/kb',
+        icon: BookOpen,
+        label: { title: 'Knowledge base' },
+        permission: 'kb.manage',
         available: true,
       },
     ],
