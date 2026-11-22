@@ -117,7 +117,8 @@ export default async function ConversationPage({
       accountName={thread.accountName}
       accountBadge={accountBadge}
       window={
-        platform === 'email'
+        // Email and live chat have no reply window (ADR-070, ADR-072).
+        platform === 'email' || platform === 'livechat'
           ? null
           : {
               normal: ends.normal?.toISOString() ?? null,
@@ -215,7 +216,7 @@ export default async function ConversationPage({
                 )}
               </div>
             </div>
-            {platform !== 'email' && (
+            {platform !== 'email' && platform !== 'livechat' && (
               <ReplyWindowBadge
                 normalEndsAt={ends.normal?.toISOString() ?? null}
                 humanEndsAt={ends.human?.toISOString() ?? null}
@@ -235,7 +236,8 @@ export default async function ConversationPage({
             humanAgent={window.ok && window.humanAgent}
             maxChars={REPLY_RULES[platform].maxChars}
             attach={
-              accountLive
+              // Live chat takes text only.
+              accountLive && Object.keys(MEDIA_RULES[platform]).length > 0
                 ? {
                     limits: MEDIA_RULES[platform],
                     captions: CAPTIONS[platform],
@@ -286,11 +288,13 @@ export default async function ConversationPage({
           <p className={templateOnly ? 'hidden' : 'text-xs text-muted-foreground'}>
             {platform === 'email'
               ? `Replies are emailed from ${thread.accountName} with the subject “Re: ${conversation.subject ?? 'your message'}”, and the customer’s answers come back here.`
-              : platform === 'tiktok'
-                ? 'TikTok allows up to 10 replies within 48 hours of the customer’s last message.'
-                : platform === 'whatsapp'
-                  ? 'Free-form replies within 24 hours of the customer’s last message; after that, an approved template. Meta charges for templates and for replies beyond 1,000 a month.'
-                  : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
+              : platform === 'livechat'
+                ? 'Replies appear in the visitor’s chat on your website within a few seconds, while their chat is open or the next time they open it there.'
+                : platform === 'tiktok'
+                  ? 'TikTok allows up to 10 replies within 48 hours of the customer’s last message.'
+                  : platform === 'whatsapp'
+                    ? 'Free-form replies within 24 hours of the customer’s last message; after that, an approved template. Meta charges for templates and for replies beyond 1,000 a month.'
+                    : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
           </p>
         </section>
 

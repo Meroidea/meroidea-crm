@@ -336,6 +336,8 @@ export type AccountRow = {
   historySync: string | null;
   historyProgress: number | null;
   settings: AccountSettings;
+  /** Live chat: the widget's public key. */
+  widgetKey: string | null;
 };
 
 /** The business's connected accounts, and whether each platform is available to connect. */
@@ -360,6 +362,10 @@ export async function listAccounts(ctx: TenantContext): Promise<{
         historySync: socialAccounts.historySync,
         historyProgress: socialAccounts.historyProgress,
         settings: socialAccounts.settings,
+        // A live chat widget's public key, for its embed code; other accounts' ids stay out.
+        widgetKey: sql<
+          string | null
+        >`case when social_accounts.platform = 'livechat' then social_accounts.external_id end`,
         // Written out in full: in a one-table select Drizzle leaves columns unqualified, which
         // inside a subquery would bind to the inner table and always count nothing.
         conversations: sql<number>`(select count(*)::int from public.social_conversations c

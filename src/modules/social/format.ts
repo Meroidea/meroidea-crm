@@ -6,6 +6,7 @@ export const PLATFORM_LABELS: Record<SocialPlatform, string> = {
   tiktok: 'TikTok',
   whatsapp: 'WhatsApp',
   email: 'Email',
+  livechat: 'Live chat',
 };
 
 export const ACCOUNT_STATUS_LABELS: Record<string, string> = {

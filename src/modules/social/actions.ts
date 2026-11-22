@@ -32,6 +32,8 @@ import {
   templateReplySchema,
 } from './schemas';
 import * as email from './email-service';
+import { chatWidgetSchema } from './livechat-schemas';
+import * as livechat from './livechat-service';
 import * as social from './service';
 import * as team from './team-service';
 import * as whatsapp from './whatsapp-service';
@@ -179,4 +181,24 @@ export const deleteCannedResponseAction = authedAction(
 export const createEmailInboxAction = authedAction(
   { permission: 'social.manage', input: emailInboxSchema, revalidate: paths },
   (ctx, input) => email.createEmailInbox(ctx, input),
+);
+
+/** Creates a live chat widget; its identity secret is in the answer this once (ADR-072). */
+export const createChatWidgetAction = authedAction(
+  { permission: 'social.manage', input: chatWidgetSchema, revalidate: ['/social/accounts'] },
+  (ctx, input) => livechat.createChatWidget(ctx, input),
+);
+
+export const updateChatWidgetAction = authedAction(
+  {
+    permission: 'social.manage',
+    input: chatWidgetSchema.required({ accountId: true }),
+    revalidate: ['/social/accounts'],
+  },
+  (ctx, input) => livechat.updateChatWidget(ctx, input),
+);
+
+export const rotateChatIdentitySecretAction = authedAction(
+  { permission: 'social.manage', input: accountIdSchema },
+  (ctx, input) => livechat.rotateChatIdentitySecret(ctx, input.accountId),
 );

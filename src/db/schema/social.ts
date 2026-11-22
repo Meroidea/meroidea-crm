@@ -30,11 +30,12 @@ export const socialAccounts = pgTable(
     tenantId: uuid()
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
-    /** facebook | instagram | tiktok | whatsapp | email (ADR-070) */
+    /** facebook | instagram | tiktok | whatsapp | email (ADR-070) | livechat (ADR-072) */
     platform: text().notNull(),
     /**
      * The provider's id: Page id, Instagram account id, TikTok business id (open_id), the
-     * WhatsApp business phone number's id, or an email inbox's address (lower case).
+     * WhatsApp business phone number's id, an email inbox's address (lower case), or a live chat
+     * widget's public key.
      */
     externalId: text().notNull(),
     name: text().notNull(),
@@ -83,7 +84,7 @@ export const socialAccounts = pgTable(
     index('social_accounts_tenant_idx').on(table.tenantId, table.status),
     check(
       'social_accounts_platform_check',
-      sql`${table.platform} in ('facebook', 'instagram', 'tiktok', 'whatsapp', 'email')`,
+      sql`${table.platform} in ('facebook', 'instagram', 'tiktok', 'whatsapp', 'email', 'livechat')`,
     ),
     check(
       'social_accounts_history_sync_check',
@@ -409,6 +410,51 @@ export const socialCannedResponses = pgTable(
     check(
       'social_canned_responses_size_check',
       sql`char_length(${table.title}) between 1 and 120 and char_length(${table.body}) between 1 and 4096`,
+    ),
+  ],
+);
+
+/**
+ * A visitor to a business's website who opened its live chat widget (ADR-072). The widget keeps
+ * a random token in the visitor's browser; only its hash is stored. `emailVerified` means the
+ * business's own site vouched for the address (a signed identity), not just that it was typed.
+ */
+export const livechatVisitors = pgTable(
+  'livechat_visitors',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    accountId: uuid().notNull(),
+    /** sha256 of the visitor's token, base64url. */
+    tokenHash: text().notNull(),
+    name: text(),
+    /** Lower case. */
+    email: text(),
+    emailVerified: boolean().notNull().default(false),
+    /** Their conversation, made with their first message. */
+    conversationId: uuid(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('livechat_visitors_tenant_id_id_key').on(table.tenantId, table.id),
+    uniqueIndex('livechat_visitors_token_key').on(table.tokenHash),
+    foreignKey({
+      name: 'livechat_visitors_account_fkey',
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [socialAccounts.tenantId, socialAccounts.id],
+    }),
+    foreignKey({
+      name: 'livechat_visitors_conversation_fkey',
+      columns: [table.tenantId, table.conversationId],
+      foreignColumns: [socialConversations.tenantId, socialConversations.id],
+    }),
+    index('livechat_visitors_account_idx').on(table.tenantId, table.accountId, table.lastSeenAt),
+    check(
+      'livechat_visitors_size_check',
+      sql`char_length(coalesce(${table.name}, '')) <= 120 and char_length(coalesce(${table.email}, '')) <= 200`,
     ),
   ],
 );

@@ -568,6 +568,13 @@
       "when": 1795310264329,
       "tag": "0080_knowledge_base",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1795330377368,
+      "tag": "0081_live_chat",
+      "breakpoints": true
     }
   ]
 }

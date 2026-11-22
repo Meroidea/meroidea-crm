@@ -13,6 +13,10 @@ import {
   ConnectButton,
   DisconnectButton,
 } from '@/modules/social/components/social-tools';
+import {
+  ChatWidgetCreate,
+  ChatWidgetSettings,
+} from '@/modules/social/components/chat-widget-setup';
 import { EmailInboxConnect } from '@/modules/social/components/email-inbox-connect';
 import { WhatsAppConnect } from '@/modules/social/components/whatsapp-connect';
 import { inboxDomain } from '@/modules/social/providers/resend';
@@ -24,6 +28,7 @@ import {
 import { whatsappSignupSettings } from '@/modules/social/providers/whatsapp';
 import { listAccounts } from '@/modules/social/queries';
 import { requirePermission, requireTenantContext } from '@/server/context';
+import { serverEnv } from '@/server/env';
 
 export const metadata: Metadata = { title: 'Connected accounts' };
 
@@ -50,6 +55,8 @@ export default async function ConnectedAccountsPage({
   // Each channel is its own feature (ADR-070): social media, and the email inbox.
   const socialOn = ctx.tenant.features.includes('social');
   const emailOn = ctx.tenant.features.includes('email_channel');
+  const chatOn = ctx.tenant.features.includes('live_chat');
+  const appUrl = serverEnv().APP_URL.replace(/\/+$/, '');
   const domain = inboxDomain();
   const sources = crm
     ? (await getLeadConfig(ctx)).sources
@@ -96,6 +103,20 @@ export default async function ConnectedAccountsPage({
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
+        {chatOn && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Live chat</CardTitle>
+              <CardDescription>
+                A chat button for your website. Visitors&rsquo; messages arrive here and your
+                replies appear in their chat straight away.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChatWidgetCreate appUrl={appUrl} defaultName={ctx.tenant.name} />
+            </CardContent>
+          </Card>
+        )}
         {emailOn && (
           <Card>
             <CardHeader>
@@ -253,6 +274,17 @@ export default async function ConnectedAccountsPage({
                   )}
                 </div>
                 <DisconnectButton accountId={account.id} name={account.name} />
+                {account.platform === 'livechat' && account.widgetKey && (
+                  <div className="w-full sm:pl-13">
+                    <ChatWidgetSettings
+                      appUrl={appUrl}
+                      accountId={account.id}
+                      widgetKey={account.widgetKey}
+                      name={account.name}
+                      settings={account.settings}
+                    />
+                  </div>
+                )}
                 {(crm || helpdesk) && (
                   <div className="w-full sm:pl-13">
                     <AccountLeadSetting

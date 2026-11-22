@@ -11,6 +11,7 @@ const DOT: Record<SocialPlatform, string> = {
   tiktok: 'bg-foreground',
   whatsapp: 'bg-chart-2',
   email: 'bg-chart-3',
+  livechat: 'bg-chart-4',
 };
 
 export function PlatformBadge({

@@ -26,7 +26,15 @@ import { readAccountSettings } from './settings';
  * How far a message's sender can be believed (ADR-070). Platform webhooks identify the customer
  * themselves; an email's From address is only trusted when it passed DKIM or DMARC.
  */
-export type SenderTrust = { trusted: boolean; automated: boolean };
+export type SenderTrust = {
+  trusted: boolean;
+  automated: boolean;
+  /**
+   * A new lead may still be made for an unverified sender who matches nobody, as a website form
+   * does (live chat, ADR-072); a match is still only offered to staff, never linked.
+   */
+  leadWhenUnverified?: boolean;
+};
 const TRUSTED: SenderTrust = { trusted: true, automated: false };
 
 /** A transaction under RLS, or the privileged client in webhooks.ts; both write the same way. */
@@ -266,7 +274,10 @@ export async function linkConversationSender(
       // An email's sender address can be forged: only one that passed DKIM or DMARC is linked
       // or made a lead; otherwise the match is only offered to staff (ADR-070). A machine's
       // message (an auto-reply, a bounce) never makes a lead.
-      createLeadForUnknown: settings.createLeadForUnknown && sender.trusted && !sender.automated,
+      createLeadForUnknown:
+        settings.createLeadForUnknown &&
+        (sender.trusted || sender.leadWhenUnverified === true) &&
+        !sender.automated,
       trusted: sender.trusted,
     },
   );

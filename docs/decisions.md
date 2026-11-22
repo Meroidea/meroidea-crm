@@ -1871,3 +1871,63 @@ come only from links sent to them.
 - Anonymous portal reads are counted only in totals, rate-limited per visitor.
 - Not built: custom domains, article versions, several languages per article, and pictures
   uploaded to Meroidea (articles link pictures hosted elsewhere, over https).
+
+## ADR-072 — Live chat: a website widget in a frame, polling, and a signed identity
+
+**Context.** Phase 5 of the plan the owner approved on 21 November 2026 (ADR-068). The owner
+approved polling for the visitor's side, so no new service is added. Realtime stays on private
+channels for signed-in staff only (ADR-065). A visitor cannot be trusted to say who they are, and
+a business wants chats from its customers joined to their records.
+
+**Decision.**
+1. *A channel like the others.*
+   - A widget is a connected account with platform `livechat` under the new feature `live_chat`,
+     which joins the `inbox` feature group. Its chats sit in the same inbox, with the same notes,
+     saved replies, assignment, presence, tickets and SLA.
+   - Live chat has no reply window and takes text only, up to 2,000 characters.
+   - An admin (`social.manage`) creates widgets on Connected accounts.
+2. *The widget.*
+   - The business pastes one script tag (`/widget/v1.js` with `data-key`). It draws a button and
+     opens a frame of `/chat/<key>`. The chat itself runs in that frame, on Meroidea's origin.
+   - The business lists the sites allowed to show it (up to 10 https origins). `proxy.ts` sends
+     `Content-Security-Policy: frame-ancestors <those sites>` for the frame, looked up once a minute
+     per widget; a widget with no sites cannot be framed. `next.config.ts` leaves `/chat/` out of
+     the `DENY` rule for this.
+   - The loader and the frame talk with `postMessage`, each checking the other's window and origin.
+3. *The visitor.*
+   - Starting a chat gives the visitor a random 32-character token; only its sha256 is stored in
+     `livechat_visitors`. The token is kept in the frame's storage (browsers keep it per site) and
+     sent in a request body or the `x-chat-token` header, never in an address.
+   - Routes: `POST /api/chat/<key>/session`, and `GET` / `POST /api/chat/<key>/messages`. No
+     session; every query starts from the key and stays within that widget's business. The routes
+     cap body size, validate with Zod, and limit new chats per address and per widget, and messages
+     per visitor and per widget.
+   - Each message carries a client id, so a retry is stored once. The frame polls every 3 seconds
+     while the chat is open and visible, else every 20. Each poll looks 30 seconds behind its
+     cursor, because a transaction that began earlier can commit later; the frame drops repeats.
+   - A visitor sees what they wrote and the business's replies: never a note, never another chat.
+     A name and email can be given until the first message, then are kept, so a chat cannot change
+     hands.
+4. *Who the visitor is.*
+   - Each widget has an identity secret, sealed like an account token and shown once when made or
+     replaced. A site whose visitors sign in signs the visitor's email on its own server
+     (HMAC-SHA256, hex) and passes `{ email, name, signature }` to the loader.
+   - A valid signature (checked in constant time) marks the email verified. Only a verified email
+     links the chat to the matching contact. A self-given email that matches is only suggested to
+     staff, as with an unverified email (ADR-070). A wrong signature is ignored and the visitor
+     carries on unverified.
+   - A token whose verified email differs from a new signed identity starts a new chat (someone
+     else signed in on that browser).
+   - With "new lead for unknown senders" on, a visitor who left an email and matches nobody becomes
+     a lead, as a website form would make one. A visitor with no email never does.
+5. *Erasure and removal.* Erasing a contact clears the name and email of visitors in their chats or
+   who gave their email. Disconnecting a widget forgets its secret, and its routes stop answering.
+
+**Consequences.**
+- Polling costs one small indexed query per open chat every 3 seconds. That is fine at the scale
+  of the target businesses. Server-sent events or Realtime for visitors would be a later decision.
+- In browsers that partition or block storage in frames, a visitor's chat lasts only as long as the
+  page, or the site's own partition.
+- Not built: attachments from visitors, typing indicators, offline email of replies to visitors,
+  per-agent names in the widget (replies show the widget's name), office hours.
+

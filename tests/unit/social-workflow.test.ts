@@ -52,6 +52,7 @@ describe('what each platform takes in a reply', () => {
       facebook: false,
       instagram: false,
       tiktok: false,
+      livechat: false,
     });
     expect(mediaKind('image/png')).toBe('image');
     expect(mediaKind('audio/ogg')).toBe('audio');

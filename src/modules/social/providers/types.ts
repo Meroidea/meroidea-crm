@@ -1,4 +1,11 @@
-export const SOCIAL_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'whatsapp', 'email'] as const;
+export const SOCIAL_PLATFORMS = [
+  'facebook',
+  'instagram',
+  'tiktok',
+  'whatsapp',
+  'email',
+  'livechat',
+] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 /**

@@ -269,13 +269,13 @@ describe('real time', () => {
   it('closes the channel while the feature is switched off', async () => {
     await adminDb().execute(
       // Both inbox features (ADR-070): with either on, the inbox's permissions stay.
-      sql`update tenants set features = array_remove(array_remove(features, 'social'), 'email_channel') where id = ${tenantId}`,
+      sql`update tenants set features = array_remove(array_remove(array_remove(features, 'social'), 'email_channel'), 'live_chat') where id = ${tenantId}`,
     );
     try {
       expect(await channelRows(owner, `social:${tenantId}`)).toBe(0);
     } finally {
       await adminDb().execute(
-        sql`update tenants set features = features || array['social', 'email_channel'] where id = ${tenantId}`,
+        sql`update tenants set features = features || array['social', 'email_channel', 'live_chat'] where id = ${tenantId}`,
       );
     }
   });

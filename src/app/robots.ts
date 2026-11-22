@@ -9,7 +9,15 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: ['/platform', '/api/', '/auth/', '/agreement/', '/offer/', '/set-password'],
+      disallow: [
+        '/platform',
+        '/api/',
+        '/auth/',
+        '/agreement/',
+        '/offer/',
+        '/set-password',
+        '/chat/',
+      ],
     },
   };
 }

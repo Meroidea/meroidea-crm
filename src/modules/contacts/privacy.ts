@@ -233,6 +233,15 @@ export async function anonymizeContact(ctx: TenantContext, id: string): Promise<
 
 /** Clears one record's personal details and the traces they left elsewhere. */
 async function eraseRecord(tx: Tx, ctx: TenantContext, id: string, now: Date): Promise<string[]> {
+  // Traces first: some are found by the contact's email address, cleared just after.
+  await redactContactActivities(tx, ctx, id);
+  await redactContactTasks(tx, ctx, id);
+  // Media they sent on social media is listed before erase_contact_traces clears the messages;
+  // the files are removed from storage once the erasure has committed (ADR-065).
+  const media = (await tx.execute(
+    sql`select path from app.social_media_paths_for_contact(${id}::uuid) as path`,
+  )) as unknown as { path: string }[];
+  await tx.execute(sql`select app.erase_contact_traces(${id}::uuid)`);
   await tx
     .update(contacts)
     .set({
@@ -266,13 +275,5 @@ async function eraseRecord(tx: Tx, ctx: TenantContext, id: string, now: Date): P
       updatedBy: ctx.userId,
     })
     .where(and(eq(contacts.tenantId, ctx.tenantId), eq(contacts.id, id)));
-  await redactContactActivities(tx, ctx, id);
-  await redactContactTasks(tx, ctx, id);
-  // Media they sent on social media is listed before erase_contact_traces clears the messages;
-  // the files are removed from storage once the erasure has committed (ADR-065).
-  const media = (await tx.execute(
-    sql`select path from app.social_media_paths_for_contact(${id}::uuid) as path`,
-  )) as unknown as { path: string }[];
-  await tx.execute(sql`select app.erase_contact_traces(${id}::uuid)`);
   return media.map((row) => row.path);
 }

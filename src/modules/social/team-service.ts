@@ -87,7 +87,9 @@ export async function setAccountSettings(
       .limit(1);
     if (!account) throw new AppError('NOT_FOUND', 'That account was not found.');
     const before = readAccountSettings(account.settings);
+    // Every other setting (a chat widget's sites and greeting) is kept as it is.
     const after = {
+      ...before,
       createLeadForUnknown: input.createLeadForUnknown,
       leadSourceId: input.leadSourceId,
       // Left out: kept as they are, so changing one setting never resets another.

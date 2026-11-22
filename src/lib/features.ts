@@ -98,6 +98,12 @@ export const FEATURES = [
       'Connect Facebook, Instagram, WhatsApp and TikTok business accounts and answer customers’ messages from one inbox.',
   },
   {
+    key: 'live_chat',
+    label: 'Live chat',
+    description:
+      'A chat widget for the business’s own website, whose conversations arrive in the inbox.',
+  },
+  {
     key: 'knowledge_base',
     label: 'Knowledge base',
     description:
@@ -160,7 +166,7 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
  * `app.permission_feature` returns for the family, and `app.feature_enabled` understands it.
  */
 export const FEATURE_GROUPS = {
-  inbox: ['social', 'email_channel'],
+  inbox: ['social', 'email_channel', 'live_chat'],
 } as const satisfies Record<string, readonly FeatureKey[]>;
 
 const FAMILY_GROUP: Record<string, keyof typeof FEATURE_GROUPS> = { social: 'inbox' };

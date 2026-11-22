@@ -1755,6 +1755,32 @@ messages, name, handle and picture.
 - `app.erase_contact_traces` also clears `participant_email`, `subject` and inbound messages'
   `email_meta`.
 
+**Live chat (migration `0081`, ADR-072).**
+- `social_accounts.platform` also allows `livechat`: one row per website chat widget.
+  `external_id` is the widget's public key (24 url-safe characters, in the embed code). Its
+  identity secret is sealed in `social_account_credentials.access_token_ciphertext`, like a token.
+- `social_accounts.settings` also accepts, through `app.social_set_account_settings`:
+  `allowedOrigins` (up to 10 `https://` origins, or `http://localhost` / `127.0.0.1` for testing),
+  `greeting` (up to 300 characters) and `requireEmail` (boolean).
+- A visitor's conversation has `participant_id = 'visitor:<visitor id>'`. Their messages have
+  `external_id = 'chat:<visitor id>:<client uuid>'`, so a retried send is stored once; the
+  business's replies get `chat-out:<message id>`.
+- Feature `live_chat` joins the `inbox` group (`social`, `email_channel`, `live_chat`), and
+  `app.inbox_platform_enabled` maps `livechat` to it.
+
+```sql
+livechat_visitors  id, tenant_id, account_id (composite FK → social_accounts), token_hash (sha256,
+                   base64url; unique), name (<= 120), email (lower case, <= 200),
+                   email_verified bool default false, conversation_id (composite FK, set with the
+                   first message), created_at, last_seen_at
+                   unique (tenant_id, id); index (tenant_id, account_id, last_seen_at)
+```
+- RLS: read with `social.view`, plus the `inbox` `feature_switch` and `inbox_channel` policies.
+  No session writes: only `src/modules/social/livechat-public.ts` (privileged, starting from the
+  widget key) writes visitors.
+- `app.erase_contact_traces` clears the name and email of visitors in the person's linked chats
+  and of any visitor who gave the person's email. It now runs before the contact row is cleared.
+
 ### social_canned_responses
 A saved reply (ADR-068). Shared with the team when `owner_user_id` is empty, else one person's.
 ```sql

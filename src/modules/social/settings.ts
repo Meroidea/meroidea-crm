@@ -13,7 +13,17 @@ export const accountSettingsSchema = z.object({
   autoTicket: z.boolean().default(false),
   /** The priority such tickets start at. */
   autoTicketPriority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
+  /** Live chat (ADR-072): the sites allowed to show the widget, as origins. */
+  allowedOrigins: z.array(z.string()).max(10).default([]),
+  /** Live chat: the first words a visitor sees. */
+  greeting: z.string().max(300).nullable().default(null),
+  /** Live chat: ask for an email address before the first message. */
+  requireEmail: z.boolean().default(false),
 });
+
+/** An origin a widget may be shown on: https, or http on this machine for trying it out. */
+export const WIDGET_ORIGIN =
+  /^(https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+|http:\/\/(localhost|127\.0\.0\.1))(:[0-9]{1,5})?$/;
 
 export type AccountSettings = z.output<typeof accountSettingsSchema>;
 

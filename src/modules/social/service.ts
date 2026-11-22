@@ -93,6 +93,8 @@ export const REPLY_RULES: Record<
   whatsapp: { normalHours: 24, humanAgentHours: null, maxChars: 4096 },
   // Email has no reply window (ADR-070).
   email: { normalHours: Number.POSITIVE_INFINITY, humanAgentHours: null, maxChars: 20000 },
+  // Live chat has no reply window either (ADR-072); the visitor reads replies in the widget.
+  livechat: { normalHours: Number.POSITIVE_INFINITY, humanAgentHours: null, maxChars: 2000 },
 };
 
 const PLATFORM_NAMES: Record<SocialPlatform, string> = {
@@ -101,6 +103,7 @@ const PLATFORM_NAMES: Record<SocialPlatform, string> = {
   tiktok: 'TikTok',
   whatsapp: 'WhatsApp',
   email: 'Email',
+  livechat: 'Live chat',
 };
 
 /** Whether a reply may go now, and whether it needs the human agent tag; or why not. */
@@ -200,6 +203,8 @@ export const MEDIA_RULES: Record<SocialPlatform, Record<string, number>> = {
     'image/webp': 10 * MB,
     ...Object.fromEntries(Object.keys(OFFICE).map((type) => [type, 10 * MB])),
   },
+  // No files in live chat yet: the widget would need its own private file links.
+  livechat: {},
 };
 
 /** WhatsApp and email send words with a photo, video or document in one message. */
@@ -209,6 +214,7 @@ export const CAPTIONS: Record<SocialPlatform, boolean> = {
   instagram: false,
   tiktok: false,
   email: true,
+  livechat: false,
 };
 
 /** Why this file cannot go on this platform, or null when it can. */
@@ -425,7 +431,7 @@ export async function disconnectAccount(ctx: TenantContext, accountId: string): 
     if (others.length === 0) {
       await unsubscribeWhatsAppAccount(credentials.accessToken, wabaId).catch(() => undefined);
     }
-  } else if (credentials && account.platform !== 'tiktok') {
+  } else if (credentials && (account.platform === 'facebook' || account.platform === 'instagram')) {
     // Best effort: a token that no longer works cannot unsubscribe, and Meta stops on its own.
     await unsubscribeMetaAccount(
       {
@@ -549,6 +555,10 @@ async function checkReply(
     if ((sent?.n ?? 0) >= 10) {
       throw new AppError('CONFLICT', 'TikTok allows ten replies until the customer writes again.');
     }
+  }
+  if (platform === 'livechat') {
+    // The visitor reads replies in the widget (ADR-072): nothing to send through a provider.
+    return { conversation, account, platform, humanAgent: false, credentials: null };
   }
   if (platform === 'email') {
     if (!emailInboxConfigured()) {
@@ -745,7 +755,9 @@ async function deliver(
   let failure: ProviderError | null = null;
   let renewed: Credentials | null = null;
   try {
-    if (platform === 'email') {
+    if (platform === 'livechat') {
+      externalId = `chat-out:${messageId}`;
+    } else if (platform === 'email') {
       // A retry is a new attempt; the first send's key stops a doubled request sending twice.
       externalId = await sendEmailReply(
         ctx,
