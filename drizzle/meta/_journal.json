@@ -533,6 +533,48 @@
       "when": 1795256433764,
       "tag": "0075_social_inbox_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1795302345231,
+      "tag": "0076_inbox_notes_canned_matching",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1795305068323,
+      "tag": "0077_ticket_contact_orphans",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1795305069865,
+      "tag": "0078_helpdesk_sla",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1795307669628,
+      "tag": "0079_email_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1795310264329,
+      "tag": "0080_knowledge_base",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1795330377368,
+      "tag": "0081_live_chat",
+      "breakpoints": true
     }
   ]
 }

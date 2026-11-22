@@ -361,7 +361,8 @@ describe('who can read', () => {
 
   it('nothing is reachable while the feature is switched off for the business', async () => {
     await adminDb().execute(
-      sql`update tenants set features = array_remove(features, 'social') where id = ${tenantId}`,
+      // Both inbox features (ADR-070): with either on, the inbox's permissions stay.
+      sql`update tenants set features = array_remove(array_remove(array_remove(features, 'social'), 'email_channel'), 'live_chat') where id = ${tenantId}`,
     );
     try {
       const switchedOff = await contextFor(owner.userId, tenantId);
@@ -372,7 +373,7 @@ describe('who can read', () => {
       expect(visible[0]?.n).toBe(0);
     } finally {
       await adminDb().execute(
-        sql`update tenants set features = array_append(features, 'social') where id = ${tenantId}`,
+        sql`update tenants set features = features || array['social', 'email_channel', 'live_chat'] where id = ${tenantId}`,
       );
     }
   });

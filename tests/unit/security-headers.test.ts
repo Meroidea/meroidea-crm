@@ -11,7 +11,9 @@ async function headersFor(path: string): Promise<Record<string, string>> {
   const rules = ((await nextConfig.headers?.()) ?? []) as Rule[];
   const matches = (source: string) => {
     if (source === '/:path*') return true;
-    if (source === '/:path((?!f/).*)') return !path.startsWith('/f/');
+    if (source === '/:path((?!f/|chat/).*)') {
+      return !path.startsWith('/f/') && !path.startsWith('/chat/');
+    }
     if (source === '/f/:path*') return path.startsWith('/f/');
     const area = /^\/:area\(([^)]+)\)\/:path\*$/.exec(source);
     if (area) return area[1]!.split('|').some((name) => path.startsWith(`/${name}/`));
@@ -38,6 +40,13 @@ describe('security headers (ADR-059)', () => {
     const headers = await headersFor('/f/abc');
     expect(headers['x-frame-options']).toBeUndefined();
     expect(headers['content-security-policy']).toContain('frame-ancestors *');
+  });
+
+  it('leave a chat widget’s framing to proxy.ts, which sets it per widget (ADR-072)', async () => {
+    const headers = await headersFor('/chat/abc');
+    expect(headers['x-frame-options']).toBeUndefined();
+    expect(headers['content-security-policy']).toBeUndefined();
+    expect(headers['x-content-type-options']).toBe('nosniff');
   });
 
   it('never send a one-time link’s address onward', async () => {

@@ -2,10 +2,18 @@ import 'server-only';
 
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
-import { socialConversations, socialMessages } from '@/db/schema';
+import { socialAccounts, socialConversations, socialMessages } from '@/db/schema';
+import { ticketForInboundMessage } from '@/modules/helpdesk/customer';
+import { CHANNEL_NAMES, matchChannelSender } from '@/modules/leads/channel-intake';
 import type { Tx } from '@/server/db/with-rls';
 
-import { previewOf, type ProviderConversation, type ProviderMessage } from './providers/types';
+import {
+  previewOf,
+  type ProviderConversation,
+  type ProviderMessage,
+  type SocialPlatform,
+} from './providers/types';
+import { readAccountSettings } from './settings';
 
 /*
  * Storing what providers report, the same way from a verified webhook (privileged connection)
@@ -13,6 +21,21 @@ import { previewOf, type ProviderConversation, type ProviderMessage } from './pr
  * under RLS). Every write is idempotent on the provider's ids, because webhooks are retried and
  * an import can overlap them.
  */
+
+/**
+ * How far a message's sender can be believed (ADR-070). Platform webhooks identify the customer
+ * themselves; an email's From address is only trusted when it passed DKIM or DMARC.
+ */
+export type SenderTrust = {
+  trusted: boolean;
+  automated: boolean;
+  /**
+   * A new lead may still be made for an unverified sender who matches nobody, as a website form
+   * does (live chat, ADR-072); a match is still only offered to staff, never linked.
+   */
+  leadWhenUnverified?: boolean;
+};
+const TRUSTED: SenderTrust = { trusted: true, automated: false };
 
 /** A transaction under RLS, or the privileged client in webhooks.ts; both write the same way. */
 type Db = Pick<Tx, 'insert' | 'update'>;
@@ -126,6 +149,8 @@ export async function recordMessage(
         attachments,
         sentAt: message.sentAt,
         status: message.direction === 'inbound' ? 'received' : (message.status ?? 'sent'),
+        emailMessageId: message.emailMessageId ?? null,
+        emailMeta: message.emailMeta ?? null,
       })
       .onConflictDoNothing({ target: [socialMessages.accountId, socialMessages.externalId] })
       .returning({ id: socialMessages.id });
@@ -190,4 +215,156 @@ export async function recordImportedConversation(
     if (result.hasMedia) withMedia.push(result.id);
   }
   return { stored, withMedia };
+}
+
+/**
+ * Finds the CRM contact behind a conversation's customer (ADR-068), the first time they write
+ * after it began, from a verified webhook only. Their WhatsApp number (or, later, email) is
+ * looked up; one match is linked, several are left for staff. With the account's "new lead for
+ * unknown senders" switched on, someone matching nobody becomes a new lead. A conversation a
+ * person has linked or unlinked is never touched, and one already looked up is not looked up
+ * again unless nothing was found.
+ */
+export async function linkConversationSender(
+  tx: Tx,
+  scope: AccountScope & { conversationId: string },
+  sender: SenderTrust = TRUSTED,
+): Promise<void> {
+  const [row] = await tx
+    .select({
+      contactId: socialConversations.contactId,
+      contactMatch: socialConversations.contactMatch,
+      name: socialConversations.participantName,
+      username: socialConversations.participantUsername,
+      phone: socialConversations.participantPhone,
+      email: socialConversations.participantEmail,
+      platform: socialAccounts.platform,
+      settings: socialAccounts.settings,
+    })
+    .from(socialConversations)
+    .innerJoin(
+      socialAccounts,
+      and(
+        eq(socialAccounts.tenantId, socialConversations.tenantId),
+        eq(socialAccounts.id, socialConversations.accountId),
+      ),
+    )
+    .where(
+      and(
+        eq(socialConversations.tenantId, scope.tenantId),
+        eq(socialConversations.id, scope.conversationId),
+      ),
+    )
+    .limit(1);
+  if (!row || row.contactId || row.contactMatch !== null) return;
+  const settings = readAccountSettings(row.settings);
+  const match = await matchChannelSender(
+    tx,
+    {
+      tenantId: scope.tenantId,
+      channel: row.platform as SocialPlatform,
+      conversationId: scope.conversationId,
+      name: row.name ?? row.username,
+      email: row.email,
+      // WhatsApp keeps the number as digits in international form.
+      phone: row.phone ? `+${row.phone}` : null,
+    },
+    {
+      ...settings,
+      // An email's sender address can be forged: only one that passed DKIM or DMARC is linked
+      // or made a lead; otherwise the match is only offered to staff (ADR-070). A machine's
+      // message (an auto-reply, a bounce) never makes a lead.
+      createLeadForUnknown:
+        settings.createLeadForUnknown &&
+        (sender.trusted || sender.leadWhenUnverified === true) &&
+        !sender.automated,
+      trusted: sender.trusted,
+    },
+  );
+  if (match.kind === 'none') return;
+  await tx
+    .update(socialConversations)
+    .set({ contactId: match.contactId, contactMatch: match.kind, updatedAt: new Date() })
+    .where(
+      and(
+        eq(socialConversations.tenantId, scope.tenantId),
+        eq(socialConversations.id, scope.conversationId),
+        isNull(socialConversations.contactId),
+        isNull(socialConversations.contactMatch),
+      ),
+    );
+}
+
+/**
+ * Everything a customer's new message sets off (verified webhooks only): finding their contact
+ * (ADR-068), then the helpdesk ticket that follows the conversation, reopened or, when the
+ * account is set to, opened (ADR-069).
+ */
+export async function afterInboundMessage(
+  tx: Tx,
+  scope: AccountScope & { conversationId: string },
+  sender: SenderTrust = TRUSTED,
+): Promise<void> {
+  // In a savepoint: the customer's message is already stored in this transaction, and a problem
+  // here must never undo it (the provider would retry, and in time give up on the message).
+  try {
+    await tx.transaction((savepoint) => followUpInbound(savepoint, scope, sender));
+  } catch (error) {
+    console.error('[social] could not follow up a message', {
+      name: error instanceof Error ? error.name : typeof error,
+    });
+  }
+}
+
+async function followUpInbound(
+  tx: Tx,
+  scope: AccountScope & { conversationId: string },
+  sender: SenderTrust,
+): Promise<void> {
+  await linkConversationSender(tx, scope, sender);
+  const [row] = await tx
+    .select({
+      contactId: socialConversations.contactId,
+      name: socialConversations.participantName,
+      username: socialConversations.participantUsername,
+      phone: socialConversations.participantPhone,
+      email: socialConversations.participantEmail,
+      platform: socialAccounts.platform,
+      settings: socialAccounts.settings,
+    })
+    .from(socialConversations)
+    .innerJoin(
+      socialAccounts,
+      and(
+        eq(socialAccounts.tenantId, socialConversations.tenantId),
+        eq(socialAccounts.id, socialConversations.accountId),
+      ),
+    )
+    .where(
+      and(
+        eq(socialConversations.tenantId, scope.tenantId),
+        eq(socialConversations.id, scope.conversationId),
+      ),
+    )
+    .limit(1);
+  if (!row) return;
+  const settings = readAccountSettings(row.settings);
+  const channelName = CHANNEL_NAMES[row.platform as SocialPlatform];
+  await ticketForInboundMessage(tx, {
+    tenantId: scope.tenantId,
+    conversationId: scope.conversationId,
+    contactId: row.contactId,
+    customerName:
+      row.name ??
+      (row.username
+        ? `@${row.username}`
+        : row.phone
+          ? `+${row.phone}`
+          : (row.email ?? `${channelName} customer`)),
+    customerEmail: row.email,
+    channelName,
+    // An auto-reply or bounce never opens a ticket (it still reopens one it answers).
+    autoTicket: settings.autoTicket && !sender.automated,
+    priority: settings.autoTicketPriority,
+  });
 }

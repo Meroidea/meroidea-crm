@@ -28,6 +28,8 @@ import {
 } from '@/server/storage';
 
 import { readCredentials, storeCredentials, usableToken, type Credentials } from './credentials';
+import { sendEmailReply } from './email-service';
+import { emailInboxConfigured } from './providers/resend';
 import { recordImportedConversation } from './ingest';
 import {
   acceptedType,
@@ -89,6 +91,10 @@ export const REPLY_RULES: Record<
   instagram: { normalHours: 24, humanAgentHours: 7 * 24, maxChars: 1000, maxBytes: 1000 },
   tiktok: { normalHours: 48, humanAgentHours: null, maxChars: 6000 },
   whatsapp: { normalHours: 24, humanAgentHours: null, maxChars: 4096 },
+  // Email has no reply window (ADR-070).
+  email: { normalHours: Number.POSITIVE_INFINITY, humanAgentHours: null, maxChars: 20000 },
+  // Live chat has no reply window either (ADR-072); the visitor reads replies in the widget.
+  livechat: { normalHours: Number.POSITIVE_INFINITY, humanAgentHours: null, maxChars: 2000 },
 };
 
 const PLATFORM_NAMES: Record<SocialPlatform, string> = {
@@ -96,6 +102,8 @@ const PLATFORM_NAMES: Record<SocialPlatform, string> = {
   instagram: 'Instagram',
   tiktok: 'TikTok',
   whatsapp: 'WhatsApp',
+  email: 'Email',
+  livechat: 'Live chat',
 };
 
 /** Whether a reply may go now, and whether it needs the human agent tag; or why not. */
@@ -135,6 +143,7 @@ export function windowEnds(
 ): { normal: Date | null; human: Date | null } {
   if (!lastInboundAt) return { normal: null, human: null };
   const rules = REPLY_RULES[platform];
+  if (!Number.isFinite(rules.normalHours)) return { normal: null, human: null };
   const at = (hours: number) => new Date(lastInboundAt.getTime() + hours * HOUR);
   return {
     normal: at(rules.normalHours),
@@ -186,14 +195,26 @@ export const MEDIA_RULES: Record<SocialPlatform, Record<string, number>> = {
     'application/pdf': 16 * MB,
   },
   tiktok: { 'image/jpeg': 3 * MB, 'image/png': 3 * MB },
+  // Resend takes 40 MB per email after base64; one file of up to 10 MB stays well inside it.
+  email: {
+    'image/jpeg': 10 * MB,
+    'image/png': 10 * MB,
+    'image/gif': 10 * MB,
+    'image/webp': 10 * MB,
+    ...Object.fromEntries(Object.keys(OFFICE).map((type) => [type, 10 * MB])),
+  },
+  // No files in live chat yet: the widget would need its own private file links.
+  livechat: {},
 };
 
-/** Only WhatsApp sends words with a photo, video or document in one message. */
+/** WhatsApp and email send words with a photo, video or document in one message. */
 export const CAPTIONS: Record<SocialPlatform, boolean> = {
   whatsapp: true,
   facebook: false,
   instagram: false,
   tiktok: false,
+  email: true,
+  livechat: false,
 };
 
 /** Why this file cannot go on this platform, or null when it can. */
@@ -410,7 +431,7 @@ export async function disconnectAccount(ctx: TenantContext, accountId: string): 
     if (others.length === 0) {
       await unsubscribeWhatsAppAccount(credentials.accessToken, wabaId).catch(() => undefined);
     }
-  } else if (credentials && account.platform !== 'tiktok') {
+  } else if (credentials && (account.platform === 'facebook' || account.platform === 'instagram')) {
     // Best effort: a token that no longer works cannot unsubscribe, and Meta stops on its own.
     await unsubscribeMetaAccount(
       {
@@ -441,7 +462,8 @@ type Prepared = {
   account: typeof socialAccounts.$inferSelect;
   platform: SocialPlatform;
   humanAgent: boolean;
-  credentials: Credentials;
+  /** Empty for email, which sends through the platform's own Resend account (ADR-070). */
+  credentials: Credentials | null;
   messageId: string;
   body: string;
   /** WhatsApp: send as this approved template instead of free text. */
@@ -533,6 +555,19 @@ async function checkReply(
     if ((sent?.n ?? 0) >= 10) {
       throw new AppError('CONFLICT', 'TikTok allows ten replies until the customer writes again.');
     }
+  }
+  if (platform === 'livechat') {
+    // The visitor reads replies in the widget (ADR-072): nothing to send through a provider.
+    return { conversation, account, platform, humanAgent: false, credentials: null };
+  }
+  if (platform === 'email') {
+    if (!emailInboxConfigured()) {
+      throw new AppError('CONFLICT', 'Email is not set up on this platform yet.');
+    }
+    if (!conversation.participantEmail) {
+      throw new AppError('CONFLICT', 'This conversation has no email address to reply to.');
+    }
+    return { conversation, account, platform, humanAgent: false, credentials: null };
   }
   const credentials = await readCredentials(tx, ctx.tenantId, account.id);
   if (!credentials) {
@@ -720,39 +755,52 @@ async function deliver(
   let failure: ProviderError | null = null;
   let renewed: Credentials | null = null;
   try {
-    const usable = await usableToken(platform, credentials, now);
-    renewed = usable.renewed;
-    if (media) {
-      externalId = await sendMedia(prepared, usable.token, media);
-    } else if (platform === 'whatsapp') {
-      externalId = template
-        ? await sendWhatsAppTemplate(
-            usable.token,
-            account.externalId,
-            conversation.participantId,
-            template,
-          )
-        : await sendWhatsAppText(
-            usable.token,
-            account.externalId,
-            conversation.participantId,
-            body,
-          );
-    } else if (platform === 'tiktok') {
-      externalId = await sendTikTokMessage(
-        ref,
-        usable.token,
-        conversation.externalId ?? conversation.participantId,
-        body,
+    if (platform === 'livechat') {
+      externalId = `chat-out:${messageId}`;
+    } else if (platform === 'email') {
+      // A retry is a new attempt; the first send's key stops a doubled request sending twice.
+      externalId = await sendEmailReply(
+        ctx,
+        prepared,
+        action === 'create' ? `social-${messageId}` : `social-${messageId}-${now.getTime()}`,
       );
     } else {
-      externalId = await sendMetaMessage(
-        ref,
-        usable.token,
-        conversation.participantId,
-        body,
-        humanAgent,
-      );
+      if (!credentials)
+        throw new ProviderError(platform, 'This account needs to be connected again.');
+      const usable = await usableToken(platform, credentials, now);
+      renewed = usable.renewed;
+      if (media) {
+        externalId = await sendMedia(prepared, usable.token, media);
+      } else if (platform === 'whatsapp') {
+        externalId = template
+          ? await sendWhatsAppTemplate(
+              usable.token,
+              account.externalId,
+              conversation.participantId,
+              template,
+            )
+          : await sendWhatsAppText(
+              usable.token,
+              account.externalId,
+              conversation.participantId,
+              body,
+            );
+      } else if (platform === 'tiktok') {
+        externalId = await sendTikTokMessage(
+          ref,
+          usable.token,
+          conversation.externalId ?? conversation.participantId,
+          body,
+        );
+      } else {
+        externalId = await sendMetaMessage(
+          ref,
+          usable.token,
+          conversation.participantId,
+          body,
+          humanAgent,
+        );
+      }
     }
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
@@ -877,7 +925,8 @@ export async function linkConversationContact(
     }
     await tx
       .update(socialConversations)
-      .set({ contactId: input.contactId, updatedAt: new Date() })
+      // A person's choice: automatic matching never changes it again (ADR-068).
+      .set({ contactId: input.contactId, contactMatch: 'manual', updatedAt: new Date() })
       .where(
         and(
           eq(socialConversations.tenantId, ctx.tenantId),

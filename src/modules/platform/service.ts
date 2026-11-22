@@ -842,8 +842,12 @@ export async function deleteBusiness(
     const [person] = await db
       .select({
         email: users.email,
-        elsewhere: sql<number>`(select count(*)::int from ${tenantMemberships}
-                                 where ${tenantMemberships.userId} = ${users.id})`,
+        // Written out in full: in a one-table select Drizzle leaves columns unqualified, which
+        // inside this subquery bound to tenant_memberships and always counted nothing. Logins of
+        // people in other businesses were saved only because their membership's foreign key made
+        // the deletion fail.
+        elsewhere: sql<number>`(select count(*)::int from public.tenant_memberships m
+                                 where m.user_id = users.id)`,
       })
       .from(users)
       .where(eq(users.id, userId))

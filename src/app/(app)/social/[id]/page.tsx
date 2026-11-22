@@ -16,11 +16,15 @@ import { MarkRead } from '@/modules/social/components/social-tools';
 import { TemplateReply } from '@/modules/social/components/template-reply';
 import { ThreadView } from '@/modules/social/components/thread-view';
 import { ACCOUNT_STATUS_LABELS, customerLabel, PLATFORM_LABELS } from '@/modules/social/format';
+import { ConversationTicket } from '@/modules/helpdesk/components/conversation-ticket';
+import { ticketsForConversation } from '@/modules/helpdesk/queries';
+import { renderCannedReply } from '@/modules/social/canned';
 import {
   assignableMembers,
   countUnread,
   getConversation,
   listAccounts,
+  listCannedResponses,
   listConversations,
   sendableTemplates,
 } from '@/modules/social/queries';
@@ -77,7 +81,22 @@ export default async function ConversationPage({
     { view: filters.view, platform: filters.platform, q: filters.q },
     {},
   );
-  const members = canReply ? await assignableMembers(ctx) : [];
+  const canTicket = hasPermission(ctx, 'tickets.work');
+  const [members, cannedRows, conversationTickets] = await Promise.all([
+    assignableMembers(ctx),
+    canReply ? listCannedResponses(ctx) : Promise.resolve([]),
+    canTicket ? ticketsForConversation(ctx, conversation.id) : Promise.resolve([]),
+  ]);
+  const customerName = thread.contactName ?? conversation.participantName;
+  const cannedValues = {
+    contactName: customerName,
+    contactFirstName: customerName?.trim().split(/\s+/)[0] ?? null,
+    agentName: members.find((member) => member.userId === ctx.userId)?.fullName ?? null,
+  };
+  const canned = cannedRows.map((reply) => ({
+    ...reply,
+    body: renderCannedReply(reply.body, cannedValues),
+  }));
   const ends = windowEnds(platform, conversation.lastInboundAt);
   const snoozeOptions = snoozeChoices(ctx.tenant.timezone);
   const snoozed = thread.snoozedNow;
@@ -94,12 +113,18 @@ export default async function ConversationPage({
       platform={platform}
       handle={conversation.participantUsername}
       phone={conversation.participantPhone}
+      email={conversation.participantEmail}
       accountName={thread.accountName}
       accountBadge={accountBadge}
-      window={{
-        normal: ends.normal?.toISOString() ?? null,
-        human: ends.human?.toISOString() ?? null,
-      }}
+      window={
+        // Email and live chat have no reply window (ADR-070, ADR-072).
+        platform === 'email' || platform === 'livechat'
+          ? null
+          : {
+              normal: ends.normal?.toISOString() ?? null,
+              human: ends.human?.toISOString() ?? null,
+            }
+      }
       status={
         snoozed ? 'snoozed' : conversation.status === 'snoozed' ? 'open' : conversation.status
       }
@@ -108,7 +133,7 @@ export default async function ConversationPage({
       }
       snoozeOptions={snoozeOptions}
       assignedUserId={conversation.assignedUserId}
-      members={members}
+      members={canReply ? members : []}
       myUserId={ctx.userId}
       canReply={canReply}
       contact={{
@@ -118,7 +143,18 @@ export default async function ConversationPage({
         email: thread.contactEmail,
         phone: thread.contactPhone,
         canLink: canReply && hasPermission(ctx, 'contacts.view'),
+        match: conversation.contactMatch,
+        suggestions: thread.suggestions,
       }}
+      ticket={
+        canTicket ? (
+          <ConversationTicket
+            conversationId={conversation.id}
+            tickets={conversationTickets}
+            defaultSubject={`${PLATFORM_LABELS[platform]} conversation with ${name}`.slice(0, 160)}
+          />
+        ) : null
+      }
     />
   );
 
@@ -130,7 +166,7 @@ export default async function ConversationPage({
           href={back}
           className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft aria-hidden className="size-4" /> Social inbox
+          <ArrowLeft aria-hidden className="size-4" /> Inbox
         </Link>
         <div className="flex items-center gap-2">
           <InboxRealtime tenantId={ctx.tenantId} />
@@ -167,6 +203,11 @@ export default async function ConversationPage({
               <h1 className="truncate text-lg font-semibold tracking-tight" data-sensitive>
                 {name}
               </h1>
+              {conversation.subject && (
+                <p className="truncate text-sm font-medium" data-sensitive>
+                  {conversation.subject}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <PlatformBadge platform={platform} />
                 <span>to {thread.accountName}</span>
@@ -175,22 +216,28 @@ export default async function ConversationPage({
                 )}
               </div>
             </div>
-            <ReplyWindowBadge
-              normalEndsAt={ends.normal?.toISOString() ?? null}
-              humanEndsAt={ends.human?.toISOString() ?? null}
-            />
+            {platform !== 'email' && platform !== 'livechat' && (
+              <ReplyWindowBadge
+                normalEndsAt={ends.normal?.toISOString() ?? null}
+                humanEndsAt={ends.human?.toISOString() ?? null}
+              />
+            )}
           </header>
 
           <ThreadView
             conversationId={conversation.id}
             platformLabel={PLATFORM_LABELS[platform]}
             canReply={canReply}
+            canned={canned}
+            articles={ctx.tenant.features.includes('knowledge_base')}
+            presence={{ tenantId: ctx.tenantId, userId: ctx.userId, members }}
             blockedReason={templateOnly ? null : blockedReason}
             textReply={!templateOnly}
             humanAgent={window.ok && window.humanAgent}
             maxChars={REPLY_RULES[platform].maxChars}
             attach={
-              accountLive
+              // Live chat takes text only.
+              accountLive && Object.keys(MEDIA_RULES[platform]).length > 0
                 ? {
                     limits: MEDIA_RULES[platform],
                     captions: CAPTIONS[platform],
@@ -234,14 +281,20 @@ export default async function ConversationPage({
               status: message.status,
               error: message.error,
               sentByName: message.sentByName,
+              unverified: message.direction === 'inbound' && message.emailMeta?.verified === false,
+              automated: message.emailMeta?.automated === true,
             }))}
           />
           <p className={templateOnly ? 'hidden' : 'text-xs text-muted-foreground'}>
-            {platform === 'tiktok'
-              ? 'TikTok allows up to 10 replies within 48 hours of the customer’s last message.'
-              : platform === 'whatsapp'
-                ? 'Free-form replies within 24 hours of the customer’s last message; after that, an approved template. Meta charges for templates and for replies beyond 1,000 a month.'
-                : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
+            {platform === 'email'
+              ? `Replies are emailed from ${thread.accountName} with the subject “Re: ${conversation.subject ?? 'your message'}”, and the customer’s answers come back here.`
+              : platform === 'livechat'
+                ? 'Replies appear in the visitor’s chat on your website within a few seconds, while their chat is open or the next time they open it there.'
+                : platform === 'tiktok'
+                  ? 'TikTok allows up to 10 replies within 48 hours of the customer’s last message.'
+                  : platform === 'whatsapp'
+                    ? 'Free-form replies within 24 hours of the customer’s last message; after that, an approved template. Meta charges for templates and for replies beyond 1,000 a month.'
+                    : 'Replies are allowed within 24 hours of the customer’s last message, or 7 days as a reply from a person.'}
           </p>
         </section>
 

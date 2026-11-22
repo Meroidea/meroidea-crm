@@ -44,6 +44,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'social.view': 'See customers’ social media messages',
   'social.reply': 'Reply to social media messages and link them to contacts',
   'social.manage': 'Connect and disconnect social media accounts',
+  'social.canned_manage': 'Write the saved replies the whole team shares',
   'books.view': 'See the books and reports',
   'books.view_payroll': 'See wages, tax withheld and super in the books',
   'books.record': 'Record money in, money out and transfers',
@@ -75,6 +76,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'reviews.manage': 'Manage reviews',
   'tickets.work': 'Work helpdesk tickets',
   'tickets.manage': 'Manage the helpdesk',
+  'kb.manage': 'Write and publish knowledge base articles and run the help portal',
   'projects.view': 'See projects',
   'projects.manage': 'Manage projects',
   'productivity.view': 'See productivity',
@@ -102,7 +104,7 @@ const GROUPS: { title: string; families: string[] }[] = [
   },
   { title: 'Marketing', families: ['social'] },
   { title: 'Work', families: ['tasks', 'projects', 'files', 'productivity'] },
-  { title: 'Customer care', families: ['reviews', 'tickets'] },
+  { title: 'Customer care', families: ['reviews', 'tickets', 'kb'] },
   {
     title: 'People',
     families: [

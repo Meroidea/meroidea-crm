@@ -44,6 +44,11 @@ UI via `tenants.labels`, but the **code name never changes**.
 | **Loading** | A multiplier of the contract hourly rate for a Saturday, a Sunday or a public holiday. 1 is the ordinary rate. | — | — |
 | **Owner** | The user responsible for a contact or opportunity. Drives `own` scope. | Consultant | Agent |
 | **Scope** | How far a permission reaches: `own`, `team`, or `all`. | — | — |
+| **Ticket** | A customer's request for help, numbered per business, from first contact to closed. May follow an inbox conversation. | — | — |
+| **SLA policy** | A business's response targets by priority: a first reply within, and solved within, so many counted hours. Priority `normal` is shown as Medium. | — | — |
+| **Business hours** | The opening hours, in one timezone, that response targets count in; public holidays can be skipped. | — | — |
+| **Knowledge base article** | A help page a business writes in Markdown and publishes on its public help portal (`/help/<slug>`). Drafts are seen only by its editors. | — | — |
+| **On track / At risk / Breached** | Where a running target stands: before its at-risk point, past it, or past its due time. A target stands still (Paused) while the ticket is pending the customer. | — | — |
 
 ## Words to avoid in code
 

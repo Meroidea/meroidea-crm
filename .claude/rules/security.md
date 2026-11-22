@@ -84,6 +84,19 @@ change as touching sensitive personal data.
   (`src/server/request.ts`), never `request.json()` after a `Content-Length` check: a chunked
   request declares no length. Count senders with `enforceRateLimit` (`src/server/rate-limit.ts`),
   which stores only a keyed hash of the address.
+- Response targets (ADR-069):
+  - Only the `tickets_sla` trigger and `app.sla_sweep` write the SLA columns of `tickets`. Never
+    grant them to sessions. Application code passes only the ADR-037 fallback `response_due_at`,
+    which the trigger replaces whenever a policy applies. Keep `first_response_at` set once, by
+    the trigger, to the moment it happens.
+  - `app.business_add` / `app.business_minutes_between` refuse a signed-in person outside the
+    hours' business; keep that check if they change.
+  - SLA notices name the ticket number and the target, never its subject or what the customer
+    wrote.
+  - A ticket's channel reply goes through `replyToConversation`, which needs `social.reply` and
+    the channel's own checks. A ticket from a conversation never sends an email.
+  - Following up a customer's message (matching, tickets) runs in a savepoint after the message
+    is stored, so a failure there never loses the message.
 
 ## Platform owners (ADR-029)
 
@@ -191,6 +204,52 @@ change as touching sensitive personal data.
     size, and deletes what it refuses. Never send a path the browser made up.
   - Meta gets a ten-minute signed link to that one object, never a longer or broader one.
 - An assignment notice never contains what the customer wrote.
+- Inbox foundations (ADR-068):
+  - Private notes are `social_messages` with `direction = 'note'`. Every customer-facing read
+    (email, live chat, any public page) must exclude them. Keep `social_messages_note_author` and
+    never add `body` to the update grants.
+  - Account settings are written only through `app.social_set_account_settings` (`social.manage`).
+    Never grant the `settings` column to sessions.
+  - The presence channel `social-presence:<tenant>` carries ids and a typing flag only. Never put
+    a draft, a note or a message in a presence payload.
+  - Matching a sender to a contact links exactly one match, never the first of several, and never
+    overrides `contact_match = 'manual'`. A lead made from a channel stores the conversation id,
+    never the message.
+
+## Email inbox (ADR-070)
+
+- `/api/webhooks/resend` reads nothing before `verifyResendSignature` passes on the raw bytes
+  (Svix: `id.timestamp.body`, HMAC-SHA256 with the key after `whsec_`, five minutes). Keep the
+  body cap and the 500-on-failure (Resend retries); storing is idempotent on Resend's email id.
+- Only `src/modules/social/webhooks.ts` writes received email, `email_message_id` and
+  `email_meta`, through `adminDb` after the signature check. Never grant those columns to
+  sessions: `email_meta.verified` decides whether a sender may be linked to a contact.
+- An email's From address can be forged. Link a sender to a contact, or make them a lead, only
+  when Resend reports DKIM or DMARC `pass`; otherwise only offer the match.
+- A message joins a thread by its reply token or Message-ID **and** only when it comes from that
+  thread's customer. Never relax that, or anyone could write into another customer's thread.
+- Received HTML is reduced to text and shown as text; never render an email's HTML. Outgoing
+  bodies are escaped (`emailHtml`).
+- Reply tokens are 24 random characters from `newReplyToken`; never derive them from ids.
+- Attachment links are fetched only through `media.ts`, from `inbound-cdn.resend.com`; a file
+  from anywhere else is refused.
+- Nothing an email says goes into logs, audit rows or error messages.
+
+## Knowledge base (ADR-071)
+
+- `src/modules/kb/public.ts` is the only knowledge base code that may use `adminDb`. It starts
+  from the business's slug and serves only an open business with the feature on, an open portal,
+  and published, live articles. It never takes a business, article or contact id from a visitor.
+- Article Markdown is rendered only through `Markdown` (`skipHtml`, react-markdown's URL filter,
+  https-only pictures without a referrer). Never add `rehype-raw` or render an article's HTML.
+- Drafts are for `kb.manage` only, in RLS as well as in queries. Never widen `kb_articles_read`.
+- A tracked link carries a random token; only its sha256 is stored. The token never names a person
+  or record, and the page drops it from the address bar after reporting the read.
+- A linked read counts only when the token, the business and the article all match and the link is
+  live. Reads are reported from the browser, so mail scanners that do not run scripts are not
+  counted; they can still count where they do.
+- The portal's public routes keep their size caps, Zod parsing, honeypot and per-sender limits.
+- Erasing a person deletes their `kb_article_views` and `kb_article_links`.
 
 ## Location (ADR-033)
 

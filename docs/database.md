@@ -1335,7 +1335,7 @@ helpdesk_forms   tenant_id pk, public_token unique, is_open, timestamps     -- o
 tickets          id, tenant_id, number (unique per tenant), subject, requester_name, requester_email,
                  contact_id, category, priority (low|normal|high|urgent),
                  status (open|pending|on_hold|solved|closed), assignee_user_id,
-                 source (web_form|manual), public_token unique,
+                 source (web_form|manual|conversation), public_token unique,
                  response_due_at, first_response_at, solved_at, last_activity_at, timestamps, deleted_at
 ticket_messages  id, tenant_id, ticket_id → tickets (cascade), author_user_id (null = customer),
                  author_name, body, is_internal, created_at
@@ -1345,6 +1345,95 @@ RLS: tickets and messages need `tickets.work`; a message can only be inserted wi
 colleague. Form settings and deleting need `tickets.manage`. Numbers are allocated under a
 per-tenant advisory lock. Customer messages and form submissions are written by
 `src/modules/helpdesk/public.ts` (ADR-037).
+
+**Response targets and CRM links (migrations `0077`–`0078`, ADR-069).**
+```sql
+business_hours        id, tenant_id, name, timezone (checked by app.valid_timezone),
+                      weekly jsonb  -- [{day 0-6 (Sunday 0), opens "HH:MM", closes "HH:MM"|"24:00"}],
+                                    -- 1-70 spans, opens < closes (app.valid_business_week)
+                      skip_public_holidays bool default true   -- uses public_holidays (Rosters)
+                      created/updated_at/by; unique (tenant_id, id)
+sla_policies          id, tenant_id, name, is_default (one per business, partial unique index),
+                      business_hours_id (composite FK; null = around the clock),
+                      at_risk_percent smallint 1-99 default 75,
+                      escalate_to_user_id (composite FK → tenant_memberships), created/updated_at/by
+sla_targets           tenant_id, policy_id (composite FK, cascade), priority (low|normal|high|urgent),
+                      first_response_minutes, resolution_minutes (1-525600, resolution >= first)
+                      pk (policy_id, priority)
+ticket_opportunities  tenant_id, ticket_id (composite FK, cascade), opportunity_id (composite FK,
+                      cascade), created_at, created_by; pk (ticket_id, opportunity_id)
+tickets               + organization_id, conversation_id → social_conversations, sla_policy_id
+                        (all composite FKs; contact_id now has one too: 0077 cleared orphans)
+                      + resolution_due_at, first_response_at_risk_at, resolution_at_risk_at,
+                        sla_paused_at, sla_paused_minutes int default 0,
+                        first_response_breached_at, resolution_breached_at
+                      indexes (tenant_id, conversation_id) where conversation_id is not null;
+                        (response_due_at, resolution_due_at) where active and not deleted
+```
+- `app.business_add(hours, from, minutes)` and `app.business_minutes_between(hours, from, to)` count
+  time inside the opening hours in their timezone (daylight saving included), skipping holidays when
+  asked; null hours = clock time. `security definer`, refused to a signed-in person outside the
+  hours' business.
+- Trigger `tickets_sla` (before insert or update) owns every SLA column:
+  - A new ticket gets the default policy, with due times measured from `created_at`.
+  - `pending`, `solved` and `closed` stop the resolution clock (`sla_paused_at`). Leaving them adds
+    the counted standing time to `sla_paused_minutes` and moves the resolution times on.
+  - The first-response clock never pauses.
+  - A priority or policy change recalculates every time; a breach whose new time is still ahead is
+    lifted.
+  - `first_response_at` is set once, to the moment it happens.
+- Sessions have no update grant on the SLA columns. They may update `status, priority, category,
+  assignee_user_id, first_response_at, solved_at, last_activity_at, updated_at, updated_by,
+  deleted_at, contact_id, organization_id` only.
+- `0040`'s `tickets_source_known` now also allows `conversation`.
+- RLS: hours, policies and targets are read with `tickets.work` and written with `tickets.manage`;
+  `ticket_opportunities` read and written with `tickets.work`. All four carry the restrictive
+  `feature_switch` (`helpdesk`).
+- `app.create_default_sla_policy(tenant)` gives every business "Standard": urgent 1 h / 4 h, high
+  4 h / 1 day, normal 24 h / 3 days, low 72 h / 7 days, around the clock. It runs in the migration
+  for existing businesses and in provisioning for new ones.
+- `app.sla_reapply_policy(policy)` (`tickets.manage`) recalculates the open tickets on a policy after
+  its settings change.
+- `app.social_set_account_settings` also accepts `autoTicket` (boolean) and `autoTicketPriority`.
+
+## 7m-2. Knowledge base 🟢 (migration `0080`, ADR-071)
+
+Feature `knowledge_base`; every table below carries the restrictive `feature_switch` policy.
+```sql
+kb_portals           tenant_id pk, is_public bool default false, title, intro, created/updated_at, updated_by
+                     -- the portal lives at /help/<tenants.slug>; closed until is_public
+kb_categories        id, tenant_id, name, slug (^[a-z0-9]([a-z0-9-]{0,78}[a-z0-9])?$), description,
+                     position, created/updated_at/by, deleted_at
+                     unique (tenant_id, id); unique (tenant_id, slug) where deleted_at is null
+kb_articles          id, tenant_id, category_id (composite FK), title (1-200), slug (unique per tenant
+                     while live, up to 120), summary (<= 300), body_markdown (<= 100,000),
+                     status draft|published, published_at,
+                     search tsvector generated always ('simple': title, summary, body) + gin index,
+                     view_count, helpful_count, not_helpful_count, created/updated_at/by, deleted_at
+kb_article_feedback  id, tenant_id, article_id (composite FK, cascade), helpful bool,
+                     comment (<= 1000, only with a "no"), created_at
+kb_article_links     id, tenant_id, article_id, contact_id (composite FKs, cascade), source inbox|ticket,
+                     conversation_id, ticket_id (composite FKs), token_hash (sha256, unique),
+                     expires_at (365 days), created_at, created_by
+kb_article_views     id, tenant_id, article_id, contact_id (composite FKs, cascade), link_id → links
+                     (cascade), source, viewed_at; index (tenant_id, contact_id, viewed_at)
+```
+RLS:
+- `kb_portals`: read with `kb.manage`, `social.reply` or `tickets.work` (so nobody links to a
+  closed portal); written with `kb.manage`.
+- `kb_categories`: read with `kb.manage`, `social.reply` or `tickets.work`; written with
+  `kb.manage`.
+- `kb_articles`: read in full with `kb.manage`; people with `social.reply` or `tickets.work` read
+  **published, live** articles only. Written with `kb.manage`. Sessions may update only the
+  editable columns: never the counters.
+- `kb_article_feedback`: read with `kb.manage`; no session writes.
+- `kb_article_links`: inserted by `social.reply` / `tickets.work` holders as themselves
+  (`created_by`); read by their creator or `kb.manage`.
+- `kb_article_views`: read with `contacts.view`, `tickets.work` or `social.view`; no session writes.
+
+Public reads, counters, feedback and linked reads are written only by `src/modules/kb/public.ts`
+(privileged, starting from the slug). `app.erase_contact_traces` also deletes the person's
+`kb_article_views` and `kb_article_links`.
 
 ## 7n. Questions and concerns 🟢
 
@@ -1622,6 +1711,92 @@ messages, name, handle and picture.
   - on `social_messages.body`.
 - A reply's own attachment is an `attachments` entry with `state: stored` and a `storagePath`
   under `{tenant}/social/{conversation}/outbound/`.
+
+**Inbox foundations (migration `0076`, ADR-068).**
+- `social_accounts.settings jsonb not null default '{}'`: `{createLeadForUnknown?: boolean,
+  leadSourceId?: uuid}`. Not granted to sessions as a column: written only by
+  `app.social_set_account_settings(account, settings)` (`social.manage`; known keys only; the lead
+  source must be the business's own).
+- `social_conversations.contact_match text`: how `contact_id` was set, `auto` (exactly one contact
+  has the customer's number or email) | `created` (a new lead was made for them) | `suggested`
+  (several matched; nobody linked) | `manual` (a person linked or unlinked it); empty when not
+  looked up or nothing matched. Rows linked before `0076` were backfilled as `manual`. Sessions may
+  update it.
+- `social_messages.direction` also allows `note`: a private note between colleagues, never sent.
+  Check `social_messages_note_check`: a note has `sent_by_user_id`, no `external_id`, status
+  `sent` and no attachments. Restrictive insert policy `social_messages_note_author`: a session
+  writes a note only as itself. The body is not in the update grants, so notes never change.
+  Notes are kept when a contact is erased, as staff notes on tickets are.
+- Presence: policies `social_presence_receive` (select) and `social_presence_track` (insert) on
+  `realtime.messages` for `extension = 'presence'`, through
+  `app.social_presence_allowed(realtime.topic())` on the private topic `social-presence:<tenant>`
+  (`social.view`, business open). The payload is a user id, a conversation id and a typing flag.
+
+**Email inbox (migration `0079`, ADR-070).**
+- `social_accounts.platform` also allows `email`: `external_id` is the inbox's address (lower case,
+  unique while live like any account), `username` the same. Email accounts have no credentials.
+- `social_conversations` + `participant_email` (lower case), `subject`, `reply_token` (24 lower-case
+  letters and digits, unique where set: the thread's own reply address `r-<token>@<inbox domain>`).
+  An email conversation is one thread, so `participant_id` is `email:<random uuid>`.
+  Index `(tenant_id, participant_email)`.
+- `social_messages` + `email_message_id` (RFC Message-ID; unique per account where set),
+  `email_meta jsonb` (`{from, fromName, to, cc, subject, verified, automated, inReplyTo}`). Both
+  are written only by the privileged webhook path. Sessions have no update grant on them, so an
+  inbound message's sender check cannot be altered.
+- Feature: `email_channel`. The `social` permission family now needs the feature group `inbox`
+  (`social` or `email_channel`):
+  - `app.permission_feature` returns `inbox` for it, and `app.feature_enabled` and
+    `app.my_context` understand the group.
+  - The six inbox tables' `feature_switch` policies use `inbox`.
+- Restrictive `inbox_channel` policies hide each account's rows while its own channel's feature is
+  off:
+  - on `social_accounts` via `app.inbox_platform_enabled(tenant, platform)`;
+  - on credentials, conversations, messages and templates via `app.inbox_account_enabled(account)`.
+- `app.erase_contact_traces` also clears `participant_email`, `subject` and inbound messages'
+  `email_meta`.
+
+**Live chat (migration `0081`, ADR-072).**
+- `social_accounts.platform` also allows `livechat`: one row per website chat widget.
+  `external_id` is the widget's public key (24 url-safe characters, in the embed code). Its
+  identity secret is sealed in `social_account_credentials.access_token_ciphertext`, like a token.
+- `social_accounts.settings` also accepts, through `app.social_set_account_settings`:
+  `allowedOrigins` (up to 10 `https://` origins, or `http://localhost` / `127.0.0.1` for testing),
+  `greeting` (up to 300 characters) and `requireEmail` (boolean).
+- A visitor's conversation has `participant_id = 'visitor:<visitor id>'`. Their messages have
+  `external_id = 'chat:<visitor id>:<client uuid>'`, so a retried send is stored once; the
+  business's replies get `chat-out:<message id>`.
+- Feature `live_chat` joins the `inbox` group (`social`, `email_channel`, `live_chat`), and
+  `app.inbox_platform_enabled` maps `livechat` to it.
+
+```sql
+livechat_visitors  id, tenant_id, account_id (composite FK → social_accounts), token_hash (sha256,
+                   base64url; unique), name (<= 120), email (lower case, <= 200),
+                   email_verified bool default false, conversation_id (composite FK, set with the
+                   first message), created_at, last_seen_at
+                   unique (tenant_id, id); index (tenant_id, account_id, last_seen_at)
+```
+- RLS: read with `social.view`, plus the `inbox` `feature_switch` and `inbox_channel` policies.
+  No session writes: only `src/modules/social/livechat-public.ts` (privileged, starting from the
+  widget key) writes visitors.
+- `app.erase_contact_traces` clears the name and email of visitors in the person's linked chats
+  and of any visitor who gave the person's email. It now runs before the contact row is cleared.
+
+### social_canned_responses
+A saved reply (ADR-068). Shared with the team when `owner_user_id` is empty, else one person's.
+```sql
+id uuid pk, tenant_id → tenants
+owner_user_id uuid                 -- composite FK (tenant_id, owner_user_id) → tenant_memberships, on delete cascade
+title text not null                -- 1–120 characters
+shortcut text                      -- ^[a-z0-9][a-z0-9-]{0,31}$, typed after "/" in the reply box
+body text not null                 -- 1–4096 characters; {{contact.first_name}}, {{contact.name}}, {{agent.name}}
+created_at, updated_at, created_by, updated_by
+unique (tenant_id, id)
+unique (tenant_id, coalesce(owner_user_id, '00000000-…'), shortcut) where shortcut is not null
+index (tenant_id, owner_user_id, title)
+```
+RLS: read with `social.reply`, shared rows and the reader's own. Write own rows with
+`social.reply`; shared rows with `social.canned_manage`. Restrictive `feature_switch` (`social`).
+Not soft-deleted: a saved reply is a tool, not a business record.
 
 ### social_message_templates
 A WhatsApp template of a connected number's WhatsApp Business Account. Each live number of the
@@ -2030,6 +2205,7 @@ Defined in custom migrations; each calls a SQL function that inserts `notificati
 | `notify_stale_opportunities` | hourly; acts for tenants where local time is 08:00 | open opps with `last_activity_at` older than stage/tenant threshold → owner |
 | `notify_expiring_documents` | hourly; tenants at local 08:00 | requirements with `expires_on` within 60 days (passports, English tests, visas) → owner |
 | `purge_soft_deleted` 🟡 | weekly | hard-delete rows soft-deleted > 90 days (and their files) |
+| `sla_sweep` 🟢 | every 5 min | `app.sla_sweep()` (ADR-069): sets `*_breached_at` on running targets past due, and notifies (`sla_at_risk`, `sla_breached`, dedupe key per ticket and target) the assignee, the policy's escalation person on a breach, or everyone with `tickets.manage` when nobody else applies. Scheduled by migration `0078` where `pg_cron` is available |
 
 pg_cron runs in UTC. "Tenant local time" jobs run hourly and select tenants whose
 `now() at time zone tenants.timezone` is in the target hour — this handles Sydney's daylight

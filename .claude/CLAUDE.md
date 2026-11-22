@@ -47,7 +47,8 @@ Read the relevant doc before working on a module. If code and docs disagree, sto
 Next.js (App Router) · TypeScript strict · Tailwind · shadcn/ui · Lucide · Supabase
 (Postgres, Auth, Storage, pg_cron, and Realtime broadcast on private channels for the social
 inbox only, approved by the owner, ADR-065) · Drizzle ORM + Drizzle Kit · Zod · React Hook Form ·
-TanStack Table · dnd-kit · Recharts · Papa Parse · Vitest · Playwright.
+TanStack Table · dnd-kit · Recharts · Papa Parse · react-markdown (knowledge base articles only,
+without raw HTML; approved by the owner, ADR-071) · Vitest · Playwright.
 TanStack Table and Recharts are approved but not installed yet: add them when a screen first
 needs them, not before.
 

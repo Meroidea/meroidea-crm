@@ -72,7 +72,7 @@ export function InboxList({
           name="q"
           defaultValue={filters.q ?? ''}
           maxLength={100}
-          placeholder="Search name, number or message"
+          placeholder="Search name, number, email or message"
           aria-label="Search conversations"
           className="pl-8"
         />
@@ -167,6 +167,9 @@ export function InboxList({
                       )}
                       data-sensitive
                     >
+                      {row.subject && (
+                        <span className="font-medium text-foreground">{row.subject} · </span>
+                      )}
                       {row.lastMessagePreview ?? 'No messages yet'}
                     </p>
                     <div className="mt-1 flex items-center gap-2">

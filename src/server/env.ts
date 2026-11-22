@@ -23,6 +23,19 @@ const serverEnvSchema = z.object({
   /** Transactional email (ADR-023). Without these, contract links are shown to copy instead. */
   RESEND_API_KEY: z.string().min(1).optional(),
   EMAIL_FROM: z.string().min(3).optional(),
+  /**
+   * Email inbox (ADR-070): the domain Resend receives mail for (an MX record points at Resend)
+   * and sends replies from. Businesses' inbox addresses and per-thread reply addresses live here.
+   */
+  INBOX_EMAIL_DOMAIN: z
+    .string()
+    .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/)
+    .optional(),
+  /** The signing secret (whsec_…) of the Resend webhook that delivers received mail and events. */
+  RESEND_WEBHOOK_SECRET: z
+    .string()
+    .regex(/^whsec_[A-Za-z0-9+/=]{16,}$/)
+    .optional(),
   /** Fair Work Commission Modern Awards Pay Database. Without it, minimums are entered by hand. */
   FWC_API_KEY: z.string().min(1).optional(),
   /** 32 random bytes, base64. Encrypts tax file, bank and super numbers at rest. */

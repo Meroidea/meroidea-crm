@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation';
 import { cache } from 'react';
 
 import { AppError } from '@/lib/errors';
-import { featureForPermission, isFeatureKey, type FeatureKey } from '@/lib/features';
+import { isFeatureKey, permissionAvailable, type FeatureKey } from '@/lib/features';
 import { isTenantOpen } from '@/lib/tenant/status';
 import type { Grant, PermissionKey } from '@/lib/permissions/catalog';
 import { resolveLabels, type Labels } from '@/lib/tenant/labels';
@@ -97,8 +97,7 @@ export async function loadTenantContext(
   // again here keeps pages, menus and actions correct even if the two catalogs ever drift.
   const grants = new Map<PermissionKey, Grant>();
   for (const [permission, scope] of Object.entries(row.grants ?? {})) {
-    const feature = featureForPermission(permission);
-    if (feature && !features.includes(feature)) continue;
+    if (!permissionAvailable(permission, features)) continue;
     grants.set(permission as PermissionKey, scope === 'true' ? true : (scope as Grant));
   }
 

@@ -209,3 +209,62 @@ export const mediaReplySchema = z.object({
     .transform((value) => value || null),
 });
 export type MediaReplyInput = z.output<typeof mediaReplySchema>;
+
+/** How an account treats senders who match no contact (ADR-068). */
+export const accountSettingsInputSchema = z.object({
+  accountId: z.uuid(),
+  createLeadForUnknown: z.boolean(),
+  leadSourceId: z.uuid().nullable(),
+  /** Open a helpdesk ticket for each conversation without one (ADR-069). */
+  autoTicket: z.boolean().optional(),
+  autoTicketPriority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
+});
+/** The auto-ticket fields may be left out: they then stay as they are. */
+export type AccountSettingsInput = z.input<typeof accountSettingsInputSchema>;
+
+/** A private note for colleagues in a conversation; never sent to the customer (ADR-068). */
+export const noteSchema = z.object({
+  conversationId: z.uuid(),
+  body: z.string().trim().min(1, 'Write the note first').max(4000, 'That note is too long'),
+});
+export type NoteInput = z.output<typeof noteSchema>;
+
+/** A saved reply: shared with the team, or the person's own. */
+export const cannedResponseSchema = z.object({
+  id: z.uuid().optional(),
+  title: z
+    .string()
+    .trim()
+    .min(1, 'Give it a title')
+    .max(120, 'Keep the title under 120 characters'),
+  shortcut: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(32, 'Keep the shortcut under 32 characters')
+    .regex(
+      /^([a-z0-9][a-z0-9-]*)?$/,
+      'Use letters, numbers and dashes, starting with a letter or number',
+    )
+    .transform((value) => value || null),
+  body: z.string().trim().min(1, 'Write the reply').max(4096, 'That reply is too long'),
+  shared: z.boolean(),
+});
+export type CannedResponseInput = z.output<typeof cannedResponseSchema>;
+
+export const cannedResponseIdSchema = z.object({ id: z.uuid() });
+
+/** A new email inbox (ADR-070): its name and the address's local part at the platform's domain. */
+export const emailInboxSchema = z.object({
+  name: z.string().trim().min(2, 'Give it a name').max(80, 'Keep the name under 80 characters'),
+  localPart: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      /^[a-z0-9](?:[a-z0-9.-]{1,38}[a-z0-9])$/,
+      'Use 3 to 40 letters, numbers, dots or dashes, starting and ending with a letter or number',
+    ),
+  createLeadForUnknown: z.boolean().default(true),
+});
+export type EmailInboxInput = z.output<typeof emailInboxSchema>;

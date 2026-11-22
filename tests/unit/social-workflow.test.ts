@@ -45,8 +45,15 @@ describe('what each platform takes in a reply', () => {
     expect(mediaRefusal('tiktok', 'video/mp4', MB)).toMatch(/does not take/);
   });
 
-  it('only WhatsApp sends words with a file in one message', () => {
-    expect(CAPTIONS).toEqual({ whatsapp: true, facebook: false, instagram: false, tiktok: false });
+  it('only WhatsApp and email send words with a file in one message', () => {
+    expect(CAPTIONS).toEqual({
+      whatsapp: true,
+      email: true,
+      facebook: false,
+      instagram: false,
+      tiktok: false,
+      livechat: false,
+    });
     expect(mediaKind('image/png')).toBe('image');
     expect(mediaKind('audio/ogg')).toBe('audio');
     expect(mediaKind('application/pdf')).toBe('file');

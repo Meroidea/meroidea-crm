@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { publicEnv } from '@/lib/env.public';
+import { chatFramePolicy } from '@/modules/social/livechat-frame';
 
 /**
  * Refreshes the Supabase session cookie on every navigation. Authorization itself happens in
@@ -26,11 +27,17 @@ export async function proxy(request: NextRequest) {
 
   await supabase.auth.getUser();
 
+  // A live chat widget's page may be framed only by the sites its business listed (ADR-072).
+  const chat = /^\/chat\/([^/]+)\/?$/.exec(request.nextUrl.pathname);
+  if (chat?.[1]) {
+    response.headers.set('Content-Security-Policy', await chatFramePolicy(chat[1]));
+  }
+
   return response;
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|logos/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|logos/|widget/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

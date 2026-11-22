@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { formatRelative } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { NewTicketButton, PublicFormCard } from '@/modules/helpdesk/components/helpdesk-tools';
+import { SlaBadge } from '@/modules/helpdesk/components/sla-badge';
+import { currentTarget, targetProps } from '@/modules/helpdesk/sla';
 import {
   getHelpdeskForm,
   getTicketCounts,
@@ -50,6 +52,7 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
     ['open', 'Open', counts.open],
     ['mine', 'Mine', counts.mine],
     ['unassigned', 'Unassigned', counts.unassigned],
+    ['at_risk', 'At risk', counts.atRisk],
     ['solved', 'Solved', null],
     ['all', 'All', null],
   ];
@@ -59,13 +62,28 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
       <PageHeader
         title="Helpdesk"
         description="Customer requests in one queue: who has them, how urgent they are, and what was said."
-        actions={<NewTicketButton people={people} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {hasPermission(ctx, 'tickets.manage') && (
+              <Link
+                href="/helpdesk/settings"
+                className="text-sm text-primary underline-offset-4 hover:underline"
+              >
+                Response targets
+              </Link>
+            )}
+            <NewTicketButton people={people} />
+          </div>
+        }
       />
 
       {counts.overdue > 0 && (
-        <p className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text">
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive-text">
           <span className="font-semibold">{counts.overdue}</span>{' '}
-          {counts.overdue === 1 ? 'ticket is' : 'tickets are'} past the time a first reply was due.
+          {counts.overdue === 1 ? 'ticket has' : 'tickets have'} missed a response target.{' '}
+          <Link href="/helpdesk?queue=at_risk" className="underline underline-offset-4">
+            See them
+          </Link>
         </p>
       )}
 
@@ -119,7 +137,7 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
         <ul className="flex flex-col divide-y rounded-xl border bg-card">
           {tickets.map((ticket) => {
             const active = ['open', 'pending', 'on_hold'].includes(ticket.status);
-            const overdue = active && !ticket.firstResponseAt && ticket.responseDueAt < now;
+            const { kind, target } = currentTarget(ticket);
             return (
               <li key={ticket.id}>
                 <Link
@@ -137,7 +155,13 @@ export default async function HelpdeskPage({ searchParams }: PageProps<'/helpdes
                       {formatRelative(ticket.lastActivityAt, now)}
                     </p>
                   </div>
-                  {overdue && <Badge variant="destructive">Reply overdue</Badge>}
+                  {active && (
+                    <SlaBadge
+                      target={targetProps(target)}
+                      serverNow={now.toISOString()}
+                      prefix={kind === 'first_response' ? 'Reply' : 'Resolve'}
+                    />
+                  )}
                   <Badge variant={PRIORITY_VARIANT[ticket.priority]}>
                     {PRIORITY_LABELS[ticket.priority]}
                   </Badge>

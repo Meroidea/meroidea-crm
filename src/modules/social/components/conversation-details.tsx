@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { AssignSelect, SnoozeControl } from './conversation-controls';
 import { CustomerAvatar, PlatformBadge } from './platform-badge';
 import { ReplyWindowBadge } from './reply-window';
-import { ContactLinker, StatusButton } from './social-tools';
+import { ContactLinker, StatusButton, SuggestedContacts } from './social-tools';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -29,9 +29,12 @@ export function ConversationDetails(props: {
   platform: Parameters<typeof PlatformBadge>[0]['platform'];
   handle: string | null;
   phone: string | null;
+  /** Email (ADR-070): the customer's address. */
+  email?: string | null;
   accountName: string;
   accountBadge: string | null;
-  window: { normal: string | null; human: string | null };
+  /** The platform's reply windows; null for email, which has none (ADR-070). */
+  window: { normal: string | null; human: string | null } | null;
   status: string;
   snoozedLabel: string | null;
   snoozeOptions: { label: string; until: string }[];
@@ -46,7 +49,13 @@ export function ConversationDetails(props: {
     email: string | null;
     phone: string | null;
     canLink: boolean;
+    /** How the link was made (ADR-068): auto, created, suggested, manual or not looked up. */
+    match: string | null;
+    /** Contacts sharing the customer's number, when more than one did. */
+    suggestions: { id: string; name: string }[];
   };
+  /** The helpdesk tickets for this conversation (ADR-069); empty for people who cannot work them. */
+  ticket?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -68,6 +77,11 @@ export function ConversationDetails(props: {
             </div>
           </div>
         </div>
+        {props.email && (
+          <p className="flex items-center gap-1.5 truncate text-sm" data-sensitive>
+            <Mail aria-hidden className="size-3.5 shrink-0 text-muted-foreground" /> {props.email}
+          </p>
+        )}
         {props.phone && (
           <p className="flex items-center gap-1.5 text-sm" data-sensitive>
             <Phone aria-hidden className="size-3.5 text-muted-foreground" /> +{props.phone}
@@ -77,7 +91,9 @@ export function ConversationDetails(props: {
           Writing to {props.accountName}{' '}
           {props.accountBadge && <Badge variant="destructive">{props.accountBadge}</Badge>}
         </p>
-        <ReplyWindowBadge normalEndsAt={props.window.normal} humanEndsAt={props.window.human} />
+        {props.window && (
+          <ReplyWindowBadge normalEndsAt={props.window.normal} humanEndsAt={props.window.human} />
+        )}
       </Section>
 
       {props.contact.canLink && (
@@ -88,6 +104,24 @@ export function ConversationDetails(props: {
             contactName={props.contact.name}
             contactLabel={props.contact.label}
           />
+          {props.contact.id && props.contact.match === 'auto' && (
+            <p className="text-xs text-muted-foreground">
+              Found by their {props.email ? 'email address' : 'number'}.
+            </p>
+          )}
+          {props.contact.id && props.contact.match === 'created' && (
+            <p className="text-xs text-muted-foreground">
+              Made as a new lead from this conversation.
+            </p>
+          )}
+          {!props.contact.id && props.contact.suggestions.length > 0 && (
+            <SuggestedContacts
+              matchedBy={props.email ? 'email' : 'phone'}
+              conversationId={props.conversationId}
+              contactLabel={props.contact.label}
+              suggestions={props.contact.suggestions}
+            />
+          )}
           {props.contact.email && (
             <p className="flex items-center gap-1.5 text-sm" data-sensitive>
               <Mail aria-hidden className="size-3.5 text-muted-foreground" /> {props.contact.email}
@@ -100,6 +134,8 @@ export function ConversationDetails(props: {
           )}
         </Section>
       )}
+
+      {props.ticket && <Section title="Helpdesk">{props.ticket}</Section>}
 
       {props.canReply && (
         <>

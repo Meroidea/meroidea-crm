@@ -11,22 +11,31 @@ import { metaAuthorizeUrl, metaConfigured } from './providers/meta';
 import { tiktokAuthorizeUrl, tiktokConfigured } from './providers/tiktok';
 import {
   accountIdSchema,
+  accountSettingsInputSchema,
   assignSchema,
+  cannedResponseIdSchema,
+  cannedResponseSchema,
   connectWhatsAppSchema,
   conversationIdSchema,
   conversationStatusSchema,
+  emailInboxSchema,
   createTemplateSchema,
   linkContactSchema,
   mediaReplySchema,
   mediaUploadSchema,
   messageIdSchema,
+  noteSchema,
   replySchema,
   snoozeSchema,
   startConnectSchema,
   templateIdSchema,
   templateReplySchema,
 } from './schemas';
+import * as email from './email-service';
+import { chatWidgetSchema } from './livechat-schemas';
+import * as livechat from './livechat-service';
 import * as social from './service';
+import * as team from './team-service';
 import * as whatsapp from './whatsapp-service';
 
 const paths = ['/social'];
@@ -140,4 +149,56 @@ export const startMediaUploadAction = authedAction(
 export const mediaReplyAction = authedAction(
   { permission: 'social.reply', input: mediaReplySchema, revalidate: paths },
   (ctx, input) => social.sendMediaReply(ctx, input),
+);
+
+/** Whether an account makes new leads for senders who match no contact (ADR-068). */
+export const accountSettingsAction = authedAction(
+  {
+    permission: 'social.manage',
+    input: accountSettingsInputSchema,
+    revalidate: ['/social/accounts'],
+  },
+  (ctx, input) => team.setAccountSettings(ctx, input),
+);
+
+/** A private note for colleagues; never sent to the customer (ADR-068). */
+export const noteAction = authedAction(
+  { permission: 'social.reply', input: noteSchema, revalidate: paths },
+  (ctx, input) => team.addNote(ctx, input),
+);
+
+export const saveCannedResponseAction = authedAction(
+  { permission: 'social.reply', input: cannedResponseSchema, revalidate: paths },
+  (ctx, input) => team.saveCannedResponse(ctx, input),
+);
+
+export const deleteCannedResponseAction = authedAction(
+  { permission: 'social.reply', input: cannedResponseIdSchema, revalidate: paths },
+  (ctx, input) => team.deleteCannedResponse(ctx, input.id),
+);
+
+/** Creates an email inbox for the business (ADR-070). */
+export const createEmailInboxAction = authedAction(
+  { permission: 'social.manage', input: emailInboxSchema, revalidate: paths },
+  (ctx, input) => email.createEmailInbox(ctx, input),
+);
+
+/** Creates a live chat widget; its identity secret is in the answer this once (ADR-072). */
+export const createChatWidgetAction = authedAction(
+  { permission: 'social.manage', input: chatWidgetSchema, revalidate: ['/social/accounts'] },
+  (ctx, input) => livechat.createChatWidget(ctx, input),
+);
+
+export const updateChatWidgetAction = authedAction(
+  {
+    permission: 'social.manage',
+    input: chatWidgetSchema.required({ accountId: true }),
+    revalidate: ['/social/accounts'],
+  },
+  (ctx, input) => livechat.updateChatWidget(ctx, input),
+);
+
+export const rotateChatIdentitySecretAction = authedAction(
+  { permission: 'social.manage', input: accountIdSchema },
+  (ctx, input) => livechat.rotateChatIdentitySecret(ctx, input.accountId),
 );

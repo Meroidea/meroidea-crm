@@ -1592,3 +1592,342 @@ Facts used (developer documentation read 21 November 2026):
 - TikTok's image fields come from third-party code. They are to be confirmed with TikTok's
   review, as for ADR-065's signature scheme.
 - A colleague's notice of an assignment is in the app only, not by email.
+
+
+## ADR-068 — Inbox foundations: private notes, saved replies, presence, finding the sender's contact
+
+**Context.** The owner asked for a shared omnichannel inbox across the social channels, WhatsApp,
+email and live chat, plus tickets with SLA timers, a public knowledge base and links to projects.
+The owner approved a phased plan on 21 November 2026. It holds these decisions:
+- the `social_*` tables are kept and extended (ADR-067);
+- email comes in through Resend, with no IMAP or SMTP;
+- WhatsApp stays on the Cloud API, with no Twilio;
+- knowledge-base custom domains wait;
+- Realtime Presence is approved for collision detection;
+- the live-chat visitor side will poll;
+- `react-markdown` is approved for the knowledge base.
+
+This record covers phase 1: what every channel added later builds on.
+
+**Decision.**
+1. *Private notes* are `social_messages` rows with `direction = 'note'`, written by
+   `src/modules/social/team-service.ts` (`addNote`, `social.reply`).
+   - A check keeps a note free of provider fields (no external id, no attachments, status
+     `sent`). A restrictive insert policy makes a session write a note only in its own name, and
+     the body is not in the update grants, so a note never changes.
+   - A note never moves the conversation's last message, preview or reply window, and is allowed
+     whatever the platform's window says.
+   - The audit log records that a note was made, never its words. Notes are kept when a contact
+     is erased, as staff notes on tickets are (0062).
+   - Every customer-facing path added later (email, live chat) must leave `note` rows out. Their
+     tests must prove it.
+2. *Saved replies* (`social_canned_responses`):
+   - A person keeps their own with `social.reply`; the team's shared ones need the new
+     `social.canned_manage` (Admin, and Managers who can already reply). RLS enforces the same
+     split.
+   - `/` in the reply box finds a saved reply by shortcut or title.
+   - `{{contact.first_name}}`, `{{contact.name}}` and `{{agent.name}}` are filled in on the
+     server when the page is built. An unknown placeholder is left as typed so the mistake shows.
+3. *Presence:*
+   - Realtime Presence runs on its own private channel `social-presence:<tenant>`, joined
+     through `app.social_presence_allowed` (`social.view`, business open).
+   - A tab announces only `{conversationId, typing}` under its user id. The thread shows
+     "Sam is typing…" and "Alex is also looking at this".
+   - It is a hint, never a lock. A member could claim a false typing state about themselves;
+     nothing more, since the payload carries no content.
+4. *Finding the sender's contact* (`src/modules/leads/channel-intake.ts`):
+   - It runs from a verified webhook only, when the customer writes. WhatsApp senders are looked
+     up by number now, and email senders will be looked up by address.
+   - Exactly one match is linked (`contact_match = 'auto'`). Several matches link nobody and are
+     offered to staff (`suggested`), so a shared family number never merges two histories.
+   - A link a person made or removed is never touched again (`manual`).
+   - Each account can opt in to making a new lead for unknown senders (`created`). The lead is
+     routed like a website enquiry, in the "new" lead status, with the account's lead source.
+   - This is off by default, because social accounts draw spam. The setting is written only by
+     `app.social_set_account_settings` (`social.manage`), because the account update policy also
+     admits `social.reply`.
+   - The new lead's intake event and timeline entry name the conversation, never its words.
+   - Imports and WhatsApp history are not matched. Without the `crm` feature nothing is matched
+     or created.
+5. *Timeline:* a contact's conversations appear on their timeline (channel, account, message
+   count, link) for people with `social.view`. They are read where they live, never copied into
+   `activities`.
+
+**Consequences.**
+- Phase 2 (tickets and SLA) can turn any conversation into a ticket.
+- Email and live chat (phases 3 and 5) arrive as two more `platform` values. They reuse matching,
+  notes, saved replies and presence as they are.
+- Meta and TikTok senders carry no phone or email, so for them only the opt-in lead creation
+  applies.
+- Saved replies are not soft-deleted: they are tools, not business records.
+
+
+## ADR-069 — Tickets with response targets: SLA policies, business hours, and links to the CRM and inbox
+
+**Context.** Phase 2 of the plan the owner approved on 21 November 2026 (ADR-068). The owner's
+decisions:
+- SLA policies are per business and per priority: Low, Medium, High, Urgent. The stored values
+  stay `low | normal | high | urgent`, and `normal` is shown as Medium.
+- Each policy has a first-response target and a resolution target, counted in business hours.
+- The clock pauses while a ticket is pending the customer, **for resolution only** (owner's
+  answer).
+- A background job warns about tickets at risk and breached, and live badges show On track, At
+  risk or Breached.
+- Any conversation can become a ticket, linked to its contact, organization and open
+  opportunities.
+
+Before this, ADR-037 had first-reply targets in clock hours only, no resolution target, no
+escalation, and a `tickets` table whose whole row `authenticated` could update.
+
+**Decision.**
+1. *All SLA time lives in the database.*
+   - `app.business_add` and `app.business_minutes_between` count minutes inside a business's
+     opening hours, in its timezone (daylight saving included). They skip its public holidays when
+     asked, reusing the Rosters list (`public_holidays`).
+   - The `tickets_sla` trigger sets every SLA column on insert and on each status, priority or
+     policy change.
+   - So a ticket changed by staff (RLS), by the customer on their ticket page (`public.ts`), or by
+     a channel webhook follows exactly the same rules, and the browser never needs to know the
+     opening hours.
+2. *The clock model.*
+   - Due time = `business_add(created_at, target + paused minutes)`. At risk is the same with
+     `at_risk_percent` of the target.
+   - `pending`, `solved` and `closed` stop the resolution clock. Leaving them adds the counted
+     standing time and moves the resolution times on. A ticket solved and reopened therefore
+     resumes with the time it had left.
+   - The first-response clock never pauses. It is met by the first reply, which the trigger
+     records once, at the moment it happens, so it cannot be back-dated.
+   - Changing the priority or policy recalculates everything and lifts a breach whose new time is
+     still ahead.
+3. *Nobody types SLA times.* Sessions lose update on `tickets` and get it back column by column,
+   without the SLA columns. This closes the 0040/0054 grant that let anyone with `tickets.work`
+   rewrite the whole row through the API.
+4. *Policies.*
+   - Every business gets "Standard": first replies as ADR-037 had them, and resolutions in 4 h,
+     1 day, 3 days and 7 days, around the clock. It is created in migration `0078` and at
+     provisioning.
+   - Helpdesk → Response targets (`tickets.manage`) edits the targets, the at-risk point
+     (default 75%), an escalation person and the business hours (several spans a day allowed).
+   - Saving re-applies the policy to the tickets still being worked.
+   - The schema allows several policies; one default is used for now.
+5. *The sweep* (`app.sla_sweep`, pg_cron every 5 minutes, ADR-011):
+   - It marks targets that are past due and sends in-app notices.
+   - Recipients: the assignee; on a breach, also the policy's escalation person; when neither
+     applies, everyone with `tickets.manage`.
+   - A notice names the ticket number and the target only, and lands once per ticket and target
+     (dedupe key). Paused targets are skipped.
+   - Badges do not depend on the sweep: the server stores the at-risk and due instants, and the
+     browser compares them with its clock every 30 seconds.
+6. *The CRM and the inbox.*
+   - Tickets gain `organization_id`, `conversation_id` and `ticket_opportunities`. These are
+     filled from the contact's primary organization and open opportunities, within what the
+     creator may see.
+   - `contact_id` finally gets its composite foreign key (`0077` clears any orphans first).
+   - A conversation becomes a ticket from its details panel (`tickets.work` + `social.view`). One
+     ticket follows a conversation at a time: asking again returns the open one.
+   - Replies on such a ticket go to the customer on the channel through `replyToConversation`,
+     with its permission and reply-window checks, and live in the conversation; no email is sent.
+   - A customer writing again reopens a ticket that was pending or solved. Each account can also
+     open a ticket for every new conversation (off by default).
+   - That follow-up runs in a savepoint after the message is stored, so it can never lose the
+     message.
+7. The queue gains an **At risk** view and sorts by the soonest running due time.
+
+**Consequences.**
+- Hosted Supabase needs `pg_cron` enabled; the migration creates it where available. Without
+  it, badges still work but nobody is notified.
+- Public holidays are edited in Rosters settings. A business without the Rosters feature has
+  none to skip.
+- Policy changes apply to open tickets at once, which can turn some At risk or Breached
+  immediately.
+- Only one policy is chosen automatically (the default). Rules by channel or category are a
+  later step.
+- Notices are in-app only. Emailing them needs the notification email path, which runs from the
+  application rather than the database.
+
+
+## ADR-070 — Email inbox: Resend inbound and outbound, threads, and its own feature
+
+**Context.** Phase 3 of the plan the owner approved on 21 November 2026 (ADR-068), with the
+owner's choices: Resend rather than IMAP/SMTP, and threading that keeps `Message-ID` and
+`In-Reply-To`. Resend's documentation, read on 22 November 2026, says:
+- the `email.received` webhook carries metadata only;
+- the words, headers, `message_id` and an `authentication` result (SPF, DKIM, DMARC as `pass |
+  fail | gray | …`) come from `GET /emails/receiving/{id}`, and attachments' short-lived
+  `download_url`s from `GET /emails/receiving/{id}/attachments`;
+- a receiving domain gets mail for any address at it;
+- `POST /emails` takes custom `headers`, `reply_to`, attachments by `path`, and an
+  `Idempotency-Key`;
+- whether a custom Message-ID is honoured is not documented, but the RFC Message-ID arrives as
+  `data.message_id` on `email.sent` and later events;
+- webhooks are signed the Svix way.
+
+Two details were not documented: whether `headers` holds `In-Reply-To` and `References`, and
+whether plus-addressing works.
+
+**Decision.**
+1. *A fifth inbox channel, not a new table set.*
+   - `social_accounts.platform = 'email'`; the account is the business's address at the
+     platform's `INBOX_EMAIL_DOMAIN`, created from Connected accounts (`social.manage`).
+   - Addresses are unique while live, and the platform's own and reply addresses are reserved.
+   - Email conversations are threads (`participant_id = email:<uuid>`) with `participant_email`,
+     `subject` and a secret `reply_token`.
+   - Messages carry `email_message_id` and `email_meta`.
+   - Notes, saved replies, presence, assignment, snooze, search, tickets and SLA all apply
+     unchanged.
+2. *Threading that does not depend on undocumented headers.*
+   - Every reply's Reply-To is the thread's own address `r-<24 random characters>@<domain>`. The
+     catch-all receiving domain delivers it, and a message sent to it joins its thread.
+   - `In-Reply-To` and `References` are used as well when Resend passes them. Our replies' real
+     Message-IDs are recorded from `email.sent`, and replies set `In-Reply-To` and `References`
+     so they thread in the customer's mail program.
+   - A message joins a thread only from that thread's customer address. Anyone else starts their
+     own thread.
+3. *The sender is trusted only when authenticated.*
+   - A From address can be forged. A sender is linked to a contact or made a lead only when
+     Resend reports DKIM or DMARC `pass`.
+   - Otherwise the match is only offered (`contact_match = 'suggested'`) and the message shows
+     "Sender not verified".
+   - Machine mail (Auto-Submitted, Precedence, List-Id and similar, mailer-daemon and no-reply
+     senders) never makes a lead or opens a ticket.
+4. *Words, not HTML.*
+   - The text part is kept, or HTML reduced to text, without the quoted history, up to 20,000
+     characters, and always shown as text.
+   - Replies go as text plus an escaped HTML copy.
+   - Attachments are copied through the media pipeline from Resend's attachment host, at most ten
+     per email. Replies can attach one image, PDF or Office file up to 10 MB, sent by a ten-minute
+     link.
+5. *The webhook* `/api/webhooks/resend`:
+   - It verifies the Svix signature on the raw body (5-minute tolerance, any `v1` signature in the
+     list), checked against Svix's published test vector.
+   - It is idempotent on Resend's email id, rate-limits 60 emails an hour per sender per inbox and
+     2,000 per inbox, and answers 500 on failure so Resend retries.
+   - Delivered, bounced, complained, failed and suppressed events move a reply's status, never
+     backwards.
+6. *Its own feature, shared permissions.*
+   - The new feature is `email_channel`. The `social` permission family now needs the group
+     `inbox` (`social` or `email_channel`), in `app.permission_feature`, `app.feature_enabled`,
+     `app.my_context` and `src/lib/features.ts` (`FEATURE_GROUPS`).
+   - Restrictive `inbox_channel` policies hide each account's rows while its own channel's
+     feature is off. A business can have email without social media, or the other way round.
+   - The menu says **Inbox**.
+
+**Consequences.**
+- The platform owner sets up a Resend receiving and sending subdomain, its MX, SPF and DKIM
+  records, and a webhook with the events above (docs/email-inbox.md).
+- Replies come from the inbox address, not the business's own domain (later).
+- A forwarded email whose DKIM did not survive forwarding stays "not verified" until a person
+  links it.
+- No new email to someone who has not written first; the received HTML is not kept.
+- Rate-limited mail is dropped, not queued.
+
+
+## ADR-071 — Knowledge base: a public help portal, Markdown articles, and reads by known contacts
+
+**Context.** Phase 4 of the plan the owner approved on 21 November 2026 (ADR-068). The owner
+approved `react-markdown` for article text. Custom domains wait. As noted in the plan, an
+anonymous visitor cannot be tied to a contact without tracking cookies. So a contact's reads
+come only from links sent to them.
+
+**Decision.**
+1. *Feature and permission.*
+   - The new feature `knowledge_base` brings the permission `kb.manage` (Admin and Manager).
+   - People who answer customers (`social.reply`, `tickets.work`) can find **published** articles
+     and link them from replies. RLS keeps drafts to editors too.
+2. *Articles.*
+   - Markdown, with a title, summary, category and an address made from the title, unique per
+     business. The editor has Write and Preview tabs.
+   - Postgres full-text search on a generated `tsvector` (`simple` configuration, so it works in
+     any language) plus title matching. No search engine, as the roadmap requires.
+   - Read counts and feedback tallies are written by the public module only; editors cannot
+     change them (column grants).
+3. *Safe rendering.*
+   - One `Markdown` component renders articles, with react-markdown's `skipHtml` and its URL
+     filter.
+   - Links are `rel="noopener noreferrer nofollow ugc"`; pictures load over https only and send no
+     referrer.
+   - Unit tests render hostile Markdown (script tags, `onerror`, `javascript:` links) and check
+     nothing executable survives.
+4. *The portal* `/help/<business slug>`:
+   - It is closed until the business opens it. It serves only an open business with the feature on.
+   - Pages: a home page with search and categories, article pages with title, description,
+     canonical and Open Graph metadata, and an XML sitemap at `/help/<slug>/sitemap.xml`.
+   - "Was this helpful?" goes to `/api/help/<slug>/feedback`, with a honeypot, size cap, Zod and a
+     per-sender limit. A reason is kept only with a "no".
+5. *Reads by known contacts.*
+   - An agent inserts an article from the reply box (inbox or ticket). When the conversation or
+     ticket has a contact, the link carries a random 32-character token; only its sha256 is stored,
+     with the contact, the source and a 365-day expiry.
+   - The article page reports the read from the browser to `/api/help/<slug>/view`, then removes
+     the token from the address bar. The page sends no referrer.
+   - A read counts once per link per day, only when the token, the business and the article all
+     match.
+   - Reads show on the contact's timeline ("Read the help article …") and on their tickets.
+   - Erasing the person deletes their links and reads.
+
+**Consequences.**
+- Mail security scanners that run scripts can still register a "read". The record means "the
+  link was opened", not certainly by the person.
+- Anonymous portal reads are counted only in totals, rate-limited per visitor.
+- Not built: custom domains, article versions, several languages per article, and pictures
+  uploaded to Meroidea (articles link pictures hosted elsewhere, over https).
+
+## ADR-072 — Live chat: a website widget in a frame, polling, and a signed identity
+
+**Context.** Phase 5 of the plan the owner approved on 21 November 2026 (ADR-068). The owner
+approved polling for the visitor's side, so no new service is added. Realtime stays on private
+channels for signed-in staff only (ADR-065). A visitor cannot be trusted to say who they are, and
+a business wants chats from its customers joined to their records.
+
+**Decision.**
+1. *A channel like the others.*
+   - A widget is a connected account with platform `livechat` under the new feature `live_chat`,
+     which joins the `inbox` feature group. Its chats sit in the same inbox, with the same notes,
+     saved replies, assignment, presence, tickets and SLA.
+   - Live chat has no reply window and takes text only, up to 2,000 characters.
+   - An admin (`social.manage`) creates widgets on Connected accounts.
+2. *The widget.*
+   - The business pastes one script tag (`/widget/v1.js` with `data-key`). It draws a button and
+     opens a frame of `/chat/<key>`. The chat itself runs in that frame, on Meroidea's origin.
+   - The business lists the sites allowed to show it (up to 10 https origins). `proxy.ts` sends
+     `Content-Security-Policy: frame-ancestors <those sites>` for the frame, looked up once a minute
+     per widget; a widget with no sites cannot be framed. `next.config.ts` leaves `/chat/` out of
+     the `DENY` rule for this.
+   - The loader and the frame talk with `postMessage`, each checking the other's window and origin.
+3. *The visitor.*
+   - Starting a chat gives the visitor a random 32-character token; only its sha256 is stored in
+     `livechat_visitors`. The token is kept in the frame's storage (browsers keep it per site) and
+     sent in a request body or the `x-chat-token` header, never in an address.
+   - Routes: `POST /api/chat/<key>/session`, and `GET` / `POST /api/chat/<key>/messages`. No
+     session; every query starts from the key and stays within that widget's business. The routes
+     cap body size, validate with Zod, and limit new chats per address and per widget, and messages
+     per visitor and per widget.
+   - Each message carries a client id, so a retry is stored once. The frame polls every 3 seconds
+     while the chat is open and visible, else every 20. Each poll looks 30 seconds behind its
+     cursor, because a transaction that began earlier can commit later; the frame drops repeats.
+   - A visitor sees what they wrote and the business's replies: never a note, never another chat.
+     A name and email can be given until the first message, then are kept, so a chat cannot change
+     hands.
+4. *Who the visitor is.*
+   - Each widget has an identity secret, sealed like an account token and shown once when made or
+     replaced. A site whose visitors sign in signs the visitor's email on its own server
+     (HMAC-SHA256, hex) and passes `{ email, name, signature }` to the loader.
+   - A valid signature (checked in constant time) marks the email verified. Only a verified email
+     links the chat to the matching contact. A self-given email that matches is only suggested to
+     staff, as with an unverified email (ADR-070). A wrong signature is ignored and the visitor
+     carries on unverified.
+   - A token whose verified email differs from a new signed identity starts a new chat (someone
+     else signed in on that browser).
+   - With "new lead for unknown senders" on, a visitor who left an email and matches nobody becomes
+     a lead, as a website form would make one. A visitor with no email never does.
+5. *Erasure and removal.* Erasing a contact clears the name and email of visitors in their chats or
+   who gave their email. Disconnecting a widget forgets its secret, and its routes stop answering.
+
+**Consequences.**
+- Polling costs one small indexed query per open chat every 3 seconds. That is fine at the scale
+  of the target businesses. Server-sent events or Realtime for visitors would be a later decision.
+- In browsers that partition or block storage in frames, a visitor's chat lasts only as long as the
+  page, or the site's own partition.
+- Not built: attachments from visitors, typing indicators, offline email of replies to visitors,
+  per-agent names in the widget (replies show the widget's name), office hours.
+

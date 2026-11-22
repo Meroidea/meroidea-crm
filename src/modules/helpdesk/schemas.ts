@@ -18,20 +18,25 @@ const optionalEmail = z
 
 export const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export type Priority = (typeof PRIORITIES)[number];
+/** `normal` is stored as it always was and called Medium (ADR-069). */
 export const PRIORITY_LABELS: Record<Priority, string> = {
   low: 'Low',
-  normal: 'Normal',
+  normal: 'Medium',
   high: 'High',
   urgent: 'Urgent',
 };
-/** Hours within which a first reply is due. Plain clock hours, not business hours. */
+/**
+ * Hours within which a first reply is due when a business has no SLA policy. Every business is
+ * given one (ADR-069), whose targets then decide; these remain the fallback.
+ */
 export const RESPONSE_HOURS: Record<Priority, number> = { urgent: 1, high: 4, normal: 24, low: 72 };
 
 export const STATUSES = ['open', 'pending', 'on_hold', 'solved', 'closed'] as const;
 export type TicketStatus = (typeof STATUSES)[number];
 export const STATUS_LABELS: Record<TicketStatus, string> = {
   open: 'Open',
-  pending: 'Waiting on customer',
+  /** The resolution clock stands still while a ticket waits on the customer (ADR-069). */
+  pending: 'Pending customer',
   on_hold: 'On hold',
   solved: 'Solved',
   closed: 'Closed',
@@ -87,14 +92,89 @@ export const publicReplySchema = z.object({
 export const idSchema = z.object({ id: z.uuid() });
 export const formOpenSchema = z.object({ isOpen: z.boolean() });
 
-export const QUEUES = ['open', 'mine', 'unassigned', 'solved', 'all'] as const;
+export const QUEUES = ['open', 'mine', 'unassigned', 'at_risk', 'solved', 'all'] as const;
 export type Queue = (typeof QUEUES)[number];
 export const helpdeskParamsSchema = z.object({
   queue: z.enum(QUEUES).optional().catch(undefined),
   q: z.string().trim().max(100).optional().catch(undefined),
 });
 
+/** Opens a ticket for an inbox conversation (ADR-069). */
+export const conversationTicketSchema = z.object({
+  conversationId: z.uuid(),
+  subject: z.string().trim().min(3, 'Enter a subject').max(160),
+  priority: z.enum(PRIORITIES).default('normal'),
+  assigneeUserId: optionalUser,
+});
+
+/** Links or unlinks one of the customer's opportunities. */
+export const ticketOpportunitySchema = z.object({
+  ticketId: z.uuid(),
+  opportunityId: z.uuid(),
+  linked: z.boolean(),
+});
+
+export const ticketOrganizationSchema = z.object({
+  ticketId: z.uuid(),
+  organizationId: z.uuid().nullable(),
+});
+
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 09:00');
+const closing = z.string().regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/, 'Use a time like 17:00');
+const minuteOfDay = (value: string) => {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours! * 60 + minutes!;
+};
+/** Hours of a target, as a person types them (0.25 = 15 minutes), up to a year. */
+const targetHours = z
+  .number({ error: 'Enter a number of hours' })
+  .min(0.25, 'At least 15 minutes')
+  .max(8760, 'At most a year');
+
+const targetSchema = z
+  .object({ firstResponseHours: targetHours, resolutionHours: targetHours })
+  .refine((target) => target.resolutionHours >= target.firstResponseHours, {
+    message: 'Resolution cannot be due before the first response',
+    path: ['resolutionHours'],
+  });
+
+/** The business's response targets (ADR-069): its default policy and the hours it counts in. */
+export const slaSettingsSchema = z
+  .object({
+    atRiskPercent: z.number().int().min(1).max(99),
+    escalateToUserId: optionalUser,
+    useBusinessHours: z.boolean(),
+    timezone: z.string().trim().min(1).max(64),
+    skipPublicHolidays: z.boolean(),
+    weekly: z
+      .array(z.object({ day: z.number().int().min(0).max(6), opens: hhmm, closes: closing }))
+      .max(70),
+    targets: z.object({
+      low: targetSchema,
+      normal: targetSchema,
+      high: targetSchema,
+      urgent: targetSchema,
+    }),
+  })
+  .superRefine((value, issue) => {
+    if (!value.useBusinessHours) return;
+    if (value.weekly.length === 0) {
+      issue.addIssue({ code: 'custom', message: 'Add the hours you are open', path: ['weekly'] });
+    }
+    value.weekly.forEach((slot, index) => {
+      if (minuteOfDay(slot.opens) >= minuteOfDay(slot.closes)) {
+        issue.addIssue({
+          code: 'custom',
+          message: 'Opening must be before closing',
+          path: ['weekly', index, 'closes'],
+        });
+      }
+    });
+  });
+
 export type CreateTicketInput = z.output<typeof createTicketSchema>;
+export type ConversationTicketInput = z.output<typeof conversationTicketSchema>;
+export type SlaSettingsInput = z.output<typeof slaSettingsSchema>;
 export type ReplyInput = z.output<typeof replySchema>;
 export type UpdateTicketInput = z.output<typeof updateTicketSchema>;
 export type PublicTicketInput = z.output<typeof publicTicketSchema>;

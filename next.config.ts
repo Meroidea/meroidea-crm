@@ -24,9 +24,10 @@ const nextConfig: NextConfig = {
         ],
       },
       // No other site may frame the app (clickjacking), except website forms, which a business
-      // embeds on its own site (/f/{key}?embed=1).
+      // embeds on its own site (/f/{key}?embed=1), and live chat widgets (/chat/{key}), whose
+      // policy proxy.ts sets from the sites each business listed (ADR-072).
       {
-        source: '/:path((?!f/).*)',
+        source: '/:path((?!f/|chat/).*)',
         headers: [
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Content-Security-Policy', value: `frame-ancestors 'none'; ${baseDirectives}` },

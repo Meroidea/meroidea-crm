@@ -86,10 +86,14 @@ export const PERMISSIONS = {
   'social.reply': { scoped: false },
   /** Connect and disconnect the business's social media accounts. */
   'social.manage': { scoped: false },
+  /** Write and change the saved replies the whole team shares (ADR-068). */
+  'social.canned_manage': { scoped: false },
   'reviews.view': { scoped: false },
   'reviews.manage': { scoped: false },
   'tickets.work': { scoped: false },
   'tickets.manage': { scoped: false },
+  /** Write, publish and organise the knowledge base, and run its public portal (ADR-071). */
+  'kb.manage': { scoped: false },
   'projects.view': { scoped: false },
   'projects.manage': { scoped: false },
   'productivity.view': { scoped: false },
@@ -184,8 +188,10 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'reviews.manage': true,
       'social.view': true,
       'social.reply': true,
+      'social.canned_manage': true,
       'tickets.work': true,
       'tickets.manage': true,
+      'kb.manage': true,
       'projects.view': true,
       'projects.manage': true,
       'productivity.view': true,

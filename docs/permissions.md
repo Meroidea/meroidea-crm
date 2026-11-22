@@ -113,11 +113,13 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `productivity.view` | | Read the productivity report for everyone. Hours of a kind appear only if you may also see everyone's records of that kind |
 | `reviews.view` | | Read customer reviews, the summary and the review links |
 | `reviews.manage` | | Create and switch review links, mark reviews read or followed up, keep notes, remove a review |
-| `social.view` | | Read the social inbox: conversations and messages from connected Facebook, Instagram, WhatsApp and TikTok accounts, and the approved WhatsApp templates. Enforced again by RLS on every `social_*` table (ADR-064, ADR-066) |
-| `social.reply` | | Reply from Meroidea within each platform's reply window (text, photos and files), send an approved WhatsApp template, assign a conversation to a colleague who can read the inbox, snooze it, mark it done, and link it to a contact the person can see; opening a conversation also sends the platform's read receipt (ADR-067) |
-| `social.manage` | | Connect and disconnect the business's social media accounts (Meta, WhatsApp Embedded Signup or TikTok), and create, refresh and delete WhatsApp templates |
-| `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee |
-| `tickets.manage` | | Switch the public contact form on or off, delete tickets |
+| `social.view` | | Read the inbox: conversations and messages from connected email inboxes and Facebook, Instagram, WhatsApp and TikTok accounts, and the approved WhatsApp templates. The `social` family is usable while the `social`, `email_channel` or `live_chat` feature is on, and each account shows only while its own channel's feature is (ADR-070, ADR-072). Enforced again by RLS on every `social_*` table (ADR-064, ADR-066) |
+| `social.reply` | | Reply from Meroidea within each platform's reply window (text, photos and files), send an approved WhatsApp template, assign a conversation to a colleague who can read the inbox, snooze it, mark it done, and link it to a contact the person can see; opening a conversation also sends the platform's read receipt (ADR-067). Also: leave private notes for colleagues in a conversation, and keep and use their own saved replies (ADR-068) |
+| `social.manage` | | Connect and disconnect the business's social media accounts (Meta, WhatsApp Embedded Signup or TikTok) and create or remove email inboxes (ADR-070), create, refresh and delete WhatsApp templates, and choose per account whether unknown senders become new leads (ADR-068) |
+| `social.canned_manage` | | Write, change and delete the saved replies the whole team shares. Enforced again by RLS on `social_canned_responses` (ADR-068) |
+| `tickets.work` | | See every ticket, create one, reply, add private notes, change status, priority, category and assignee; make a ticket from an inbox conversation (also needs `social.view`; replying there needs `social.reply`); set the ticket's organization and link the customer's opportunities (within `organizations.view` / `opportunities.view` and its scope); read the response targets (ADR-069) |
+| `kb.manage` | | Write, publish and delete knowledge base articles and categories, open or close the public help portal, and read readers' feedback. Feature `knowledge_base`. People with `social.reply` or `tickets.work` can find published articles and send tracked links to them from replies (ADR-071) |
+| `tickets.manage` | | Switch the public contact form on or off, delete tickets, and set the response targets: targets by priority, at-risk point, escalation person and business hours (ADR-069) |
 | `concerns.raise` | | Ask managers or the admin a question (about a payslip of your own, too), follow it, reply, mark it resolved or reopen it (ADR-049) |
 | `concerns.handle` | | Read, answer and change the status of questions sent to managers. Never those sent to the admin only. Enforced again by RLS on `concerns` / `concern_messages` |
 | `concerns.handle_all` | | Read, answer and change the status of every question, including those sent to the admin only and those about a payslip |
@@ -201,8 +203,10 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | social.view | ✓ | ✓ | | |
 | social.reply | ✓ | ✓ | | |
 | social.manage | ✓ | | | |
+| social.canned_manage | ✓ | ✓ | | |
 | tickets.work | ✓ | ✓ | ✓ | ✓ |
 | tickets.manage | ✓ | ✓ | | |
+| kb.manage | ✓ | ✓ | | |
 | concerns.raise | ✓ | ✓ | ✓ | ✓ |
 | concerns.handle | ✓ | ✓ | | |
 | concerns.handle_all | ✓ | | | |

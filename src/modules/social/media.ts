@@ -39,6 +39,8 @@ const MEDIA_HOSTS = [
   'byteimg.com',
   'ibytedtos.com',
   'whatsapp.net',
+  // Resend's links to received emails' attachments (ADR-070).
+  'inbound-cdn.resend.com',
 ];
 
 /** Meta's hosts that serve WhatsApp files: the only places the account's token is ever sent. */

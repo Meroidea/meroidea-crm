@@ -5,6 +5,8 @@ export const PLATFORM_LABELS: Record<SocialPlatform, string> = {
   instagram: 'Instagram',
   tiktok: 'TikTok',
   whatsapp: 'WhatsApp',
+  email: 'Email',
+  livechat: 'Live chat',
 };
 
 export const ACCOUNT_STATUS_LABELS: Record<string, string> = {
@@ -21,11 +23,13 @@ export function customerLabel(row: {
   participantName: string | null;
   participantUsername: string | null;
   participantPhone?: string | null;
+  participantEmail?: string | null;
   platform: SocialPlatform;
 }): string {
   if (row.participantName) return row.participantName;
   if (row.participantUsername) return `@${row.participantUsername}`;
   if (row.participantPhone) return `+${row.participantPhone}`;
+  if (row.participantEmail) return row.participantEmail;
   return `${PLATFORM_LABELS[row.platform]} customer`;
 }
 

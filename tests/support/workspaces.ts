@@ -65,7 +65,23 @@ export async function contextFor(userId: string, tenantId: string): Promise<Tena
 export async function destroyWorkspace(tenantId: string, userIds: string[]): Promise<void> {
   const db = adminDb();
   for (const table of [
+    // Help article links point at tickets, conversations and contacts.
+    'kb_article_views',
+    'kb_article_links',
+    'kb_article_feedback',
+    'kb_articles',
+    'kb_categories',
+    'kb_portals',
+    // Tickets point at conversations, contacts and policies, so they go first.
+    'ticket_opportunities',
+    'ticket_messages',
+    'tickets',
+    'sla_targets',
+    'sla_policies',
+    'business_hours',
+    'social_canned_responses',
     'social_messages',
+    'livechat_visitors',
     'social_conversations',
     'social_account_credentials',
     'social_message_templates',
@@ -86,8 +102,6 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
     'tenant_agreements',
     'concern_messages',
     'concerns',
-    'ticket_messages',
-    'tickets',
     'customer_reviews',
     'review_links',
     'task_time_logs',

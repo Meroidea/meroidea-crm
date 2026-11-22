@@ -1,6 +1,8 @@
 import 'server-only';
 
-import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { randomBytes, randomUUID } from 'node:crypto';
+
+import { and, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 
 import {
   socialAccountCredentials,
@@ -10,14 +12,35 @@ import {
   socialMessageTemplates,
 } from '@/db/schema';
 import { adminDb } from '@/server/db/admin';
+import type { Tx } from '@/server/db/with-rls';
 import { serverEnv } from '@/server/env';
 import { consumeRateLimit } from '@/server/rate-limit';
 
 import { openCredentials, sealCredentials, usableToken, type Credentials } from './credentials';
-import { recordConversation, recordImportedConversation, recordMessage } from './ingest';
+import {
+  htmlToText,
+  isAutomated,
+  messageIds,
+  parseAddress,
+  replyTokenIn,
+  stripQuotedReply,
+} from './email-parse';
+import {
+  afterInboundMessage,
+  linkConversationSender,
+  recordConversation,
+  recordImportedConversation,
+  recordMessage,
+} from './ingest';
 import { fetchMetaProfile } from './providers/meta';
 import { afterResponse, persistAvatar, persistMessageMedia, type MediaAccess } from './media';
 import type { MetaMessageEvent, MetaReceiptEvent } from './providers/meta-webhook';
+import {
+  fetchReceivedEmail,
+  inboxDomain,
+  listReceivedAttachments,
+  type ResendEvent,
+} from './providers/resend';
 import { fetchTikTokMessages, type TikTokNotification } from './providers/tiktok';
 import { ProviderError, type SocialPlatform } from './providers/types';
 import { whatsappReason } from './providers/whatsapp';
@@ -114,7 +137,12 @@ const refOf = (account: LiveAccount) => ({
 export async function ingestMetaEvents(events: MetaMessageEvent[]): Promise<number> {
   let stored = 0;
   const media: string[] = [];
-  const named: { account: LiveAccount; conversationId: string; participantId: string }[] = [];
+  const named: {
+    account: LiveAccount;
+    conversationId: string;
+    participantId: string;
+    inbound: boolean;
+  }[] = [];
   for (const event of events) {
     const account = await liveAccountFor(event.platform, event.accountExternalId);
     if (!account) continue;
@@ -132,16 +160,32 @@ export async function ingestMetaEvents(events: MetaMessageEvent[]): Promise<numb
         event.message,
         { countUnread: true },
       );
+      // A new conversation is followed up once the customer's name is known (below).
+      if (message && !conversation.created && event.message.direction === 'inbound') {
+        await afterInboundMessage(tx, { ...scope, conversationId: conversation.id });
+      }
       return { conversationId: conversation.id, created: conversation.created, fresh: message };
     });
     if (fresh) stored += 1;
     if (fresh?.hasMedia) media.push(fresh.id);
-    if (created) named.push({ account, conversationId, participantId: event.participantId });
+    if (created) {
+      named.push({
+        account,
+        conversationId,
+        participantId: event.participantId,
+        inbound: event.message.direction === 'inbound',
+      });
+    }
   }
   if (media.length > 0 || named.length > 0) {
     await afterResponse(async () => {
       for (const item of named)
-        await nameNewConversation(item.account, item.conversationId, item.participantId);
+        await nameNewConversation(
+          item.account,
+          item.conversationId,
+          item.participantId,
+          item.inbound,
+        );
       // Meta's attachment links are fetched directly; no token is needed.
       if (media.length > 0) await persistMessageMedia(adminDb(), media, null);
     });
@@ -154,6 +198,7 @@ async function nameNewConversation(
   account: LiveAccount,
   conversationId: string,
   participantId: string,
+  inbound: boolean,
 ) {
   try {
     const credentials = await readCredentialsAsSystem(account.tenantId, account.id);
@@ -175,6 +220,18 @@ async function nameNewConversation(
       await markNeedsReconnect(account.id, error);
     // Otherwise the conversation simply shows without a name or picture.
   }
+  // With the name known (or not), the customer can become a lead and get a ticket, if the
+  // account is set to (ADR-068, ADR-069).
+  const scope = { tenantId: account.tenantId, accountId: account.id, conversationId };
+  await adminDb()
+    .transaction((tx) =>
+      inbound ? afterInboundMessage(tx, scope) : linkConversationSender(tx, scope),
+    )
+    .catch((error: unknown) => {
+      console.error('[social] could not look up the sender', {
+        name: error instanceof Error ? error.name : typeof error,
+      });
+    });
 }
 
 /**
@@ -360,6 +417,9 @@ export async function ingestTikTokNotification(
       count += 1;
       if (fresh.hasMedia) withMedia.push(fresh.id);
     }
+    if (ordered.some((message) => message.direction === 'inbound') && count > 0) {
+      await afterInboundMessage(tx, { ...scope, conversationId: conversation.id });
+    }
     return { stored: count, media: withMedia };
   });
   if (media.length > 0) {
@@ -420,9 +480,16 @@ export async function ingestWhatsAppWebhook(webhook: WhatsAppWebhook): Promise<n
         participantUsername: null,
         participantPhone: event.participantPhone,
       });
-      return recordMessage(tx, { ...scope, conversationId: conversation.id }, event.message, {
-        countUnread: event.message.direction === 'inbound',
-      });
+      const message = await recordMessage(
+        tx,
+        { ...scope, conversationId: conversation.id },
+        event.message,
+        { countUnread: event.message.direction === 'inbound' },
+      );
+      if (message && event.message.direction === 'inbound') {
+        await afterInboundMessage(tx, { ...scope, conversationId: conversation.id });
+      }
+      return message;
     });
     if (fresh) stored += 1;
     if (fresh?.hasMedia) withMedia(account, fresh.id);
@@ -583,5 +650,298 @@ async function applyWhatsAppStatuses(cache: AccountCache, statuses: WhatsAppStat
           inArray(socialMessages.status, before),
         ),
       );
+  }
+}
+
+/* ------------------------------------------------------------------------------- email */
+
+const TOKEN_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+/** A thread's secret reply-address token: 24 characters, about 124 bits. */
+export function newReplyToken(): string {
+  return Array.from(randomBytes(24), (byte) => TOKEN_ALPHABET[byte % 36]).join('');
+}
+
+/** How many messages one sender may put into one inbox an hour, and an inbox may take an hour. */
+const EMAIL_SENDER_HOURLY = 60;
+const EMAIL_INBOX_HOURLY = 2000;
+/** The longest message kept; anything past it is cut with a note. */
+const EMAIL_MAX_CHARS = 20_000;
+/** Attachments copied from one email at most. */
+const EMAIL_MAX_ATTACHMENTS = 10;
+
+async function liveEmailAccountFor(addresses: string[]) {
+  const wanted = [...new Set(addresses.map((raw) => parseAddress(raw).email).filter(Boolean))];
+  if (wanted.length === 0) return null;
+  const [account] = await adminDb()
+    .select({
+      id: socialAccounts.id,
+      tenantId: socialAccounts.tenantId,
+      platform: socialAccounts.platform,
+      externalId: socialAccounts.externalId,
+      username: socialAccounts.username,
+    })
+    .from(socialAccounts)
+    .where(
+      and(
+        eq(socialAccounts.platform, 'email'),
+        inArray(socialAccounts.externalId, wanted as string[]),
+        isNull(socialAccounts.disconnectedAt),
+      ),
+    )
+    .limit(1);
+  return account ?? null;
+}
+
+/**
+ * The conversation a received email belongs to (ADR-070): the thread whose own reply address it
+ * was sent to, else the thread holding a message it answers (In-Reply-To / References); in both
+ * cases only when it comes from that thread's customer, so nobody can write into someone else's
+ * thread. Otherwise null: it starts a new one.
+ */
+async function emailThreadFor(
+  tx: Tx,
+  account: { id: string; tenantId: string },
+  input: { token: string | null; references: string[]; sender: string },
+): Promise<string | null> {
+  if (input.token) {
+    const [byToken] = await tx
+      .select({ id: socialConversations.id, email: socialConversations.participantEmail })
+      .from(socialConversations)
+      .where(
+        and(
+          eq(socialConversations.tenantId, account.tenantId),
+          eq(socialConversations.accountId, account.id),
+          eq(socialConversations.replyToken, input.token),
+        ),
+      )
+      .limit(1);
+    if (byToken && byToken.email === input.sender) return byToken.id;
+  }
+  if (input.references.length > 0) {
+    const [byHeader] = await tx
+      .select({ id: socialConversations.id })
+      .from(socialMessages)
+      .innerJoin(
+        socialConversations,
+        and(
+          eq(socialConversations.tenantId, socialMessages.tenantId),
+          eq(socialConversations.id, socialMessages.conversationId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialMessages.tenantId, account.tenantId),
+          eq(socialMessages.accountId, account.id),
+          inArray(socialMessages.emailMessageId, input.references.slice(-50)),
+          eq(socialConversations.participantEmail, input.sender),
+        ),
+      )
+      .orderBy(desc(socialMessages.sentAt))
+      .limit(1);
+    if (byHeader) return byHeader.id;
+  }
+  return null;
+}
+
+const attachmentKind = (type: string | null | undefined) =>
+  type?.startsWith('image/')
+    ? 'image'
+    : type?.startsWith('video/')
+      ? 'video'
+      : type?.startsWith('audio/')
+        ? 'audio'
+        : 'file';
+
+/**
+ * Stores an email Resend received for an inbox, from a verified webhook (ADR-070). Its words,
+ * headers and sender checks are read from Resend's API; its attachments are copied into the
+ * private bucket after Resend has its answer. Idempotent on Resend's email id.
+ */
+export async function ingestReceivedEmail(event: ResendEvent): Promise<boolean> {
+  const domain = inboxDomain();
+  const emailId = event.data.email_id;
+  if (!domain || !emailId || !/^[A-Za-z0-9_-]{1,100}$/.test(emailId)) return false;
+  const recipients = [...event.data.to, ...event.data.cc, ...event.data.received_for];
+  const token = replyTokenIn(recipients, domain);
+
+  // The inbox it was sent to: through a thread's reply address, or the inbox's own address.
+  let account: Awaited<ReturnType<typeof liveEmailAccountFor>> = null;
+  if (token) {
+    const [threadAccount] = await adminDb()
+      .select({
+        id: socialAccounts.id,
+        tenantId: socialAccounts.tenantId,
+        platform: socialAccounts.platform,
+        externalId: socialAccounts.externalId,
+        username: socialAccounts.username,
+      })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.replyToken, token),
+          eq(socialAccounts.platform, 'email'),
+          isNull(socialAccounts.disconnectedAt),
+        ),
+      )
+      .limit(1);
+    account = threadAccount ?? null;
+  }
+  account ??= await liveEmailAccountFor(recipients);
+  if (!account) return false;
+
+  const [already] = await adminDb()
+    .select({ id: socialMessages.id })
+    .from(socialMessages)
+    .where(and(eq(socialMessages.accountId, account.id), eq(socialMessages.externalId, emailId)))
+    .limit(1);
+  if (already) return false;
+
+  const sender = parseAddress(event.data.from).email;
+  if (!sender) return false;
+  const withinLimits =
+    (await consumeRateLimit({
+      bucket: `email:${account.id}`,
+      subject: sender,
+      limit: EMAIL_SENDER_HOURLY,
+      windowSeconds: 3600,
+    })) &&
+    (await consumeRateLimit({
+      bucket: `email-inbox:${account.id}`,
+      subject: account.id,
+      limit: EMAIL_INBOX_HOURLY,
+      windowSeconds: 3600,
+    }));
+  if (!withinLimits) return false;
+
+  const email = await fetchReceivedEmail(emailId);
+  // The address Resend received it from is the sender; the From header only lends a name.
+  const fromName = parseAddress(email.headers.from || email.from).name;
+  const verified = email.authentication?.dkim === 'pass' || email.authentication?.dmarc === 'pass';
+  const automated = isAutomated(email.headers, sender);
+  const rawText = email.text?.trim() ? email.text : email.html ? htmlToText(email.html) : '';
+  const own = stripQuotedReply(rawText);
+  const body =
+    own.length > EMAIL_MAX_CHARS ? `${own.slice(0, EMAIL_MAX_CHARS)}\n\n[The rest was cut.]` : own;
+  const messageId = (email.message_id ?? event.data.message_id ?? '').trim() || null;
+  const references = [
+    ...messageIds(email.headers.references),
+    ...messageIds(email.headers['in-reply-to']),
+  ];
+  const attachments =
+    (event.data.attachments?.length ?? 0) > 0
+      ? (await listReceivedAttachments(emailId).catch(() => []))
+          .slice(0, EMAIL_MAX_ATTACHMENTS)
+          .map((item) => ({ type: attachmentKind(item.content_type), url: item.download_url }))
+      : [];
+  const subject = (email.subject ?? '').trim().slice(0, 300) || null;
+  const sentAt = new Date(email.created_at ?? event.data.created_at ?? Date.now());
+
+  const scope = { tenantId: account.tenantId, accountId: account.id };
+  const stored = await adminDb().transaction(async (tx) => {
+    let conversationId = await emailThreadFor(tx, account, { token, references, sender });
+    if (!conversationId) {
+      const [created] = await tx
+        .insert(socialConversations)
+        .values({
+          ...scope,
+          participantId: `email:${randomUUID()}`,
+          participantName: fromName,
+          participantEmail: sender,
+          subject,
+          replyToken: newReplyToken(),
+        })
+        .returning({ id: socialConversations.id });
+      conversationId = created!.id;
+    }
+    const message = await recordMessage(
+      tx,
+      { ...scope, conversationId },
+      {
+        externalId: emailId,
+        direction: 'inbound',
+        body: body || (attachments.length > 0 ? null : '(No text)'),
+        attachments,
+        sentAt: Number.isNaN(sentAt.getTime()) ? new Date() : sentAt,
+        emailMessageId: messageId && /^<[^<>\s]{3,250}>$/.test(messageId) ? messageId : null,
+        emailMeta: {
+          from: sender,
+          fromName,
+          to: email.to.slice(0, 20),
+          cc: email.cc.slice(0, 20),
+          subject,
+          verified,
+          automated,
+          inReplyTo: messageIds(email.headers['in-reply-to'])[0] ?? null,
+        },
+      },
+      { countUnread: true },
+    );
+    if (message) {
+      await afterInboundMessage(tx, { ...scope, conversationId }, { trusted: verified, automated });
+    }
+    return message;
+  });
+  if (stored?.hasMedia) {
+    await afterResponse(() => persistMessageMedia(adminDb(), [stored.id], null));
+  }
+  return Boolean(stored);
+}
+
+/**
+ * Resend's events about replies sent from an inbox: the Message-ID it gave the email (for
+ * threading the customer's answer), delivery, and bounces or complaints as failures in words
+ * the business can act on. Never backwards: a late "delivered" does not undo a failure.
+ */
+export async function applyResendDelivery(event: ResendEvent): Promise<void> {
+  const emailId = event.data.email_id;
+  if (!emailId) return;
+  const target = and(
+    eq(socialMessages.externalId, emailId),
+    eq(socialMessages.direction, 'outbound'),
+    inArray(
+      socialMessages.accountId,
+      adminDb()
+        .select({ id: socialAccounts.id })
+        .from(socialAccounts)
+        .where(eq(socialAccounts.platform, 'email')),
+    ),
+  );
+  const messageId = event.data.message_id?.trim();
+  if (messageId && /^<[^<>\s]{3,250}>$/.test(messageId)) {
+    await adminDb()
+      .update(socialMessages)
+      .set({ emailMessageId: messageId })
+      .where(and(target, isNull(socialMessages.emailMessageId)));
+  }
+  if (event.type === 'email.delivered') {
+    await adminDb()
+      .update(socialMessages)
+      .set({ status: 'delivered', deliveredAt: new Date(event.created_at ?? Date.now()) })
+      .where(and(target, eq(socialMessages.status, 'sent')));
+  } else if (
+    event.type === 'email.bounced' ||
+    event.type === 'email.complained' ||
+    event.type === 'email.failed' ||
+    event.type === 'email.suppressed'
+  ) {
+    const reason =
+      event.type === 'email.bounced'
+        ? 'The customer’s mail server refused it (bounced). Check the address.'
+        : event.type === 'email.complained'
+          ? 'The customer marked it as spam.'
+          : event.type === 'email.suppressed'
+            ? 'Not sent: this address bounced or complained before.'
+            : 'The email could not be sent.';
+    await adminDb()
+      .update(socialMessages)
+      .set({ status: 'failed', error: reason })
+      .where(and(target, inArray(socialMessages.status, ['sending', 'sent', 'delivered'])));
   }
 }
