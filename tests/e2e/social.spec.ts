@@ -38,7 +38,12 @@ test('an admin opens the social inbox and sees what can be connected', async ({
   // closed behind its menu button on a phone.
   if (testInfo.project.name !== 'mobile-375') {
     await expect(page.getByRole('link', { name: 'Social inbox', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Marketing campaigns' })).toBeDisabled();
+    // A not-yet-built item is a sidebar sub-button marked aria-disabled, never a dead link.
+    const campaigns = page.locator('[data-sidebar="menu-sub-button"]', {
+      hasText: 'Marketing campaigns',
+    });
+    await expect(campaigns).toHaveAttribute('aria-disabled', 'true');
+    await expect(campaigns).not.toHaveAttribute('href', /.+/);
   }
   // The inbox's own settings sit in a menu on its header.
   await page.getByRole('button', { name: 'Settings' }).click();
