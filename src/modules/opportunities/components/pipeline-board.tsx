@@ -20,6 +20,7 @@ import { useState, useTransition } from 'react';
 import { Avatar } from '@/components/data/avatar';
 import { NativeSelect } from '@/components/forms/native-select';
 import { formatMoney } from '@/lib/format';
+import { haptics, popElement } from '@/lib/haptics';
 import { stageColorVar } from '@/lib/stage-color';
 import { cn } from '@/lib/utils';
 import { moveStageAction } from '@/modules/opportunities/actions';
@@ -128,6 +129,9 @@ function DraggableCard({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      // dnd-kit makes this role="button"; a press alone is not a pickup, so no tap here.
+      data-haptic="off"
+      data-board-card={card.id}
       className={cn('touch-none', isDragging && 'opacity-30')}
     >
       <Card card={card} currency={currency} />
@@ -223,11 +227,13 @@ export function PipelineBoard({ columns: initial, currency, lostReasons, canEdit
       if (!result.ok) {
         setColumns(before);
         setError(result.error.message);
+        haptics.warning();
         return;
       }
       if (result.data.pendingApproval) {
         // The stage needs a manager's approval: the card stays put until it is given.
         setColumns(before);
+        haptics.warning();
         setError('That stage needs approval. The request has been sent to your approvers.');
       }
       setPendingLost(null);
@@ -245,13 +251,25 @@ export function PipelineBoard({ columns: initial, currency, lostReasons, canEdit
     else commit(cardId, stageId);
   };
 
-  const onDragStart = (event: DragStartEvent) =>
+  const onDragStart = (event: DragStartEvent) => {
+    haptics.tap();
     setActive(
       columns.flatMap((column) => column.cards).find((card) => card.id === event.active.id) ?? null,
     );
+  };
   const onDragEnd = (event: DragEndEvent) => {
     setActive(null);
-    if (event.over) request(String(event.active.id), String(event.over.id));
+    if (!event.over) return;
+    const cardId = String(event.active.id);
+    const from = columns.flatMap((column) => column.cards).find((card) => card.id === cardId);
+    if (from && from.stageId !== event.over.id) {
+      // Felt at the moment of release; the card springs once it is painted in its new column.
+      haptics.drop();
+      requestAnimationFrame(() =>
+        popElement(document.querySelector(`[data-board-card="${CSS.escape(cardId)}"]`), 'drop'),
+      );
+    }
+    request(cardId, String(event.over.id));
   };
 
   const mobileColumn = columns.find((column) => column.stageId === mobileStage) ?? columns[0];

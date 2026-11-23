@@ -1931,3 +1931,57 @@ a business wants chats from its customers joined to their records.
 - Not built: attachments from visitors, typing indicators, offline email of replies to visitors,
   per-agent names in the widget (replies show the widget's name), office hours.
 
+## ADR-073 — Tactile feedback: one engine, vibration where it exists, a spring everywhere
+
+**Amends** ADR-054 (motion), adding a second kind of feedback alongside it.
+
+**Context.** The owner asked for presses, drops and saves to be felt, not only seen, across the
+whole workspace. Browsers differ: Android browsers have `navigator.vibrate`; iPhone Safari has
+none, but since iOS 17.4 toggling an `<input type="checkbox" switch>` plays a Taptic tick;
+desktops have no motor at all.
+
+**Decision.**
+
+1. *One engine.* `src/lib/haptics.ts` owns six patterns (`tap` 8 ms, `soft` 5 ms, `cardAppear`
+   6·30·10, `drop` 18 ms, `success` 10·40·20, `warning` 25·50·25). Every pulse is clamped to
+   5–35 ms. Each call vibrates where it can, otherwise ticks the hidden switch on touch devices that
+   support it (one tick per pulse; later pulses are best effort), plays an optional soft click made
+   with the Web Audio API (filtered noise, no audio files), and can play a short spring on the
+   element involved (`[data-tactile]` keyframes in `globals.css`). Nothing throws; on the server it
+   does nothing.
+2. *Calls are folded together.* A pattern repeated within its window (400 ms for `cardAppear`) is
+   dropped, and a stronger pattern swallows a weaker one that follows within 150 ms, so twenty
+   cards arriving at once give one pulse and a drop is not followed by a page-arrival buzz.
+3. *Wired once, not per screen.* `HapticsProvider` (root layout) listens for presses on the
+   document and plays `tap` for any button, switch, checkbox, tab or menu item, so the 150-odd
+   screens using `<Button>` and the raw buttons need no code. `data-haptic` overrides (nearest
+   wins; `off` silences). Destructive buttons warn. On iPhones the listener uses `click`, which is
+   certainly a user gesture; elsewhere `pointerdown`, so the press answers before the finger lifts.
+   Also: `soft` on a new page and when a sheet opens; `success` / `warning` from `useActionRunner`;
+   the pipeline board taps on pickup, drops on a new stage, and warns when the move is refused or
+   needs approval; a customer's new message and a rising unread count play `cardAppear`, never on
+   page load.
+4. *Dropping files.* `<FileDropZone>` wraps an existing file input. Dropped files that pass the
+   input's `accept` list are handed to the input and its `change` event fires, so upload code is
+   unchanged and the server still checks every file. Used by the document library, imports and
+   expense receipts.
+5. *The person decides.* `hapticsEnabled` (default on) is the master switch; `soundFeedbackEnabled`
+   (default off) adds the click. Both live in this browser's localStorage (`meroidea:haptics`),
+   with a switch under My details → Preferences, reached from the account menu.
+   `prefers-reduced-motion` turns off the springs only: vibration is not visual motion, and iOS and
+   Android likewise keep haptics under Reduce Motion.
+
+**Why.** One engine keeps the vocabulary consistent and short; a document-level listener covers
+every control without touching each one; and folding calls together stops feedback becoming noise.
+No dependency was added.
+
+**Consequences.**
+- Browsers only vibrate after the page has been interacted with, so the very first touch on a page
+  may be silent on Android. iOS's tick depends on WebKit continuing to honour the switch control;
+  it has not been verified on a physical iPhone in this change.
+- Preferences are per device, not per account. Moving them to the account would need a column and
+  is a later decision.
+- A new screen gets press feedback for free. Its moments (a drop, an arrival) call
+  `triggerHaptic` with an existing pattern; a new pattern belongs in `HAPTIC_PATTERNS`, within
+  5–35 ms per pulse.
+- Not built: swipe navigation (the app has no swipe gestures), a Tabs primitive (none in use).

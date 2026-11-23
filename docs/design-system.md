@@ -54,6 +54,13 @@ Checked against WCAG AA (4.5:1 for normal text on white):
   confirm). `src/components/data/record-actions-menu.tsx`.
 - **Privacy blur**: eye toggle in the top bar (`Shift+P`) blurs anything marked `data-sensitive`
   while screen sharing. Display aid only; masking stays server-side (`contacts.view_sensitive`).
+- **Tactile feedback** (ADR-073): presses `tap`, drawers and page arrivals `soft`, file and card
+  drops `drop`, saved forms `success`, refusals and destructive buttons `warning`, new arrivals
+  `cardAppear`. Never call `navigator.vibrate` directly: use `triggerHaptic` / `haptics.*` from
+  `src/lib/haptics.ts`. Buttons and other controls get theirs from the provider's one listener;
+  set `haptic` on `<Button>` or `data-haptic="<pattern>|off"` on any element to change it. File
+  inputs get dropping for free inside `<FileDropZone>`. People turn it off in My details →
+  Preferences.
 - **Warnings** (duplicates, do-not-contact, later stale/expiry): `--warning` fill,
   `--warning-border`, `--warning-text` (#6B4200 on #FFF6E0, 7.9:1). Never raw Tailwind ambers.
 - **Mobile**: bottom-anchored primary action on record pages (log activity / add task),

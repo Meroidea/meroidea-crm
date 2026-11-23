@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
+import type { HapticPattern } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 import { Slot } from 'radix-ui';
 
@@ -45,10 +46,13 @@ function Button({
   variant = 'default',
   size = 'default',
   asChild = false,
+  haptic,
   ...props
 }: React.ComponentProps<'button'> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    /** What a press feels like (ADR-073): destructive buttons warn, the rest tap. */
+    haptic?: HapticPattern | 'off';
   }) {
   const Comp = asChild ? Slot.Root : 'button';
 
@@ -57,6 +61,7 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      data-haptic={haptic ?? (variant === 'destructive' ? 'warning' : 'tap')}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

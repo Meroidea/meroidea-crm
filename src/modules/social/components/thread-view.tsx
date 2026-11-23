@@ -18,6 +18,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useEffect, useOptimistic, useRef, useState, useTransition, type ReactNode } from 'react';
 
+import { useAppearHaptic } from '@/components/haptics/haptics-provider';
 import { ErrorNote } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -200,6 +201,11 @@ export function ThreadView({
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
   }, [shown.length]);
+  // A customer's new message arriving live (ADR-065) is felt, not just seen (ADR-073).
+  useAppearHaptic(messages.filter((message) => message.direction === 'inbound').length, {
+    resetKey: conversationId,
+    element: () => end.current?.previousElementSibling ?? null,
+  });
 
   const send = (text: string) =>
     startTransition(async () => {

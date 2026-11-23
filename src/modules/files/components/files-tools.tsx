@@ -5,6 +5,7 @@ import { Download, Pencil, Trash2, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
 
+import { FileDropZone } from '@/components/forms/file-drop-zone';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -89,7 +90,11 @@ export function UploadButton({ folders }: { folders: string[] }) {
 
   return (
     <div className="flex flex-col items-end gap-1.5">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <FileDropZone
+        disabled={isPending}
+        title="Drop files here to upload them"
+        className="-m-1.5 flex flex-wrap items-center justify-end gap-2 rounded-xl border border-transparent p-1.5"
+      >
         <Input
           aria-label="Folder for new uploads"
           placeholder="Folder (optional)"
@@ -118,7 +123,7 @@ export function UploadButton({ folders }: { folders: string[] }) {
             <Upload aria-hidden /> Upload
           </label>
         </Button>
-      </div>
+      </FileDropZone>
       {status && !error && (
         <p role="status" className="text-xs text-muted-foreground">
           {status}

@@ -4,6 +4,7 @@ import { CheckCircle2, FileUp, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
+import { FileDropZone } from '@/components/forms/file-drop-zone';
 import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -264,26 +265,28 @@ export function ImportWizard({
   if (!parsed) {
     return (
       <div className="flex flex-col gap-3">
-        <label className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed bg-card px-6 py-12 text-center transition-colors hover:border-primary/50 hover:bg-accent/40">
-          <span className="flex size-12 items-center justify-center rounded-full bg-accent text-accent-foreground">
-            <FileUp aria-hidden className="size-6" />
-          </span>
-          <span className="font-medium">Choose an Excel or CSV file</span>
-          <span className="max-w-sm text-sm text-muted-foreground">
-            First row = column names. Up to {IMPORT_MAX_ROWS.toLocaleString('en-AU')} rows. The
-            first sheet of an .xlsx workbook is read.
-          </span>
-          <input
-            type="file"
-            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="sr-only"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void onFile(file);
-              event.target.value = '';
-            }}
-          />
-        </label>
+        <FileDropZone asChild>
+          <label className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed bg-card px-6 py-12 text-center transition-colors hover:border-primary/50 hover:bg-accent/40">
+            <span className="flex size-12 items-center justify-center rounded-full bg-accent text-accent-foreground">
+              <FileUp aria-hidden className="size-6" />
+            </span>
+            <span className="font-medium">Choose or drop an Excel or CSV file</span>
+            <span className="max-w-sm text-sm text-muted-foreground">
+              First row = column names. Up to {IMPORT_MAX_ROWS.toLocaleString('en-AU')} rows. The
+              first sheet of an .xlsx workbook is read.
+            </span>
+            <input
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void onFile(file);
+                event.target.value = '';
+              }}
+            />
+          </label>
+        </FileDropZone>
         {error && (
           <p role="alert" className="text-sm text-destructive-text">
             {error}

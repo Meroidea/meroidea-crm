@@ -8,6 +8,7 @@ import { useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { Field, fieldA11y } from '@/components/forms/field';
+import { FileDropZone } from '@/components/forms/file-drop-zone';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -143,14 +144,20 @@ export function NewExpenseButton({ today, currency }: { today: string; currency:
             <Field name="description" label="What was it for?" error={errors.description?.message}>
               <Textarea rows={3} {...input('description')} />
             </Field>
-            <Field name="receipt" label="Receipt" hint="A photo or PDF, up to 10 MB.">
-              <Input
-                id="receipt"
-                key={fileKey}
-                type="file"
-                accept={RECEIPT_ACCEPT}
-                onChange={(event) => setReceipt(event.target.files?.[0] ?? null)}
-              />
+            <Field
+              name="receipt"
+              label="Receipt"
+              hint="A photo or PDF, up to 10 MB. You can drop it on the field."
+            >
+              <FileDropZone className="rounded-lg">
+                <Input
+                  id="receipt"
+                  key={fileKey}
+                  type="file"
+                  accept={RECEIPT_ACCEPT}
+                  onChange={(event) => setReceipt(event.target.files?.[0] ?? null)}
+                />
+              </FileDropZone>
             </Field>
             {formError && (
               <p role="alert" className="text-sm text-destructive-text">

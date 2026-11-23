@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 
+import { HapticsProvider } from '@/components/haptics/haptics-provider';
 import { NavigationProgress } from '@/components/motion/navigation-progress';
 
 import './globals.css';
@@ -47,7 +48,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
     >
       <body className="min-h-full">
         <NavigationProgress />
-        {children}
+        <HapticsProvider>{children}</HapticsProvider>
       </body>
     </html>
   );

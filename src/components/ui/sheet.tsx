@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { triggerHaptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 import { Dialog as SheetPrimitive } from 'radix-ui';
 
@@ -49,6 +50,10 @@ function SheetContent({
   side?: 'top' | 'right' | 'bottom' | 'left';
   showCloseButton?: boolean;
 }) {
+  // The content mounts when the sheet opens: a feather-light pulse as the drawer slides in.
+  React.useEffect(() => {
+    triggerHaptic('soft');
+  }, []);
   return (
     <SheetPortal>
       <SheetOverlay />

@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { Avatar } from '@/components/data/avatar';
 import { PageHeader } from '@/components/data/page-header';
+import { HapticsSettings } from '@/components/haptics/haptics-settings';
 import { Button } from '@/components/ui/button';
 import { MyDetailsForm } from '@/modules/profile/components/my-details-form';
 import { getMyProfile } from '@/modules/profile/queries';
@@ -34,6 +35,17 @@ export default async function MyDetailsPage() {
           Personal details
         </h2>
         <MyDetailsForm fullName={profile.fullName} email={profile.email} phone={profile.phone} />
+      </section>
+
+      <section
+        id="preferences"
+        aria-labelledby="feel-heading"
+        className="scroll-mt-20 rounded-xl border bg-card p-5"
+      >
+        <h2 id="feel-heading" className="mb-4 text-base font-semibold">
+          Preferences
+        </h2>
+        <HapticsSettings />
       </section>
 
       <section

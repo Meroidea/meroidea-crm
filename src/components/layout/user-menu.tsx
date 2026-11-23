@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, KeyRound, LogOut, UserRound } from 'lucide-react';
+import { ChevronDown, KeyRound, LogOut, SlidersHorizontal, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { signOutAction } from '@/modules/auth/actions';
 
-/** The signed-in person's menu: who they are, their details, password and sign out. */
+/** The signed-in person's menu: who they are, their details, preferences, password, sign out. */
 export function UserMenu({
   name,
   email,
@@ -75,6 +75,11 @@ export function UserMenu({
           <DropdownMenuItem asChild className="py-2">
             <Link href="/profile">
               <UserRound aria-hidden /> My details
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild className="py-2">
+            <Link href="/profile#preferences">
+              <SlidersHorizontal aria-hidden /> Preferences
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild className="py-2">

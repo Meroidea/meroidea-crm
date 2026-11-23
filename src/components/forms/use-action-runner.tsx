@@ -3,13 +3,16 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
+import { triggerHaptic } from '@/lib/haptics';
+
 type Result<T> =
   | { ok: true; data: T }
   | { ok: false; error: { message: string; fieldErrors?: Record<string, string[]> } };
 
 /**
  * Runs a Server Action from a client form: shows its first field error or message, and on
- * success calls `after` and refreshes the page's server data.
+ * success calls `after` and refreshes the page's server data. The outcome is felt too
+ * (ADR-073): `success` when the server confirms, `warning` when it refuses.
  */
 export function useActionRunner() {
   const router = useRouter();
@@ -21,8 +24,10 @@ export function useActionRunner() {
       const result = await action();
       if (!result.ok) {
         setError(Object.values(result.error.fieldErrors ?? {})[0]?.[0] ?? result.error.message);
+        triggerHaptic('warning');
         return;
       }
+      triggerHaptic('success');
       after?.(result.data);
       router.refresh();
     });
