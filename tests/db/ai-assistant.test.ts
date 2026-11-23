@@ -19,6 +19,7 @@ import { saveInvoice } from '@/modules/invoices/service';
 import { saveTeam } from '@/modules/roster/service';
 import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
+import { hashSubject } from '@/server/rate-limit';
 
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
 
@@ -454,5 +455,132 @@ describe('rosters', () => {
         }),
       'FORBIDDEN',
     );
+  });
+});
+
+describe('every business gets the same assistant, and only its own data', () => {
+  const declarations = () =>
+    (model.calls[0]?.config.tools as { functionDeclarations: unknown[] }[] | undefined)?.[0]
+      ?.functionDeclarations;
+
+  it('offers two businesses with the same features exactly the same tools', async () => {
+    model.queue.push(say('Hello.'));
+    await runAssistant(owner, ask('Hello'));
+    const alphaTools = declarations();
+    model.calls.length = 0;
+    model.queue.push(say('Hello.'));
+    await runAssistant(betaOwner, ask('Hello'));
+    expect(declarations()).toEqual(alphaTools);
+    expect(alphaTools).toHaveLength(4); // all but document review, which needs a file
+  });
+
+  it('tells the model only about the business asking', async () => {
+    model.queue.push(say('Hello.'));
+    await runAssistant(betaOwner, ask('Hello'));
+    const sent = JSON.stringify(model.calls);
+    expect(sent).toContain('Beta Hardware');
+    expect(sent).not.toContain('Alpha Bakery');
+    expect(sent).not.toContain(alphaTenant);
+  });
+
+  it('never matches a name to another business’s contact', async () => {
+    model.queue.push(
+      call('create_draft_invoice', {
+        clientName: 'Olivia Example',
+        lineItems: [{ description: 'Cake', quantity: 1, unitPrice: 10 }],
+      }),
+    );
+    const result = await runAssistant(betaOwner, ask('Invoice that customer for a cake'));
+    const artifact = result.artifact as InvoiceDraftArtifact;
+    // Alpha has an Olivia Example; Beta does not, so Beta gets a plain name and no email.
+    expect(artifact.customer).toEqual({
+      name: 'Olivia Example',
+      email: null,
+      address: null,
+      contactId: null,
+    });
+  });
+
+  it('rosters only the business’s own people', async () => {
+    const request = {
+      startDate: '2027-03-01',
+      endDate: '2027-03-02',
+      shiftRequirements: [
+        {
+          weekdays: ['mon' as const, 'tue' as const],
+          startTime: '09:00',
+          endTime: '17:00',
+          staffNeeded: 5,
+        },
+      ],
+    };
+    const alphaPreview = (await generateStaffRosterTool.run(request, toolContext(owner))) as {
+      artifact: RosterPreviewArtifact;
+    };
+    const betaPreview = (await generateStaffRosterTool.run(request, toolContext(betaOwner))) as {
+      artifact: RosterPreviewArtifact;
+    };
+    const people = (preview: { artifact: RosterPreviewArtifact }) =>
+      new Set(preview.artifact.shifts.map((shift) => shift.userId).filter(Boolean));
+    expect([...people(alphaPreview)].sort()).toEqual([...alphaUsers].sort());
+    expect([...people(betaPreview)]).toEqual([betaOwner.userId]);
+  });
+
+  it('cannot save a preview from one business into another', async () => {
+    const shifts = alphaUsers.map((userId) => ({
+      date: '2027-03-08',
+      startTime: '09:00',
+      endTime: '17:00',
+      userId,
+      teamId: null,
+      breaks: [],
+      note: null,
+    }));
+    const result = await approveRosterPreview(betaOwner, { shifts });
+    expect(result.saved).toBe(0);
+    expect(result.skipped.every((item) => item.reason.includes('not an active member'))).toBe(true);
+    await expectCode(
+      () => approveNote(betaOwner, { contactId: ownersContact, body: 'Hello' }),
+      'NOT_FOUND',
+    );
+    const alphaShifts = await rows<{ n: number }>(sql`
+      select count(*)::int as n from roster_shifts s join rosters r on r.id = s.roster_id
+      where r.tenant_id = ${alphaTenant} and r.starts_on <= '2027-03-08' and r.ends_on >= '2027-03-08'`);
+    expect(alphaShifts[0]?.n).toBe(0);
+  });
+
+  it('writes each business’s audit trail into that business only', async () => {
+    const count = async (tenantId: string) =>
+      Number(
+        (
+          await rows<{ n: number }>(
+            sql`select count(*)::int as n from audit_logs where tenant_id = ${tenantId} and action = 'ai_assist'`,
+          )
+        )[0]?.n,
+      );
+    const [alphaBefore, betaBefore] = [await count(alphaTenant), await count(betaTenant)];
+    model.queue.push(say('Hello.'));
+    await runAssistant(betaOwner, ask('Hello'));
+    expect(await count(betaTenant)).toBe(betaBefore + 1);
+    expect(await count(alphaTenant)).toBe(alphaBefore);
+  });
+
+  it('counts each business’s daily limit separately', async () => {
+    // Alpha has used its whole day; Beta, on the same key, is unaffected.
+    await adminDb().execute(sql`
+      insert into public_rate_limits (bucket, subject_hash, window_start, hits)
+      values ('ai:business', ${hashSubject(alphaTenant)},
+              to_timestamp(floor(extract(epoch from now()) / 86400) * 86400), 300)
+      on conflict (bucket, subject_hash, window_start) do update set hits = 300`);
+    try {
+      await expectCode(() => runAssistant(owner, ask('Hello')), 'RATE_LIMITED');
+      model.queue.push(say('Hello.'));
+      await expect(runAssistant(betaOwner, ask('Hello'))).resolves.toMatchObject({
+        reply: 'Hello.',
+      });
+    } finally {
+      await adminDb().execute(sql`
+        delete from public_rate_limits where bucket = 'ai:business' and subject_hash = ${hashSubject(alphaTenant)}`);
+    }
   });
 });

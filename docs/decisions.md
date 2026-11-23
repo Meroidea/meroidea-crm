@@ -1989,13 +1989,27 @@ Every read must stay within the person's business and permissions, and every act
    counts; never the prompt, the reply or record contents. Per person 30 requests an hour and per
    business 300 a day (`public_rate_limits`), because one key's quota serves every business.
 
+8. *One assistant, separate businesses.* Every business runs the same code, models, tools and
+   limits; what differs comes only from its own settings (labels, currency, timezone, features,
+   roles). No business's information can reach another's assistant:
+   - Every read runs as the person, under their business's row-level security, with an explicit
+     `tenant_id` filter; approvals run the same way, so a preview carried into another business
+     saves nothing.
+   - The model keeps nothing between requests, and the app stores no conversation. The only
+     shared object is the stateless SDK client.
+   - The drawer is keyed by the business id, so its conversation is dropped whenever the person
+     changes business (a platform owner on support).
+   - Audit rows and rate-limit counters are kept per business.
+   - A DB test suite states each of these.
+
 **Consequences.**
 - **Free tier and personal data.** Google's terms let it use prompts and responses on unpaid
   quota to improve its products, and people may review them. Business records (names, activity
   notes, invoices, documents) are personal data under the Privacy Act. Before the feature is on
   for a real business, the key should come from a Cloud project with billing enabled (paid quota is
   not used that way), and the platform's privacy notice should name Google as a processor. The
-  code is the same either way; only the key changes.
+  code is the same either way; only the key changes. This is also the one way one business's
+  information could ever surface elsewhere: in a model Google trains on unpaid traffic.
 - The free tier's limits are small and shared by every business on the key; the per-business
   daily cap keeps one business from using everyone's share.
 - Not built: streaming replies, saved conversations, documents over 4 MB (would need upload to
