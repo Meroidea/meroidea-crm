@@ -2086,3 +2086,31 @@ Every read must stay within the person's business and permissions, and every act
   storage and Gemini's Files API), editing an invoice's lines inside the card (it is edited on the
   invoice after approval), an evaluation suite for the model's answers.
 =======
+
+## ADR-075 — Production migrations run in CI, after every check passes
+
+**Context.** `docs/architecture.md` said migrations run "in CI against preview/prod", but the CI
+workflow only migrated a throwaway local database: production was migrated by hand, outside any
+record. The project rules forbid changing the cloud database by hand or from a laptop.
+
+**Decision.**
+1. A `Migrate production database` job in `.github/workflows/ci.yml` runs `npm run db:migrate` on
+   a push to `main` (or a manual run on `main`), only after `checks`, `database` and `e2e` pass.
+2. Its connection string is the secret `PRODUCTION_DATABASE_URL_DIRECT` in the GitHub environment
+   `production`, which can require a person's approval and be limited to `main`. It is the
+   Supabase session pooler URL (port 5432): GitHub-hosted runners have no IPv6, and the
+   transaction pooler (6543) is for the app, not for migrations. A missing secret fails the job
+   with a message, so a skipped migration never looks green.
+3. The job never runs twice at once and is never cancelled part-way (`production-migrations`
+   concurrency group); CI on `main` queues instead of cancelling. Drizzle applies every pending
+   migration in one transaction with its journal row, so a failure changes nothing.
+
+**Consequences.**
+- Vercel deploys `main` through its Git integration, independently of CI, so a new build can go
+  live minutes before its migration. Until Vercel's Deployment Checks are set to wait for this
+  job, every migration must work with the code already live (expand first; contract in a later
+  release), as `rules/database.md` already asks for destructive changes.
+- The first run applies everything production's `drizzle.__drizzle_migrations` does not list. If
+  production was ever migrated another way, compare that table with `drizzle/meta/_journal.json`
+  before the first run.
+- Preview deployments still have no migrated database of their own.

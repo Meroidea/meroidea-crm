@@ -282,7 +282,13 @@ CSV export streams from the same query functions, is permission-gated, and audit
   `syd1`. Keeps personal data stored in Australia and puts functions next to the database
   (Vercel's default US East region would add a Pacific round trip to every query).
 - Connection: Supavisor transaction pooler (port 6543), postgres.js with `prepare: false`.
-- Migrations: `drizzle-kit migrate` in CI against preview/prod — never from a laptop to prod.
+- Migrations: `drizzle-kit migrate` in CI — never from a laptop to prod. The `Migrate production
+  database` job in `.github/workflows/ci.yml` runs on every push to `main` after lint, types, unit,
+  database and browser tests have all passed, with the `PRODUCTION_DATABASE_URL_DIRECT` secret of
+  the `production` environment (the Supabase **session pooler** URL, port 5432: GitHub's runners
+  have no IPv6, which the direct connection needs). Migrations must keep working with the code
+  already live (expand, then contract, in two releases), because Vercel may serve the new build
+  before the migration finishes unless its Deployment Checks wait for the job (ADR-075).
 - Node: use the current LTS (Node 24). Node 20 reached end-of-life in April 2026.
 
 ### Environment variables (`.env.example`)
