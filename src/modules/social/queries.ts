@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import {
   contacts,
+  emailSenderRules,
   socialAccounts,
   socialCannedResponses,
   socialConversations,
@@ -23,12 +24,12 @@ import { metaConfigured } from './providers/meta';
 import { emailInboxConfigured } from './providers/resend';
 import { tiktokConfigured } from './providers/tiktok';
 import { whatsappConfigured } from './providers/whatsapp';
-import type { SocialPlatform } from './providers/types';
+import type { Mailbox, SocialPlatform } from './providers/types';
 import type { StoredAttachment } from './media';
 import type { TimelineItem } from '@/modules/activities/types';
 
 import { PLATFORM_LABELS } from './format';
-import type { InboxFilters } from './schemas';
+import type { EmailFolder, InboxFilters } from './schemas';
 import { readAccountSettings, type AccountSettings } from './settings';
 
 export const INBOX_PAGE_SIZE = 50;
@@ -104,14 +105,55 @@ const awake = sql`(${socialConversations.status} = 'open' or (${socialConversati
 /** `%` and `_` typed into the search box are searched for, not wildcards. */
 const likePattern = (q: string) => `%${q.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 
-/** The inbox: conversations across every connected account, newest message first. */
+/*
+ * The Email area's folders (ADR-073), written out in full because they are correlated subqueries.
+ * A thread is "automated" when no customer-written message is in it: every inbound message was an
+ * auto-reply, a bounce or list mail (`email_meta.automated`, ADR-070).
+ */
+const automatedOnly = sql`not exists (select 1 from public.social_messages m
+  where m.tenant_id = social_conversations.tenant_id and m.conversation_id = social_conversations.id
+    and m.direction = 'inbound' and coalesce((m.email_meta ->> 'automated')::boolean, false) = false)`;
+const markedNotCustomer = sql`exists (select 1 from public.email_sender_rules r
+  where r.tenant_id = social_conversations.tenant_id
+    and r.email = social_conversations.participant_email and r.kind = 'not_customer')`;
+
+/**
+ * Which email threads a folder holds. Customers: linked to a contact. To review: not linked yet.
+ * Filtered: machines' mail, and senders marked "Not a customer" who are not linked to a contact.
+ * Every thread is in exactly one folder, so nothing received is ever out of sight for good.
+ */
+export function emailFolderCondition(folder: EmailFolder): SQL {
+  const linked = sql`social_conversations.contact_id is not null`;
+  if (folder === 'customers') return sql`(${linked} and not ${automatedOnly})`;
+  if (folder === 'review') {
+    return sql`(not ${linked} and not ${automatedOnly} and not ${markedNotCustomer})`;
+  }
+  return sql`(${automatedOnly} or (not ${linked} and ${markedNotCustomer}))`;
+}
+
+/** Only the channels of one area: the Social inbox, or Email (ADR-073). */
+function mailboxCondition(mailbox: Mailbox): SQL {
+  return mailbox === 'email'
+    ? eq(socialAccounts.platform, 'email')
+    : sql`${socialAccounts.platform} <> 'email'`;
+}
+
+/**
+ * Conversations in one area across its connected accounts, newest message first: the Social
+ * inbox (social media and website chat) or Email, one folder at a time.
+ */
 export async function listConversations(
   ctx: TenantContext,
   filters: InboxFilters,
+  mailbox: Mailbox = 'social',
 ): Promise<{ rows: InboxRow[]; nextCursor: string | null }> {
   requirePermission(ctx, 'social.view');
   const view = filters.view ?? 'open';
-  const where: (SQL | undefined)[] = [eq(socialConversations.tenantId, ctx.tenantId)];
+  const where: (SQL | undefined)[] = [
+    eq(socialConversations.tenantId, ctx.tenantId),
+    mailboxCondition(mailbox),
+  ];
+  if (mailbox === 'email') where.push(emailFolderCondition(filters.folder ?? 'customers'));
   if (view === 'open') where.push(awake);
   if (view === 'mine') where.push(awake, eq(socialConversations.assignedUserId, ctx.userId));
   if (view === 'snoozed') {
@@ -131,7 +173,9 @@ export async function listConversations(
       or exists (select 1 from ${socialMessages} m where m.tenant_id = ${socialConversations.tenantId}
         and m.conversation_id = ${socialConversations.id} and m.body ilike ${pattern}))`);
   }
-  if (filters.platform) where.push(eq(socialAccounts.platform, filters.platform));
+  if (filters.platform && mailbox === 'social' && filters.platform !== 'email') {
+    where.push(eq(socialAccounts.platform, filters.platform));
+  }
   const cursor = decodeCursor(filters.cursor);
   if (cursor) {
     where.push(
@@ -211,18 +255,83 @@ export async function listConversations(
   };
 }
 
-/** Unread conversations, for the inbox tabs. */
-export async function countUnread(ctx: TenantContext): Promise<number> {
+/**
+ * Unread conversations per channel in the Social inbox, for its tabs and channel filter
+ * (ADR-073): `total` and one count per connected channel.
+ */
+export async function countUnread(
+  ctx: TenantContext,
+): Promise<{ total: number; byPlatform: Partial<Record<SocialPlatform, number>> }> {
+  requirePermission(ctx, 'social.view');
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({ platform: socialAccounts.platform, n: sql<number>`count(*)::int` })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          mailboxCondition('social'),
+          gt(socialConversations.unreadCount, 0),
+        ),
+      )
+      .groupBy(socialAccounts.platform),
+  );
+  const byPlatform: Partial<Record<SocialPlatform, number>> = {};
+  for (const row of rows) byPlatform[row.platform as SocialPlatform] = row.n;
+  return { total: rows.reduce((sum, row) => sum + row.n, 0), byPlatform };
+}
+
+/** Unread email threads per folder, for the Email area's tabs (ADR-073). */
+export async function countEmailUnread(ctx: TenantContext): Promise<Record<EmailFolder, number>> {
   requirePermission(ctx, 'social.view');
   const [row] = await withRls(ctx, (tx) =>
     tx
-      .select({ n: sql<number>`count(*)::int` })
+      .select({
+        customers: sql<number>`(count(*) filter (where ${emailFolderCondition('customers')}))::int`,
+        review: sql<number>`(count(*) filter (where ${emailFolderCondition('review')}))::int`,
+        filtered: sql<number>`(count(*) filter (where ${emailFolderCondition('filtered')}))::int`,
+      })
       .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
       .where(
-        and(eq(socialConversations.tenantId, ctx.tenantId), gt(socialConversations.unreadCount, 0)),
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          mailboxCondition('email'),
+          gt(socialConversations.unreadCount, 0),
+        ),
       ),
   );
-  return row?.n ?? 0;
+  return { customers: row?.customers ?? 0, review: row?.review ?? 0, filtered: row?.filtered ?? 0 };
+}
+
+/** Whether an email thread's sender is marked "Not a customer", for the thread's controls. */
+export async function senderMarkedNotCustomer(
+  ctx: TenantContext,
+  email: string | null,
+): Promise<boolean> {
+  if (!email) return false;
+  requirePermission(ctx, 'social.view');
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({ id: emailSenderRules.id })
+      .from(emailSenderRules)
+      .where(and(eq(emailSenderRules.tenantId, ctx.tenantId), eq(emailSenderRules.email, email)))
+      .limit(1),
+  );
+  return rows.length > 0;
 }
 
 const repliers = alias(users, 'repliers');

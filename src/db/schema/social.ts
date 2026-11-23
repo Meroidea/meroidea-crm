@@ -458,3 +458,37 @@ export const livechatVisitors = pgTable(
     ),
   ],
 );
+
+/**
+ * How the Email sub-module treats a sender (ADR-073): `not_customer` moves that address's threads,
+ * now and later, out of Customers and To review into Filtered. Their emails are still received
+ * and kept. Removing the rule ("Move back") shows them again.
+ */
+export const emailSenderRules = pgTable(
+  'email_sender_rules',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    /** Lower case. */
+    email: text().notNull(),
+    kind: text().notNull().default('not_customer'),
+    createdBy: uuid().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('email_sender_rules_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('email_sender_rules_email_key').on(table.tenantId, table.email),
+    foreignKey({
+      name: 'email_sender_rules_created_by_fkey',
+      columns: [table.tenantId, table.createdBy],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+    }),
+    check('email_sender_rules_kind_check', sql`${table.kind} in ('not_customer')`),
+    check(
+      'email_sender_rules_email_check',
+      sql`char_length(${table.email}) between 3 and 200 and ${table.email} = lower(${table.email})`,
+    ),
+  ],
+);

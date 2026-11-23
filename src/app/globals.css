@@ -36,6 +36,12 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-channel-facebook: var(--channel-facebook);
+  --color-channel-instagram: var(--channel-instagram);
+  --color-channel-whatsapp: var(--channel-whatsapp);
+  --color-channel-tiktok: var(--channel-tiktok);
+  --color-channel-livechat: var(--channel-livechat);
+  --color-channel-email: var(--channel-email);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -93,6 +99,13 @@
   --chart-3: #7da0fa;
   --chart-4: #7978e9;
   --chart-5: #f3797e;
+  /* Each inbox channel's own colour (ADR-073): marks and tints only, never text on a fill. */
+  --channel-facebook: #0866ff;
+  --channel-instagram: #ff0069;
+  --channel-whatsapp: #25d366;
+  --channel-tiktok: #111111;
+  --channel-livechat: #7978e9;
+  --channel-email: #7da0fa;
   --radius: 12px;
   --sidebar: #ffffff;
   --sidebar-foreground: #1f2937;

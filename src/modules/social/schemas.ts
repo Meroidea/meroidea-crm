@@ -5,8 +5,17 @@ import { SOCIAL_PLATFORMS } from './providers/types';
 
 export const INBOX_VIEWS = ['open', 'mine', 'unread', 'snoozed', 'done', 'all'] as const;
 
+/**
+ * The Email area's folders (ADR-073): threads linked to a contact; people who are not contacts
+ * yet; and machines' mail and senders marked "Not a customer".
+ */
+export const EMAIL_FOLDERS = ['customers', 'review', 'filtered'] as const;
+export type EmailFolder = (typeof EMAIL_FOLDERS)[number];
+
 export const inboxFiltersSchema = z.object({
   view: z.enum(INBOX_VIEWS).optional().catch(undefined),
+  /** Email only; Customers when left out. */
+  folder: z.enum(EMAIL_FOLDERS).optional().catch(undefined),
   platform: z.enum(SOCIAL_PLATFORMS).optional().catch(undefined),
   /** Part of the customer's name, handle or number, or of something said (ADR-067). */
   q: z
@@ -268,3 +277,6 @@ export const emailInboxSchema = z.object({
   createLeadForUnknown: z.boolean().default(true),
 });
 export type EmailInboxInput = z.output<typeof emailInboxSchema>;
+
+/** Marking an email thread's sender "Not a customer", or moving them back (ADR-073). */
+export const senderRuleSchema = z.object({ conversationId: z.uuid() });

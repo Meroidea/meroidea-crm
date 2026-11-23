@@ -1781,6 +1781,20 @@ livechat_visitors  id, tenant_id, account_id (composite FK → social_accounts),
 - `app.erase_contact_traces` clears the name and email of visitors in the person's linked chats
   and of any visitor who gave the person's email. It now runs before the contact row is cleared.
 
+**Email sender rules (migration `0082`, ADR-073).**
+```sql
+email_sender_rules  id, tenant_id, email (lower case, 3-200), kind 'not_customer',
+                    created_by (composite FK → tenant_memberships), created_at
+                    unique (tenant_id, id); unique (tenant_id, email)
+```
+- The Email area's folders are queries over existing columns: **Customers** = linked to a contact
+  and not automated-only; **To review** = not linked, not automated-only, no rule; **Filtered** =
+  automated-only (every inbound message has `email_meta.automated`), or not linked with a
+  `not_customer` rule. Each email thread is in exactly one folder.
+- RLS: read with `social.view`; insert (as yourself, `created_by = auth.uid()`) and delete with
+  `social.reply`; restrictive `feature_switch` on `email_channel`. No update grant.
+- `app.erase_contact_traces` also deletes a rule naming the person's email address.
+
 ### social_canned_responses
 A saved reply (ADR-068). Shared with the team when `owner_user_id` is empty, else one person's.
 ```sql

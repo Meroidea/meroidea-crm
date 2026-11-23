@@ -26,19 +26,22 @@ import {
   messageIdSchema,
   noteSchema,
   replySchema,
+  senderRuleSchema,
   snoozeSchema,
   startConnectSchema,
   templateIdSchema,
   templateReplySchema,
 } from './schemas';
 import * as email from './email-service';
+import * as triage from './email-triage';
 import { chatWidgetSchema } from './livechat-schemas';
 import * as livechat from './livechat-service';
 import * as social from './service';
 import * as team from './team-service';
 import * as whatsapp from './whatsapp-service';
 
-const paths = ['/social'];
+// The Social inbox and Email share conversations and their actions (ADR-073).
+const paths = ['/social', '/email'];
 
 /**
  * Starts connecting accounts: a one-time state goes in an http-only cookie and the browser is
@@ -201,4 +204,15 @@ export const updateChatWidgetAction = authedAction(
 export const rotateChatIdentitySecretAction = authedAction(
   { permission: 'social.manage', input: accountIdSchema },
   (ctx, input) => livechat.rotateChatIdentitySecret(ctx, input.accountId),
+);
+
+/** Email (ADR-073): a sender who is not a customer moves to Filtered, with later emails. */
+export const markNotCustomerAction = authedAction(
+  { permission: 'social.reply', input: senderRuleSchema, revalidate: paths },
+  (ctx, input) => triage.markNotCustomer(ctx, input.conversationId),
+);
+
+export const moveSenderBackAction = authedAction(
+  { permission: 'social.reply', input: senderRuleSchema, revalidate: paths },
+  (ctx, input) => triage.moveSenderBack(ctx, input.conversationId),
 );
