@@ -12,6 +12,7 @@ import {
   setHapticPrefs,
   triggerHaptic,
 } from '@/lib/haptics';
+import { isIosDevice } from '@/lib/haptics-ios';
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial));
@@ -31,12 +32,14 @@ function browser({
   switchControl = false,
   storage = memoryStorage(),
   reducedMotion = false,
+  userAgent = 'Mozilla/5.0 (X11; Linux x86_64)',
 }: {
   vibrate?: (pattern: number[]) => boolean;
   touch?: number;
   switchControl?: boolean;
   storage?: ReturnType<typeof memoryStorage>;
   reducedMotion?: boolean;
+  userAgent?: string;
 } = {}) {
   const clicks: number[] = [];
   const body = { appendChild: vi.fn() };
@@ -50,10 +53,15 @@ function browser({
     },
     matchMedia: () => ({ matches: reducedMotion }),
   });
-  vi.stubGlobal('navigator', { maxTouchPoints: touch, ...(vibrate ? { vibrate } : {}) });
+  vi.stubGlobal('navigator', {
+    maxTouchPoints: touch,
+    userAgent,
+    ...(vibrate ? { vibrate } : {}),
+  });
   vi.stubGlobal('document', {
     visibilityState: 'visible',
     body,
+    getElementById: () => null,
     createElement: (tag: string) => ({
       tag,
       style: {},
@@ -136,6 +144,30 @@ describe('triggering', () => {
   it('does not use the switch on desktop Safari, which has no Taptic Engine', () => {
     browser({ touch: 0, switchControl: true });
     expect(getHapticCapabilities().iosSwitch).toBe(false);
+  });
+
+  it('recognises an iPhone by its user agent when WebKit does not expose the switch property', () => {
+    browser({
+      touch: 5,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15',
+    });
+    expect(getHapticCapabilities().iosSwitch).toBe(true);
+  });
+
+  it('recognises an iPad that reports itself as a Mac', () => {
+    browser({ touch: 5, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' });
+    expect(isIosDevice()).toBe(true);
+  });
+
+  it('treats Firefox for Android (no vibrate, not iOS) as having no device haptics', () => {
+    browser({ touch: 5, userAgent: 'Mozilla/5.0 (Android 14; Mobile; rv:132.0) Firefox/132.0' });
+    expect(getHapticCapabilities()).toMatchObject({ vibrate: false, iosSwitch: false });
+  });
+
+  it('does not tick from script on an iPhone tap the control already ticked for', () => {
+    const { clicks } = browser({ touch: 5, switchControl: true });
+    expect(triggerHaptic('tap', { device: false })).toBe(true);
+    expect(clicks).toHaveLength(0);
   });
 
   it('plays twenty card arrivals at once as one pulse', () => {

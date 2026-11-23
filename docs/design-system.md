@@ -58,7 +58,8 @@ Checked against WCAG AA (4.5:1 for normal text on white):
   drops `drop`, saved forms `success`, refusals and destructive buttons `warning`, new arrivals
   `cardAppear`. Never call `navigator.vibrate` directly: use `triggerHaptic` / `haptics.*` from
   `src/lib/haptics.ts`. Buttons and other controls get theirs from the provider's one listener;
-  set `haptic` on `<Button>` or `data-haptic="<pattern>|off"` on any element to change it. File
+  set `haptic` on `<Button>` or `data-haptic="<pattern>|off"` on any element to change it. On iPhones a transparent label is laid over each control so a real tap ticks
+  (ADR-074); never put interactive content inside a control, or it will not be covered. File
   inputs get dropping for free inside `<FileDropZone>`. People turn it off in My details →
   Preferences.
 - **Warnings** (duplicates, do-not-contact, later stale/expiry): `--warning` fill,

@@ -13,6 +13,8 @@
  * Preferences live in this browser's localStorage; `HapticsProvider` exposes them to React.
  */
 
+import { iosProgrammaticTick, isIosDevice, resetIosHapticsForTests } from '@/lib/haptics-ios';
+
 export type HapticPattern = 'tap' | 'soft' | 'cardAppear' | 'drop' | 'success' | 'warning';
 
 /** Vibration patterns in ms: pulse, gap, pulse… Pulses stay between 5 and 35 ms. */
@@ -170,10 +172,11 @@ export function getHapticCapabilities(): HapticCapabilities {
   if (capabilities) return capabilities;
   const vibrate = typeof navigator.vibrate === 'function';
   const touch = (navigator.maxTouchPoints ?? 0) > 0;
-  // WebKit reflects the `switch` attribute as a property from Safari 17.4. Desktop Safari has it
-  // too but no Taptic Engine, so only touch devices use it.
+  // Some WebKit builds reflect the `switch` attribute as a property; the user agent covers those
+  // that do not. Desktop Safari has the switch but no Taptic Engine, so only touch devices use it.
   const switchControl =
-    typeof HTMLInputElement !== 'undefined' && 'switch' in HTMLInputElement.prototype;
+    (typeof HTMLInputElement !== 'undefined' && 'switch' in HTMLInputElement.prototype) ||
+    isIosDevice();
   const audioWindow = window as Window & {
     AudioContext?: typeof AudioContext;
     webkitAudioContext?: typeof AudioContext;
@@ -251,40 +254,14 @@ function vibrate(pattern: number[]): void {
   }
 }
 
-let iosSwitchLabel: HTMLLabelElement | null = null;
-
-function iosSwitch(): HTMLLabelElement {
-  if (iosSwitchLabel?.isConnected) return iosSwitchLabel;
-  const label = document.createElement('label');
-  label.setAttribute('aria-hidden', 'true');
-  label.dataset.hapticDriver = '';
-  label.style.cssText =
-    'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
-  const input = document.createElement('input');
-  input.type = 'checkbox';
-  input.setAttribute('switch', '');
-  input.tabIndex = -1;
-  label.appendChild(input);
-  // The synthetic click toggles the switch but must not reach the page's own click handlers.
-  label.addEventListener('click', (event) => event.stopPropagation());
-  input.addEventListener('click', (event) => event.stopPropagation());
-  document.body.appendChild(label);
-  iosSwitchLabel = label;
-  return label;
-}
-
+/** One tick per pulse from script; on iOS 26.5+ only a real tap ticks (see haptics-ios.ts). */
 function iosTicks(pattern: number[]): void {
-  try {
-    const label = iosSwitch();
-    label.click();
-    // Later pulses are best effort: iOS may only honour the one inside the user's gesture.
-    let delay = 0;
-    for (let index = 1; index < pattern.length; index += 2) {
-      delay += (pattern[index - 1] ?? 0) + (pattern[index] ?? 0);
-      window.setTimeout(() => label.click(), delay);
-    }
-  } catch {
-    // No DOM (or a locked-down one): nothing to do.
+  iosProgrammaticTick();
+  // Later pulses are best effort: iOS may only honour the one inside the user's gesture.
+  let delay = 0;
+  for (let index = 1; index < pattern.length; index += 2) {
+    delay += (pattern[index - 1] ?? 0) + (pattern[index] ?? 0);
+    window.setTimeout(iosProgrammaticTick, delay);
   }
 }
 
@@ -381,6 +358,11 @@ export function popElement(element: Element | null | undefined, motion: TactileM
 export type TriggerOptions = {
   /** Gets a matching spring, so desktops without a motor still feel the moment. */
   element?: Element | null;
+  /**
+   * False when the device's own haptic has already played (an iPhone tap on an armed control):
+   * only the sound and the spring are added.
+   */
+  device?: boolean;
 };
 
 /**
@@ -395,8 +377,10 @@ export function triggerHaptic(pattern: HapticPattern, options: TriggerOptions = 
 
   const steps = normalizePattern(HAPTIC_PATTERNS[pattern]);
   const can = getHapticCapabilities();
-  if (can.vibrate) vibrate(steps);
-  else if (can.iosSwitch) iosTicks(steps);
+  if (options.device !== false) {
+    if (can.vibrate) vibrate(steps);
+    else if (can.iosSwitch) iosTicks(steps);
+  }
   if (getHapticPrefs().soundFeedbackEnabled && can.audio) tick(pattern, steps);
   const motion = MOTION_FOR[pattern];
   if (options.element && motion) popElement(options.element, motion);
@@ -421,7 +405,7 @@ export function resetHapticsForTests(): void {
   prefs = DEFAULT_HAPTIC_PREFS;
   prefsLoaded = false;
   listeners.clear();
-  iosSwitchLabel = null;
+  resetIosHapticsForTests();
   audioContext = null;
   noise = null;
 }

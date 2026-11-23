@@ -25,6 +25,7 @@ import {
   type HapticPattern,
   type HapticPrefs,
 } from '@/lib/haptics';
+import { installIosTapBridge, isIosOverlay } from '@/lib/haptics-ios';
 
 type HapticsValue = {
   prefs: HapticPrefs;
@@ -69,9 +70,15 @@ const PRESSABLE = [
   'input[type="checkbox"]',
   'input[type="radio"]',
   'label:has(input[type="checkbox"], input[type="radio"])',
+  // Navigation links (site header and footer, the phone menu, the sidebar). Links in running
+  // text stay quiet: the page that arrives gives its own soft pulse.
+  'nav a[href]',
+  '[role="navigation"] a[href]',
 ].join(',');
 
-function patternFor(target: EventTarget | null): HapticPattern | null {
+type Press = { control: Element; pattern: HapticPattern };
+
+function pressFor(target: EventTarget | null): Press | null {
   if (!(target instanceof Element)) return null;
   const control = target.closest(PRESSABLE);
   if (!control || control.closest('[data-haptic-driver]')) return null;
@@ -83,7 +90,7 @@ function patternFor(target: EventTarget | null): HapticPattern | null {
   }
   const override = control.closest('[data-haptic]')?.getAttribute('data-haptic');
   if (override === 'off') return null;
-  return isHapticPattern(override) ? override : 'tap';
+  return { control, pattern: isHapticPattern(override) ? override : 'tap' };
 }
 
 /**
@@ -97,19 +104,20 @@ export function HapticsProvider({ children }: { children: ReactNode }) {
   const shownPath = useRef(pathname);
 
   useEffect(() => {
-    // iOS only ticks inside a real gesture, and `click` is one for certain; everywhere else
-    // `pointerdown` answers before the finger lifts, so the press feels immediate.
-    const onIosClick = getHapticCapabilities().iosSwitch;
+    // On iPhones the tick comes from the tapped control's own label (haptics-ios.ts), so the
+    // click only adds sound and spring; everywhere else `pointerdown` answers before the finger
+    // lifts, so the press feels immediate.
+    const onIos = getHapticCapabilities().iosSwitch;
     const onPointerDown = (event: PointerEvent) => {
-      if (onIosClick || event.button !== 0) return;
-      const pattern = patternFor(event.target);
-      if (pattern) triggerHaptic(pattern);
+      if (onIos || event.button !== 0) return;
+      const press = pressFor(event.target);
+      if (press) triggerHaptic(press.pattern);
     };
     const onClick = (event: MouseEvent) => {
       // detail 0: a click made with the keyboard, which has nothing to feel.
-      if (!onIosClick || !event.isTrusted || event.detail === 0) return;
-      const pattern = patternFor(event.target);
-      if (pattern) triggerHaptic(pattern);
+      if (!onIos || !event.isTrusted || event.detail === 0) return;
+      const press = pressFor(event.target);
+      if (press) triggerHaptic(press.pattern, { device: !isIosOverlay(event.target) });
     };
     const options = { capture: true, passive: true } as const;
     document.addEventListener('pointerdown', onPointerDown, options);
@@ -119,6 +127,14 @@ export function HapticsProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('click', onClick, options);
     };
   }, []);
+
+  // iPhones: lay a label over each control so a real tap ticks (iOS 26.5+). Only while feedback
+  // is on, since an armed control ticks whatever the app's own setting says.
+  const hapticsOn = prefs.hapticsEnabled;
+  useEffect(() => {
+    if (!hapticsOn || !getHapticCapabilities().iosSwitch) return;
+    return installIosTapBridge((target) => pressFor(target)?.control ?? null);
+  }, [hapticsOn]);
 
   // Compared with the page last shown rather than "skip the first run", which Strict Mode's
   // second effect pass would defeat.

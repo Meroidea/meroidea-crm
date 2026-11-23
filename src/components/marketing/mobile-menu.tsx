@@ -16,6 +16,7 @@ import { Dialog } from 'radix-ui';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { triggerHaptic } from '@/lib/haptics';
 
 type MenuLink = { href: string; label: string; hint: string; icon: LucideIcon; tint: string };
 
@@ -66,7 +67,14 @@ export function MobileMenu() {
   const close = () => setOpen(false);
 
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        // A feather-light pulse as the panel swings in (ADR-073).
+        if (next) triggerHaptic('soft');
+        setOpen(next);
+      }}
+    >
       <Dialog.Trigger asChild>
         <Button variant="ghost" size="icon-lg" className="-mr-2 sm:hidden" aria-label="Open menu">
           <Menu className="size-5" />

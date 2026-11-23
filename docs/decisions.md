@@ -1985,3 +1985,56 @@ No dependency was added.
   `triggerHaptic` with an existing pattern; a new pattern belongs in `HAPTIC_PATTERNS`, within
   5–35 ms per pulse.
 - Not built: swipe navigation (the app has no swipe gestures), a Tabs primitive (none in use).
+
+## ADR-074 — Tactile feedback on iPhone: a label under the finger, and links and forms kept intact
+
+**Amends** ADR-073 (its iPhone path), at the owner's request that feedback work on every device
+from the public landing page onwards.
+
+**Context.** ADR-073 played iPhone ticks by calling `label.click()` on a hidden switch. iOS 26.5
+made the switch tick only for a trusted click, so that path now does nothing on current iPhones.
+A real tap on a `<label>` tied to the switch still ticks, because the label forwards the person's
+own, trusted click. WebKit's source (`HTMLLabelElement`, `EventDispatcher`, `HTMLAnchorElement`,
+`HTMLButtonElement`) shows three side effects of putting a label under the finger: the label marks
+the click handled, so a parent `<a href>` no longer navigates; a page `preventDefault()` (every
+client-side router link) cancels the forwarding, so no tick; and the label's `DOMActivate` submits
+a parent form in WebKit but not in Blink.
+
+**Decision.** `src/lib/haptics-ios.ts`, used only when the device is an iPhone or iPad (user agent,
+or WebKit's `switch` property) and has no `navigator.vibrate`:
+
+1. *One shared switch, one label per control.* After hydration (never before: React would see an
+   unexpected child), and again at the start of each touch as a fallback, each pressable control
+   (ADR-073's list, plus links in a `nav`) gets a transparent `<label for>` covering it, tied to one
+   hidden switch outside every control. The switch is never under the finger (a touch on a switch
+   stops the page scrolling) and is `visibility: hidden` (no hit testing, focus or screen reader).
+   Controls holding other controls, native inputs, `<summary>` and disabled controls get no label.
+2. *Links.* A page `preventDefault()` on the label's click is recorded on the event instead of
+   reaching WebKit, so the tick still plays and the page still reads `defaultPrevented`. When the
+   page did not prevent it and the control is a link, the link is followed through a detached copy
+   of the anchor (keeping `target`, `download`, `rel`): one navigation, and no listener runs twice.
+3. *Forms.* For a submit or reset button the label's `DOMActivate` is always cancelled and the form
+   is submitted with `requestSubmit(button)` after the click: exactly one submit on every engine,
+   none when the page prevented the click.
+4. *The setting.* Labels exist only while feedback is on; turning it off removes them, since an
+   armed control ticks whatever the app's setting says.
+5. *Other moments* (a drop, a saved form, an arrival) still use the script tick, which works up to
+   iOS 26.4. On 26.5 and later only direct taps tick; those moments keep their spring and sound.
+
+The landing page also gains taps on its header, footer and menu links, a soft pulse as the phone
+menu opens, and success / warning on the contact form.
+
+**Why.** It is the only mechanism that still produces a tick on current iOS. The approach follows
+the MIT-licensed `ios-haptics` project (its overlay label and shared switch) but is written here,
+with the link and form handling checked against WebKit's source. No dependency was added.
+
+**Consequences.**
+- Verified in Chromium with an iPhone profile (Blink shares WebKit's label, activation and anchor
+  code): one click and one switch toggle per tap, Next links navigate in-app once, plain links
+  navigate once, forms submit once and not when prevented, swipes that start on a control scroll
+  with no click, focus does not move. The tick itself and Safari's exact behaviour still need a
+  check on a physical iPhone; this environment has no WebKit build.
+- Long-pressing a covered link opens no link preview, since the finger is on the label.
+- Still no device haptic where the hardware is unreachable from the web: desktops (no motor),
+  Firefox for Android (removed `navigator.vibrate` in version 129), iPads (no Taptic Engine), and
+  iPhones with System Haptics off. These get the spring and, if turned on, the click sound.

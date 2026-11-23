@@ -10,6 +10,7 @@ import { NativeSelect } from '@/components/forms/native-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { triggerHaptic } from '@/lib/haptics';
 import { submitEnquiryAction } from '@/modules/enquiries/actions';
 import {
   submitEnquirySchema,
@@ -43,19 +44,25 @@ export function ContactForm() {
     defaultValues: EMPTY,
   });
 
-  const onSubmit = handleSubmit(async (values) => {
-    setFormError(null);
-    const result = await submitEnquiryAction(values);
-    if (!result.ok) {
-      for (const [field, messages] of Object.entries(result.error.fieldErrors ?? {})) {
-        setError(field as keyof SubmitEnquiryInput, { message: messages[0] });
+  // Felt as well as seen (ADR-073): a warning for a missing field or a refusal, success when sent.
+  const onSubmit = handleSubmit(
+    async (values) => {
+      setFormError(null);
+      const result = await submitEnquiryAction(values);
+      if (!result.ok) {
+        for (const [field, messages] of Object.entries(result.error.fieldErrors ?? {})) {
+          setError(field as keyof SubmitEnquiryInput, { message: messages[0] });
+        }
+        setFormError(result.error.message);
+        triggerHaptic('warning');
+        return;
       }
-      setFormError(result.error.message);
-      return;
-    }
-    setSentTo(values.name.trim().split(/\s+/)[0] ?? '');
-    reset(EMPTY);
-  });
+      triggerHaptic('success');
+      setSentTo(values.name.trim().split(/\s+/)[0] ?? '');
+      reset(EMPTY);
+    },
+    () => triggerHaptic('warning'),
+  );
 
   if (sentTo !== null) {
     return (

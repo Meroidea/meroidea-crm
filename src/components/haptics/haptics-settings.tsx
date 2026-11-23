@@ -6,7 +6,14 @@ import { useHaptics } from '@/components/haptics/haptics-provider';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import type { HapticPattern } from '@/lib/haptics';
+import type { HapticPattern, TactileMotion } from '@/lib/haptics';
+
+const MOTION: Partial<Record<HapticPattern, TactileMotion>> = {
+  cardAppear: 'appear',
+  drop: 'drop',
+  success: 'success',
+  warning: 'warning',
+};
 
 const SAMPLES: { pattern: HapticPattern; label: string }[] = [
   { pattern: 'tap', label: 'Tap' },
@@ -18,7 +25,7 @@ const SAMPLES: { pattern: HapticPattern; label: string }[] = [
 
 /** "Tactile & haptic feedback" preferences, kept in this browser (ADR-073). */
 export function HapticsSettings() {
-  const { prefs, setPrefs, capabilities, trigger } = useHaptics();
+  const { prefs, setPrefs, capabilities, popElement } = useHaptics();
   const hapticsId = useId();
   const soundId = useId();
 
@@ -27,7 +34,7 @@ export function HapticsSettings() {
     : capabilities.vibrate
       ? 'This device vibrates.'
       : capabilities.iosSwitch
-        ? 'This iPhone gives a light tick for single taps; longer patterns may feel like one tick.'
+        ? 'On iPhone you feel a light tick as you tap a button or link (iOS 17.4 or later, with System Haptics on). Recent iOS versions allow only one tick per tap, so each sample feels like a single tick.'
         : 'This device has no vibration motor, so you will see a small spring instead, and hear a click if sound is on.';
 
   return (
@@ -74,10 +81,14 @@ export function HapticsSettings() {
             type="button"
             variant="outline"
             size="sm"
-            // The sample plays itself on click (with its spring), not the press's own tap.
-            data-haptic="off"
+            // The press itself plays the sample (so an iPhone's tap ticks too); the click adds
+            // its spring.
+            haptic={pattern}
             disabled={!prefs.hapticsEnabled}
-            onClick={(event) => trigger(pattern, { element: event.currentTarget })}
+            onClick={(event) => {
+              const motion = MOTION[pattern];
+              if (motion) popElement(event.currentTarget, motion);
+            }}
           >
             {label}
           </Button>
