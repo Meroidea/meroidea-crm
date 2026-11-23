@@ -55,7 +55,7 @@ needs them, not before.
 One separate service is approved: OnlyOffice Document Server, for editing documents (ADR-030).
 
 One AI provider is approved: Google Gemini, through the official `@google/genai` SDK only, called
-from `src/server/ai.ts` with `GEMINI_API_KEY` on the server (owner's request, ADR-073). Every AI
+from `src/server/ai.ts` with `GEMINI_API_KEY` on the server (owner's request, ADR-074). Every AI
 tool only prepares a preview; writes happen when a person approves, through module services.
 
 One third-party browser script is approved: Meta's JavaScript SDK (`connect.facebook.net`), for

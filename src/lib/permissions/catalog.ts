@@ -95,7 +95,7 @@ export const PERMISSIONS = {
   /** Write, publish and organise the knowledge base, and run its public portal (ADR-071). */
   'kb.manage': { scoped: false },
   /**
-   * Use the AI assistant (ADR-073). Each of its tools also needs the permission of what it reads
+   * Use the AI assistant (ADR-074). Each of its tools also needs the permission of what it reads
    * or drafts (invoices.manage, rosters.manage, contacts.view, …), at the person's own scope.
    */
   'ai.use': { scoped: false },

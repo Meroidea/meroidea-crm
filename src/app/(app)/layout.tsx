@@ -61,7 +61,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               {hasPermission(ctx, 'ai.use') && isAiConfigured() && (
                 <AssistantDrawer
                   // A new business means a new drawer: a conversation never follows a person
-                  // from one business into another (ADR-073).
+                  // from one business into another (ADR-074).
                   key={ctx.tenantId}
                   contactLabel={ctx.tenant.labels.contact.singular}
                   abilities={{

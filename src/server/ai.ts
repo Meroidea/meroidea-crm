@@ -13,7 +13,7 @@ import { errorStatus, withBackoff } from '@/modules/ai/retry';
 import { serverEnv } from '@/server/env';
 
 /**
- * The one way the app talks to a language model (ADR-073): Google Gemini through the official
+ * The one way the app talks to a language model (ADR-074): Google Gemini through the official
  * SDK, with the key read here on the server only. Two tiers:
  *
  * - `reasoning` for tool calling, rosters, documents and next steps;

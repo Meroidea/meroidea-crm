@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/sidebar';
 import type { Labels } from '@/lib/tenant/labels';
 
-import { NAVIGATION, navItemTitle, type NavItem } from './navigation';
+import { NAVIGATION, navFeatureOn, navItemTitle, type NavItem } from './navigation';
 
 type AppSidebarProps = {
   labels: Labels;
@@ -42,9 +42,7 @@ export function AppSidebar({ labels, workspaceName, permissions, features }: App
   const groups = NAVIGATION.map((group) => ({
     ...group,
     items: group.items.filter(
-      (item) =>
-        (!item.permission || granted.has(item.permission)) &&
-        (!item.feature || features.includes(item.feature)),
+      (item) => (!item.permission || granted.has(item.permission)) && navFeatureOn(item, features),
     ),
   })).filter((group) => group.items.length > 0);
   // The most specific item holding the page: /social/templates is the templates page, not the

@@ -16,7 +16,7 @@ export type AuditAction =
   | 'view_sensitive'
   | 'permission_change'
   | 'login'
-  /** A request to the AI assistant: which tool and model, never what was asked (ADR-073). */
+  /** A request to the AI assistant: which tool and model, never what was asked (ADR-074). */
   | 'ai_assist'
   /** A person approved something the AI assistant drafted, and it was saved. */
   | 'ai_approve';

@@ -119,9 +119,10 @@ created by the migration; its size is the platform's cost.
 
 ## 5. Switch it on for a business
 
-In `/platform`, open the business and tick **Social inbox**. Its Admin then sees
-**Marketing → Social inbox → Connected accounts** and connects their accounts, and **Marketing →
-WhatsApp templates** once a WhatsApp number is connected. Managers can read and reply; give other
+In `/platform`, open the business and tick **Social inbox**. Its Admin then opens **Marketing →
+Social inbox → Settings → Connected accounts** and connects their accounts; **WhatsApp templates**
+joins that Settings menu once a WhatsApp number is connected (ADR-073). Email is a separate area,
+**Marketing → Email**, under its own feature. Managers can read and reply; give other
 roles `social.view` / `social.reply` in Settings → Roles.
 
 What the business needs:

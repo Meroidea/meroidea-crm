@@ -1,7 +1,7 @@
 import { autoBreaks, shiftLength, unpaidMinutes, type BreakRule } from '@/modules/roster/rules';
 
 /**
- * Fills a roster preview from shift requirements (ADR-073). Deterministic on purpose: the model
+ * Fills a roster preview from shift requirements (ADR-074). Deterministic on purpose: the model
  * turns "two on the floor every weekday, 7 to 3" into requirements, and this code decides who
  * works when. A language model asked to assign people double-books them and forgets leave; this
  * never does, and gives the same answer for the same inputs. Pure, so it is tested directly.

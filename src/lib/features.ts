@@ -119,7 +119,7 @@ export const FEATURES = [
     key: 'ai_assistant',
     label: 'AI assistant',
     description:
-      'Drafts invoices, rosters and replies, summarises documents and suggests next steps, for a person to review and approve. Uses Google Gemini (ADR-073).',
+      'Drafts invoices, rosters and replies, summarises documents and suggests next steps, for a person to review and approve. Uses Google Gemini (ADR-074).',
   },
   {
     key: 'books',

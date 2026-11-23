@@ -10,7 +10,7 @@ const secretLinkPages = '/:area(offer|agreement|r|support|jobs|f)/:path*';
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
-      // The AI assistant takes a document of up to 4 MB for review (ADR-073); the default is 1 MB.
+      // The AI assistant takes a document of up to 4 MB for review (ADR-074); the default is 1 MB.
       // Vercel caps a request at 4.5 MB whatever this says.
       bodySizeLimit: '5mb',
     },

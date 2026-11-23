@@ -51,7 +51,7 @@ function pageContext(pathname: string): { contactId?: string; opportunityId?: st
 }
 
 /**
- * The AI assistant as a slide-over from the header (ADR-073). It asks, shows a preview card, and
+ * The AI assistant as a slide-over from the header (ADR-074). It asks, shows a preview card, and
  * the person approves or discards. Conversations live only in this panel: nothing is stored, and
  * closing the browser tab forgets them.
  */

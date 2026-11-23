@@ -31,13 +31,13 @@ import {
   Landmark,
   LayoutDashboard,
   ListChecks,
+  Mail,
   Megaphone,
-  MessageSquareText,
   MessagesSquare,
   Settings,
   Receipt,
-  Reply,
   ScrollText,
+  Send,
   ReceiptText,
   Target,
   Truck,
@@ -59,8 +59,12 @@ export type NavItem = {
   label: { labelKey: LabelKey } | { title: string };
   /** Hidden unless the signed-in person holds this permission. */
   permission?: PermissionKey;
-  /** Hidden unless this feature is switched on for the business; for items with no permission. */
-  feature?: FeatureKey;
+  /**
+   * Hidden unless this feature is switched on for the business, or, given several, any of them.
+   * A permission alone is not enough where it spans features (the inbox's `social.view` covers
+   * social media, email and live chat).
+   */
+  feature?: FeatureKey | FeatureKey[];
   /** False until the milestone that builds the page ships; rendered disabled, never as a dead link. */
   available: boolean;
 };
@@ -138,31 +142,33 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
-    // Customers' messages on every social platform in one place (ADR-064–066); campaigns and
-    // broadcasts join here as they are built.
+    // Three areas (ADR-073): customers' messages on social media and website chat, customer email,
+    // and campaigns, which are planned next.
     title: 'Marketing',
     icon: Megaphone,
     items: [
       {
         href: '/social',
         icon: MessagesSquare,
-        label: { title: 'Inbox' },
+        label: { title: 'Social inbox' },
         permission: 'social.view',
+        feature: ['social', 'live_chat'],
         available: true,
       },
       {
-        href: '/social/templates',
-        icon: MessageSquareText,
-        label: { title: 'WhatsApp templates' },
-        permission: 'social.manage',
+        href: '/email',
+        icon: Mail,
+        label: { title: 'Email' },
+        permission: 'social.view',
+        feature: 'email_channel',
         available: true,
       },
       {
-        href: '/social/replies',
-        icon: Reply,
-        label: { title: 'Saved replies' },
-        permission: 'social.reply',
-        available: true,
+        href: '/campaigns',
+        icon: Send,
+        label: { title: 'Marketing campaigns' },
+        permission: 'social.view',
+        available: false,
       },
     ],
   },
@@ -402,4 +408,11 @@ export const NAVIGATION: NavGroup[] = [
 
 export function navItemTitle(item: NavItem, labels: Labels): string {
   return 'labelKey' in item.label ? labels[item.label.labelKey].plural : item.label.title;
+}
+
+/** Whether a navigation item's feature (or any of its features) is switched on. */
+export function navFeatureOn(item: NavItem, features: readonly string[]): boolean {
+  if (!item.feature) return true;
+  const wanted = Array.isArray(item.feature) ? item.feature : [item.feature];
+  return wanted.some((feature) => features.includes(feature));
 }

@@ -1,4 +1,4 @@
--- AI assistant (ADR-073). No tables: the assistant keeps no conversations and stores nothing
+-- AI assistant (ADR-074). No tables: the assistant keeps no conversations and stores nothing
 -- the model says. Its only footprint is the feature switch and the `ai.use` permission, so the
 -- permission counts as not granted while the platform owner has the feature switched off.
 

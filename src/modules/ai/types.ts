@@ -1,5 +1,5 @@
 /**
- * What the assistant returns (ADR-073). Every artifact is a preview: nothing in it has been saved
+ * What the assistant returns (ADR-074). Every artifact is a preview: nothing in it has been saved
  * or sent. The person approves it in the drawer, and only then does an ordinary module service
  * save it, re-validating everything as if they had typed it themselves.
  */

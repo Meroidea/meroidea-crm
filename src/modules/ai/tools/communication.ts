@@ -102,7 +102,7 @@ export const draftCommunicationTool: ToolDefinition<Args> = {
     const contact = match.contact;
 
     // Only what a draft needs: the history's words, never contact details such as the date of
-    // birth, email address or phone number (data minimisation, ADR-073).
+    // birth, email address or phone number (data minimisation, ADR-074).
     const [timeline, sender, owed] = await Promise.all([
       getTimeline(ctx, { contactId: contact.id }, 12),
       getMyName(ctx),

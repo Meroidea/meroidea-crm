@@ -26,6 +26,7 @@ import {
   PLATFORM_LABELS,
 } from '@/modules/social/format';
 import { whatsappSignupSettings } from '@/modules/social/providers/whatsapp';
+import { mailboxOf, type Mailbox } from '@/modules/social/providers/types';
 import { listAccounts } from '@/modules/social/queries';
 import { requirePermission, requireTenantContext } from '@/server/context';
 import { serverEnv } from '@/server/env';
@@ -47,15 +48,20 @@ export default async function ConnectedAccountsPage({
   const ctx = await requireTenantContext();
   requirePermission(ctx, 'social.manage');
   const params = await searchParams;
-  const { accounts, available } = await listAccounts(ctx);
+  // Each area keeps its own settings (ADR-073): Email's inbox address, or the Social inbox's
+  // social media accounts and website chat.
+  const area: Mailbox = params.area === 'email' ? 'email' : 'social';
+  const listed = await listAccounts(ctx);
+  const available = listed.available;
+  const accounts = listed.accounts.filter((account) => mailboxOf(account.platform) === area);
   // New leads for unknown senders need the CRM (ADR-068).
   const crm = ctx.tenant.features.includes('crm');
   // Tickets for new conversations need the helpdesk (ADR-069).
   const helpdesk = ctx.tenant.features.includes('helpdesk');
   // Each channel is its own feature (ADR-070): social media, and the email inbox.
-  const socialOn = ctx.tenant.features.includes('social');
-  const emailOn = ctx.tenant.features.includes('email_channel');
-  const chatOn = ctx.tenant.features.includes('live_chat');
+  const socialOn = area === 'social' && ctx.tenant.features.includes('social');
+  const emailOn = area === 'email' && ctx.tenant.features.includes('email_channel');
+  const chatOn = area === 'social' && ctx.tenant.features.includes('live_chat');
   const appUrl = serverEnv().APP_URL.replace(/\/+$/, '');
   const domain = inboxDomain();
   const sources = crm
@@ -73,14 +79,18 @@ export default async function ConnectedAccountsPage({
   return (
     <div className="flex w-full max-w-4xl flex-col gap-5">
       <Link
-        href="/social"
+        href={area === 'email' ? '/email' : '/social'}
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft aria-hidden className="size-4" /> Inbox
+        <ArrowLeft aria-hidden className="size-4" /> {area === 'email' ? 'Email' : 'Social inbox'}
       </Link>
       <PageHeader
-        title="Connected accounts"
-        description="The email addresses and business accounts whose messages arrive in your inbox."
+        title={area === 'email' ? 'Email inbox address' : 'Connected accounts'}
+        description={
+          area === 'email'
+            ? 'The address whose emails arrive in Email, threaded, with replies sent from it.'
+            : 'The social media accounts and website chats whose messages arrive in the Social inbox.'
+        }
       />
 
       {error && ERRORS[error] && (

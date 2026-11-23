@@ -76,7 +76,7 @@ const serverEnvSchema = z.object({
   /** The "TikTok account holder authorization URL" shown on the developer app's page. */
   TIKTOK_AUTH_URL: z.url({ protocol: /^https$/ }).optional(),
   /**
-   * AI assistant (ADR-073): a Google Gemini API key from Google AI Studio. Without it the
+   * AI assistant (ADR-074): a Google Gemini API key from Google AI Studio. Without it the
    * assistant says it is not set up. One key serves every business, so its quota is shared.
    */
   GEMINI_API_KEY: z.string().min(1).optional(),

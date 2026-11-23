@@ -16,7 +16,7 @@ import type { ApproveNoteInput, ApproveRosterInput } from './schemas';
 import type { RosterApprovalResult } from './types';
 
 /**
- * Saving what a person approved in the assistant (ADR-073). The assistant itself never writes;
+ * Saving what a person approved in the assistant (ADR-074). The assistant itself never writes;
  * these run only from the person's own click, through each module's ordinary service, which
  * checks permission, scope and every business rule again as if the person had typed the values.
  * Each service audits its own change; an `ai_approve` row then records that it began as a draft.

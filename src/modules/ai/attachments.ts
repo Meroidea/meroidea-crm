@@ -1,5 +1,5 @@
 /**
- * Files people attach for review (ADR-073). They go to the model and nowhere else: never stored,
+ * Files people attach for review (ADR-074). They go to the model and nowhere else: never stored,
  * never logged. The type is decided from the file's leading bytes, not from what the browser
  * claims, so a renamed file cannot pass as something it is not (rules/security.md §Files).
  */

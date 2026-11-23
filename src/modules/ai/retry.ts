@@ -1,5 +1,5 @@
 /**
- * Retrying calls to the model (ADR-073). Pure, so the backoff can be tested without the network.
+ * Retrying calls to the model (ADR-074). Pure, so the backoff can be tested without the network.
  *
  * Gemini answers 429 when a rate limit or quota is used up, and 503 when the model is overloaded.
  * Both are worth a short wait. A 429 often says how long to wait (`retryDelay`); when that is

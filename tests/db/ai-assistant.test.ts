@@ -23,7 +23,7 @@ import { hashSubject } from '@/server/rate-limit';
 
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
 
-// The AI assistant (ADR-073) against the real database, row-level security and services. Only
+// The AI assistant (ADR-074) against the real database, row-level security and services. Only
 // the language model is replaced: these tests are about what the assistant may read and write,
 // which must hold whatever a model (or a prompt injected into one) asks for.
 

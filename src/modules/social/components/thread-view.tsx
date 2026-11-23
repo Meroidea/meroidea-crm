@@ -34,7 +34,10 @@ import {
 import { ArticlePicker } from '@/modules/kb/components/article-picker';
 
 import { findCanned } from '../canned';
+import { receiptLabel, storyLabel } from '../channel-conventions';
 import type { StoredAttachment } from '../media';
+import type { SocialPlatform } from '../providers/types';
+import { CHANNEL_TINT } from './platform-badge';
 import { PresenceNote, useConversationPresence, type PresenceSetup } from './conversation-presence';
 
 /** A message as the thread shows it; times arrive already in the business's timezone. */
@@ -54,11 +57,11 @@ export type ThreadItem = {
   automated?: boolean;
 };
 
-const STATUS_LABELS: Record<string, { label: string; icon: typeof Check }> = {
-  sending: { label: 'Sending…', icon: Clock },
-  sent: { label: 'Sent', icon: Check },
-  delivered: { label: 'Delivered', icon: CheckCheck },
-  read: { label: 'Read', icon: CheckCheck },
+const STATUS_ICONS: Record<string, typeof Check> = {
+  sending: Clock,
+  sent: Check,
+  delivered: CheckCheck,
+  read: CheckCheck,
 };
 
 function Attachment({
@@ -72,6 +75,24 @@ function Attachment({
   attachment: StoredAttachment;
   platformLabel: string;
 }) {
+  const story = storyLabel(attachment.type);
+  if (story) {
+    return (
+      <span className="flex flex-col gap-1">
+        <span className="text-xs font-medium opacity-80">{story}</span>
+        {attachment.state === 'stored' || attachment.state === 'pending' ? (
+          <Attachment
+            messageId={messageId}
+            index={index}
+            attachment={{ ...attachment, type: 'story' }}
+            platformLabel={platformLabel}
+          />
+        ) : (
+          <span className="text-xs opacity-80">The story is no longer available.</span>
+        )}
+      </span>
+    );
+  }
   const src = `/api/social/media/${messageId}/${index}`;
   if (attachment.state === 'stored') {
     const mime = attachment.mimeType ?? '';
@@ -138,6 +159,7 @@ function Attachment({
 export function ThreadView({
   conversationId,
   messages,
+  platform,
   platformLabel,
   canReply,
   blockedReason,
@@ -152,6 +174,8 @@ export function ThreadView({
 }: {
   conversationId: string;
   messages: ThreadItem[];
+  /** The channel, for its colours and its words for receipts (ADR-073). */
+  platform: SocialPlatform;
   platformLabel: string;
   canReply: boolean;
   blockedReason: string | null;
@@ -409,7 +433,8 @@ export function ThreadView({
             );
           }
           const outbound = message.direction === 'outbound';
-          const status = STATUS_LABELS[message.status];
+          const statusLabel = receiptLabel(platform, message.status);
+          const StatusIcon = STATUS_ICONS[message.status];
           return (
             <li
               key={message.id}
@@ -418,7 +443,7 @@ export function ThreadView({
               <div
                 className={cn(
                   'flex max-w-[85%] flex-col gap-2 rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap',
-                  outbound ? 'bg-primary text-primary-foreground' : 'border bg-card',
+                  outbound ? cn(CHANNEL_TINT[platform], 'text-foreground') : 'border bg-card',
                   message.status === 'sending' && 'opacity-70',
                   message.status === 'failed' &&
                     'border border-destructive bg-destructive/10 text-foreground',
@@ -457,14 +482,14 @@ export function ThreadView({
                   </span>
                 )}
                 {message.automated && <span>· automatic message</span>}
-                {status && (
+                {statusLabel && StatusIcon && (
                   <span className="flex items-center gap-0.5">
                     ·{' '}
-                    <status.icon
+                    <StatusIcon
                       aria-hidden
                       className={cn('size-3', message.status === 'read' && 'text-primary')}
                     />
-                    {status.label}
+                    {statusLabel}
                   </span>
                 )}
                 {message.status === 'failed' && (

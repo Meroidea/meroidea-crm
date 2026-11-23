@@ -8,7 +8,7 @@ import { approveNoteSchema, approveRosterSchema, assistantRequestSchema } from '
 import * as approvals from './service';
 
 /**
- * The assistant's endpoint (ADR-073). A Server Action rather than a route handler
+ * The assistant's endpoint (ADR-074). A Server Action rather than a route handler
  * (rules/architecture.md): it is still a POST endpoint, and authedAction gives it the same
  * authentication, workspace, permission and input checks as every other mutation. Returns
  * `{ reply, actionTaken, artifact }`; the artifact is a preview that nothing has saved.
