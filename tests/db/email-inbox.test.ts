@@ -542,8 +542,14 @@ describe('the email feature switch', () => {
     try {
       const ctx = await contextFor(owner.userId, tenantId);
       expect(ctx.grants.has('social.view')).toBe(true);
-      const platforms = new Set((await listConversations(ctx, {})).rows.map((row) => row.platform));
+      // Email is its own area (ADR-073): every folder holds email only, the Social inbox nothing.
+      const platforms = new Set<string>();
+      for (const folder of ['customers', 'review', 'filtered'] as const) {
+        const { rows } = await listConversations(ctx, { view: 'all', folder }, 'email');
+        for (const row of rows) platforms.add(row.platform);
+      }
       expect(platforms).toEqual(new Set(['email']));
+      expect((await listConversations(ctx, { view: 'all' }, 'social')).rows).toEqual([]);
       const seen = (await withRls(ctx, (tx) =>
         tx.execute(sql`select count(*)::int as n from social_accounts where platform = 'whatsapp'`),
       )) as unknown as { n: number }[];

@@ -14,7 +14,7 @@ test('an admin opens the social inbox and sees what can be connected', async ({
 
   // The inbox is a feature the platform owner switches on per business (ADR-029, ADR-064).
   await page.goto('/social');
-  await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: 'Social inbox' })).toHaveCount(0);
 
   const consoleContext = await browser.newContext({ storageState: PLATFORM_OWNER_STATE });
   const consolePage = await consoleContext.newPage();
@@ -33,7 +33,17 @@ test('an admin opens the social inbox and sees what can be connected', async ({
 
   await page.goto('/social');
   await page.waitForLoadState('networkidle');
-  await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Social inbox' })).toBeVisible();
+  // Marketing has three areas (ADR-073); campaigns are shown as coming soon. The sidebar is
+  // closed behind its menu button on a phone.
+  if (testInfo.project.name !== 'mobile-375') {
+    await expect(page.getByRole('link', { name: 'Social inbox', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Marketing campaigns' })).toBeDisabled();
+  }
+  // The inbox's own settings sit in a menu on its header.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Connected accounts' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(page.getByText('No accounts connected yet')).toBeVisible();
   // Search, and the views for one's own and snoozed conversations (ADR-067).
   await expect(page.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();

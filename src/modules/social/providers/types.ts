@@ -8,6 +8,16 @@ export const SOCIAL_PLATFORMS = [
 ] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
+/** The channels of the Social inbox (ADR-073): every one but email, which has its own area. */
+export const SOCIAL_INBOX_PLATFORMS = SOCIAL_PLATFORMS.filter(
+  (platform): platform is Exclude<SocialPlatform, 'email'> => platform !== 'email',
+);
+
+/** Which area a conversation belongs to: the Social inbox or Email (ADR-073). */
+export type Mailbox = 'social' | 'email';
+export const mailboxOf = (platform: SocialPlatform): Mailbox =>
+  platform === 'email' ? 'email' : 'social';
+
 /**
  * An attachment as a provider reports it: a link (Meta) or a media id to fetch (TikTok,
  * WhatsApp). `placeholder` marks a WhatsApp history message whose media follows separately.

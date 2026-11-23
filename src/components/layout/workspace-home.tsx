@@ -2,7 +2,7 @@ import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
-import { NAVIGATION, navItemTitle } from '@/components/layout/navigation';
+import { NAVIGATION, navFeatureOn, navItemTitle } from '@/components/layout/navigation';
 import type { Labels } from '@/lib/tenant/labels';
 
 /**
@@ -34,7 +34,7 @@ export function WorkspaceHome({
           item.available &&
           item.href !== '/dashboard' &&
           (!item.permission || granted.has(item.permission)) &&
-          (!item.feature || features.includes(item.feature)),
+          navFeatureOn(item, features),
       )
       .map((item) => ({ item, group: group.title })),
   );

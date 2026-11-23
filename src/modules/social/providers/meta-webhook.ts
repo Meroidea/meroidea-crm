@@ -38,6 +38,8 @@ type Messaging = {
     is_echo?: unknown;
     is_deleted?: unknown;
     attachments?: unknown;
+    /** Instagram: the customer answered one of the business's stories. */
+    reply_to?: { story?: { id?: unknown; url?: unknown } };
   };
 };
 
@@ -54,6 +56,19 @@ function attachmentsOf(value: unknown): ProviderAttachment[] {
       ? { type, url }
       : { type };
   });
+}
+
+/**
+ * The story an Instagram message answers (`reply_to.story.url`), as an attachment saved when the
+ * message arrives (ADR-073): Meta documents it as a CDN link and does not say how long it lasts, so
+ * it is not left to fetch later. A mention of the business in a story arrives as a
+ * `story_mention` attachment already.
+ */
+function storyReplyOf(message: Messaging['message']): ProviderAttachment[] {
+  const url = message?.reply_to?.story?.url;
+  return typeof url === 'string' && /^https:\/\//.test(url) && url.length < 2048
+    ? [{ type: 'story_reply', url }]
+    : [];
 }
 
 /**
@@ -90,7 +105,10 @@ export function parseMetaWebhook(body: unknown): MetaMessageEvent[] {
           externalId: mid,
           direction: echo ? 'outbound' : 'inbound',
           body: typeof message.text === 'string' ? message.text.slice(0, 20_000) : null,
-          attachments: attachmentsOf(message.attachments),
+          attachments: [...storyReplyOf(message), ...attachmentsOf(message.attachments)].slice(
+            0,
+            10,
+          ),
           sentAt: new Date(timestamp),
         },
       });

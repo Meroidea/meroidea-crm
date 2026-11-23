@@ -1931,3 +1931,70 @@ a business wants chats from its customers joined to their records.
 - Not built: attachments from visitors, typing indicators, offline email of replies to visitors,
   per-agent names in the widget (replies show the widget's name), office hours.
 
+## ADR-073 — Marketing in three areas: Social inbox, Email and campaigns; one inbox layout with each channel's own feel
+
+**Context.** The owner asked, on 23 November 2026, for three sub-modules under Marketing: a Social
+inbox with every social channel in one sorted list and a filter per channel, styled like each
+channel; Email showing only email with customers; and Marketing campaigns. The owner chose these
+decisions:
+- one inbox layout with a native feel per channel, rather than copying each channel's interface;
+- Email split into Customers, To review and Filtered, rather than hiding non-contacts outright;
+- email through the Meroidea inbox address only, with no Gmail or Outlook sync;
+- campaigns shown in the menu as coming soon, and planned next.
+
+**Decision.**
+1. *Menu.*
+   - Marketing has exactly **Social inbox** (`/social`), **Email** (`/email`) and **Marketing
+     campaigns** (shown disabled until built).
+   - A navigation item's `feature` may now list several features, any of which shows it. The Social
+     inbox needs `social` or `live_chat`; Email needs `email_channel`. Each area's pages return
+     "not found" while its feature is off.
+   - WhatsApp templates, Saved replies and Connected accounts leave the menu for a **Settings**
+     menu on each area's header. Their addresses are unchanged. Connected accounts shows one area
+     at a time (`?area=email` for the inbox address).
+2. *Two areas over one set of tables.*
+   - Conversations stay in `social_*` (ADR-067). `listConversations` takes the area: the Social inbox
+     never lists email, and Email lists only email.
+   - `/social/{id}` and `/email/{id}` share one conversation screen. A conversation opened under the
+     other area's address is redirected to its own, so old links, tickets and notifications keep
+     working.
+   - Server actions refresh both areas.
+3. *Social inbox filter.* A chip per connected channel, with "All channels" and an unread count
+   per channel. The filter is kept in the address.
+4. *A native feel, not a copy.*
+   - Copying Messenger's, Instagram's or WhatsApp's interfaces would go against Meta's brand terms
+     and risk the app review that messaging needs. It would also split the team's tools (notes,
+     assignment, presence, SLA) across several layouts.
+   - Instead every channel keeps one layout, with:
+     - the channel's own mark (paths from Simple Icons 13.21.0, CC0; used only to show the source,
+       as the brand terms allow);
+     - its colour on the conversation's top edge, and as a light tint behind the business's replies
+       (theme tokens `--channel-*`, never text on a brand fill, for contrast);
+     - its words and limits: "Seen" on Messenger and Instagram, "Read" with ticks on WhatsApp, a
+       "replies left of 10" counter on TikTok, and "Visitor on your website" on live chat.
+5. *Instagram stories.*
+   - A reply to the business's story (`message.reply_to.story.url`, confirmed against Meta's
+     Instagram messaging webhook docs) is kept as a `story_reply` attachment. A mention arrives as a
+     `story_mention` attachment.
+   - Both are saved through `media.ts` when the message arrives. Meta does not document how long the
+     link lasts, so it is never left to fetch later.
+   - The thread shows "Replied to your story" or "Mentioned you in their story" with the picture,
+     or that the story is no longer available.
+6. *Email folders.*
+   - **Customers:** threads linked to a contact.
+   - **To review:** threads from people who are not contacts yet.
+   - **Filtered:** threads where every inbound message is an auto-reply, bounce or list mail
+     (`email_meta.automated`, ADR-070), plus unlinked senders marked "Not a customer".
+   - Every thread is in exactly one folder, so nothing received is lost from view.
+   - "Not a customer" (`social.reply`) stores the address in `email_sender_rules`. It applies to that
+     sender's later emails too, which are still received and kept. "Move back" deletes the rule.
+     A sender linked to a contact cannot be marked.
+   - The audit row names the thread, never the address.
+
+**Consequences.**
+- Saved replies stay shared by both areas; one list serves both.
+- The email folders are computed per query (an `exists` per thread). This is fine at the target
+  scale. A stored folder column would be the next step if lists grow large.
+- Not built here: Marketing campaigns (email and WhatsApp, under the Spam Act 2003: consent,
+  sender identification, unsubscribe within five working days), and Gmail or Outlook sync.
+
