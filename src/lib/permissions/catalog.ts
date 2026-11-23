@@ -94,6 +94,11 @@ export const PERMISSIONS = {
   'tickets.manage': { scoped: false },
   /** Write, publish and organise the knowledge base, and run its public portal (ADR-071). */
   'kb.manage': { scoped: false },
+  /**
+   * Use the AI assistant (ADR-073). Each of its tools also needs the permission of what it reads
+   * or drafts (invoices.manage, rosters.manage, contacts.view, …), at the person's own scope.
+   */
+  'ai.use': { scoped: false },
   'projects.view': { scoped: false },
   'projects.manage': { scoped: false },
   'productivity.view': { scoped: false },
@@ -192,6 +197,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'tickets.work': true,
       'tickets.manage': true,
       'kb.manage': true,
+      'ai.use': true,
       'projects.view': true,
       'projects.manage': true,
       'productivity.view': true,

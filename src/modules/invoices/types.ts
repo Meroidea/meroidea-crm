@@ -65,3 +65,11 @@ export type CreditNoteRow = {
 export const invoiceNumber = (number: number) => `INV-${String(number).padStart(4, '0')}`;
 
 export const creditNoteNumber = (number: number) => `CN-${String(number).padStart(4, '0')}`;
+
+/** Goods and services tax where the workspace is Australian; otherwise the admin sets it. */
+export function defaultTaxRate(country: string | null): string {
+  return country === 'AU' ? '10' : '0';
+}
+
+/** Days from the invoice date to the due date unless someone chooses otherwise. */
+export const DEFAULT_PAYMENT_DAYS = 14;

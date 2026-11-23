@@ -16,6 +16,8 @@ export const AUDIT_ACTIONS = [
   'download',
   'view_sensitive',
   'login',
+  'ai_assist',
+  'ai_approve',
 ] as const;
 
 export type AuditActionKey = (typeof AUDIT_ACTIONS)[number];

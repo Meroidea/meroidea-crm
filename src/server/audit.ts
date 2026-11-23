@@ -15,7 +15,11 @@ export type AuditAction =
   | 'download'
   | 'view_sensitive'
   | 'permission_change'
-  | 'login';
+  | 'login'
+  /** A request to the AI assistant: which tool and model, never what was asked (ADR-073). */
+  | 'ai_assist'
+  /** A person approved something the AI assistant drafted, and it was saved. */
+  | 'ai_approve';
 
 export type AuditEntry = {
   action: AuditAction;

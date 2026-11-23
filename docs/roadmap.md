@@ -82,6 +82,7 @@ Same login, same people records, same audit trail — added module by module.
 - Custom domains and full white-label for resellers
 - Workflow automation (when X then Y), templates marketplace
 - AI: lead scoring, timeline summaries, duplicate and data-quality suggestions
+  *Started: an AI assistant drafts invoices, rosters and messages, reviews documents and suggests next steps, every one approved by a person (ADR-073).*
 - Platform admin console (our staff), per-workspace usage and health
 
 ## Non-goals until a measured need

@@ -77,6 +77,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'tickets.work': 'Work helpdesk tickets',
   'tickets.manage': 'Manage the helpdesk',
   'kb.manage': 'Write and publish knowledge base articles and run the help portal',
+  'ai.use': 'Use the AI assistant to draft work for review',
   'projects.view': 'See projects',
   'projects.manage': 'Manage projects',
   'productivity.view': 'See productivity',

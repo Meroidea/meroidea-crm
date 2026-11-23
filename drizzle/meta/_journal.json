@@ -575,6 +575,13 @@
       "when": 1795330377368,
       "tag": "0081_live_chat",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1795397249104,
+      "tag": "0082_ai_assistant",
+      "breakpoints": true
     }
   ]
 }
