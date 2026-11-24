@@ -876,7 +876,7 @@ tenant_id              uuid primary key
 saturday_loading       numeric(4,2) not null default 1   -- multiplier of the contract hourly rate
 sunday_loading         numeric(4,2) not null default 1
 public_holiday_loading numeric(4,2) not null default 1   -- check: each between 1 and 5
-break_rules            jsonb not null default '[]'        -- [{ fromMinutes, minutes, paid }]
+break_rules            jsonb not null default '[]'        -- [{ fromMinutes, minutes, paid }]; a rule applies to shifts longer than fromMinutes (ADR-082)
 created_at, updated_at, created_by, updated_by
 
 -- public_holidays: each tenant's own list, removed outright

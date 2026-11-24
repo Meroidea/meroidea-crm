@@ -632,7 +632,8 @@ compare ADR-027). Differences from that tool's file, by design: the file is `.xl
 binary `.xls`; pay columns are named for the award's own rates ("Ordinary hours", "Saturday",
 "Overtime, …") rather than that tool's pay categories; the location column is the business's
 name, since locations are not modelled; Employee ID is present but empty, since payroll numbers
-are not kept; the break on the Details sheet is a length, since break times are not recorded;
+are not kept; the break on the Details sheet is a time of day placed on the hour before the middle of
+the shift (ADR-082), since break times are not recorded;
 By Shift Award Tag lists people only. Gross wage, age and pay columns are left out for anyone
 who does not manage employee records.
 
@@ -2355,3 +2356,49 @@ were answered with "I cannot": only the roster agent's chat (ADR-079) had those 
 
 **Consequences.**
 - A roster authorised for pay is refused at the proposal and again by the service.
+
+## ADR-082 — Authorise timesheets with MeroAI; break rules apply to shifts longer than their length
+
+**Status.** Accepted (2026-11-25).
+
+**Context.** Once a roster is published, staff work to it and clock in and out, but often forget
+to. Before payroll, a manager goes through every shift: the times actually worked, the breaks,
+more or less than rostered. The owner asked for MeroAI to do this with one click, by rules: no
+break up to 5 hours; more than 5 hours, 30 minutes unpaid and 10 paid; more than 8 hours, an hour
+unpaid and 20 minutes paid. It uses the clock-in and clock-out where they exist, else the rostered
+times, then asks the manager to review and change anything before the final authorisation, and the
+authorised timesheet is exported as Excel in the layout the owner already uses.
+
+**Decision.**
+1. *Break rules mean "longer than".* A rule in Pay loadings and breaks now applies to shifts longer
+   than its length, not at least that long: "more than 5 hours" is how the awards and the owner
+   word it, and a 5-hour shift is common. Rules still add up, so the owner's tiers are four rules:
+   longer than 5h, 30 min unpaid and 10 min paid; longer than 8h, another 30 unpaid and 10 paid.
+   Rostered shifts and MeroAI use the same rules. Shifts already saved keep their breaks; a shift of
+   exactly a rule's length gets that break no more when its breaks are next filled in by the rules.
+   (A shift of exactly 8 hours therefore gets the 5-to-8-hour breaks.)
+2. *Where.* "Authorise with MeroAI" on the timesheets pay period (`/timesheets?view=period`),
+   while the period is not locked. Preparing needs `ai.use` and `timesheets.manage`; it calls no
+   model, so it is instant and the same every time (`timesheet-planner.ts`, unit tested).
+3. *What MeroAI prepares.* For each published shift that has finished and each stretch of recorded
+   time: the person's clock-in and clock-out when both exist (time a manager typed counts as
+   recorded); if they clocked in but never out, their start and the rostered finish; with nothing
+   recorded, the rostered times. Breaks come from the rules for that length; a different break the
+   person recorded is replaced and noted. Each row says where its times came from and what is
+   worth a look (late or early by 5 minutes or more, no clock, longer than 12 hours, not rostered).
+   Approved time is left as it is; rejected time and a manager's own time are left for a person.
+4. *Review, then the final authorisation.* The manager can change any start, finish or unpaid
+   break (a changed time recalculates the breaks unless they typed the break), or leave a row out.
+   "Authorise" approves each chosen row with `saveDayEntry`, the same path as approving it by hand:
+   permission, the pay period lock, overlaps and who may approve whose time are checked again, and
+   a refused row is reported with its reason while the rest go through. An `ai_approve` row records
+   how many were approved and how many the manager changed.
+5. *Export.* The existing workbook (ADR-044 addendum) is offered straight after. Its Details sheet
+   now shows the unpaid break as a time of day ("01:00 PM-01:30 PM") like the owner's file, placed
+   on the hour before the middle of the shift, which reproduces every break in the owner's sample.
+
+**Consequences.**
+- Paid breaks are shown in the review but not stored: a timesheet entry keeps one unpaid break,
+  and paid breaks do not change what is paid.
+- The export is still `.xlsx` and its pay columns are named after the award's rates (ADR-044).
+- A business that wants different tiers changes its break rules; nothing about them is in code.

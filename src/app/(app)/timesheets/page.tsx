@@ -131,6 +131,7 @@ export default async function TimesheetsPage({ searchParams }: PageProps<'/times
         period={await getTimesheetPeriod(ctx, params.date ?? today)}
         currency={ctx.tenant.currency}
         today={today}
+        meroAI={hasPermission(ctx, 'ai.use')}
       />
     );
   }

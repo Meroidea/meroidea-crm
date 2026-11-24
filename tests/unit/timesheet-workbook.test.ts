@@ -3,6 +3,7 @@ import { inflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 
 import {
+  breakWindow,
   buildTimesheetWorkbook,
   PLAIN_HOURS,
   shortDate,
@@ -143,12 +144,22 @@ describe('the timesheet workbook', () => {
     expect(ava?.slice(0, 7)).toEqual([
       'Ava Nguyen',
       '11:00 AM',
-      '30 min',
+      // The break as a time of day, placed on the hour before the middle of the shift.
+      '02:00 PM-02:30 PM',
       '05:30 PM',
       '10:00 AM',
       null,
       '02:00 PM',
     ]);
+  });
+
+  it('places breaks where the reference file does', () => {
+    // From the owner's reference export: 10:00–17:30, 10:00–20:30, 12:00–20:30, 11:00–17:00.
+    expect(breakWindow('10:00', '17:30', 30)).toBe('01:00 PM-01:30 PM');
+    expect(breakWindow('10:00', '20:30', 60)).toBe('03:00 PM-04:00 PM');
+    expect(breakWindow('12:00', '20:30', 30)).toBe('04:00 PM-04:30 PM');
+    expect(breakWindow('11:00', '17:00', 30)).toBe('02:00 PM-02:30 PM');
+    expect(breakWindow('18:00', '02:00', 30)).toBe('10:00 PM-10:30 PM');
   });
 
   it('splits hours by team, and lists only shifts that carry a comment', () => {

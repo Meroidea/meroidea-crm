@@ -62,6 +62,16 @@ export type TimesheetPeriod = {
   showCost: boolean;
   date: string;
   day: DayRowView[];
+  /**
+   * Every day of the period paired the same way as `day`, without costs: what MeroAI authorises
+   * from (ADR-082).
+   */
+  rows: (DayRow & {
+    date: string;
+    fullName: string;
+    team: string | null;
+    canApprove: boolean;
+  })[];
   summary: PersonSummary[];
   entries: (DayEntry & {
     fullName: string;
@@ -318,6 +328,22 @@ export async function getTimesheetPeriod(
     showCost: rates !== null,
     date,
     day: day.map((row) => ({ ...row, canApprove: maySignOffFor(ctx, row.userId) })),
+    rows: [
+      ...new Set([...shifts.map((shift) => shift.date), ...entries.map((entry) => entry.date)]),
+    ]
+      .sort()
+      .flatMap((each) =>
+        matchDay(
+          shifts.filter((shift) => shift.date === each),
+          entries.filter((entry) => entry.date === each),
+        ).map((row) => ({
+          ...row,
+          date: each,
+          fullName: nameOf.get(row.userId) ?? 'Former member',
+          team: row.shift?.teamId ? (teamOf.get(row.shift.teamId)?.name ?? null) : null,
+          canApprove: maySignOffFor(ctx, row.userId),
+        })),
+      ),
     summary,
     entries: entries.map((entry) => ({
       ...entry,
@@ -484,7 +510,7 @@ export async function exportTimesheetWorkbook(
     }),
   );
   return {
-    filename: `timesheets___${period.from}_${Math.floor(Date.now() / 1000)}.xlsx`,
+    filename: `timesheets_${period.from}_${Math.floor(Date.now() / 1000)}.xlsx`,
     base64: writeWorkbook(sheets).toString('base64'),
     rows: approved.length,
   };

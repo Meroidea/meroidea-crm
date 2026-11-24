@@ -28,7 +28,9 @@ const holidays = new Set(rules.holidays.map((holiday) => holiday.day));
 describe('automatic breaks', () => {
   it('gives a short shift none, and adds breaks as the shift gets longer', () => {
     expect(autoBreaks(180, DEFAULT_BREAK_RULES)).toEqual([]);
-    expect(autoBreaks(240, DEFAULT_BREAK_RULES)).toEqual([{ minutes: 10, paid: true }]);
+    // A rule is for shifts longer than its length: exactly 4 hours earns nothing yet.
+    expect(autoBreaks(240, DEFAULT_BREAK_RULES)).toEqual([]);
+    expect(autoBreaks(241, DEFAULT_BREAK_RULES)).toEqual([{ minutes: 10, paid: true }]);
     expect(autoBreaks(450, DEFAULT_BREAK_RULES)).toEqual([
       { minutes: 10, paid: true },
       { minutes: 30, paid: false },
