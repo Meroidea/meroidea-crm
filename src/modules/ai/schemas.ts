@@ -14,6 +14,9 @@ export const assistantRequestSchema = z.object({
     .object({
       contactId: z.uuid().optional(),
       opportunityId: z.uuid().optional(),
+      /** Set on the Roster page: the person has the roster for the week containing this day open. */
+      rosterDate: z.iso.date().optional(),
+      viewingRoster: z.boolean().optional(),
     })
     .default({}),
   history: z

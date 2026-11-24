@@ -114,9 +114,18 @@ export function AssistantDrawer({
     if (fileInput.current) fileInput.current.value = '';
 
     startTransition(async () => {
+      // On the Roster page, "the roster" means the week on screen (its date is in the address).
+      const onRoster = pathname === '/roster';
+      const rosterDate = onRoster
+        ? (new URLSearchParams(window.location.search).get('date') ?? undefined)
+        : undefined;
       const result = await askAssistantAction({
         prompt: trimmed,
-        context,
+        context: {
+          ...context,
+          ...(onRoster ? { viewingRoster: true } : {}),
+          ...(rosterDate && /^\d{4}-\d{2}-\d{2}$/.test(rosterDate) ? { rosterDate } : {}),
+        },
         history,
         ...(attachment ? { file: attachment } : {}),
       });

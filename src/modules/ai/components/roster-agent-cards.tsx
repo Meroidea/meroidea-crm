@@ -21,6 +21,7 @@ import type { TeamColor } from '@/modules/roster/rules';
 import { rosterFeedbackAction } from '../actions';
 import type {
   ChangeShiftArtifact,
+  DeleteRosterArtifact,
   FillVacantArtifact,
   RemoveShiftsArtifact,
   RosterCheck,
@@ -398,6 +399,51 @@ export function RemoveCard({
           </li>
         ))}
       </ul>
+    </Shell>
+  );
+}
+
+export function DeleteRosterCard({
+  artifact,
+  status,
+  onApprove,
+  onDiscard,
+}: {
+  artifact: DeleteRosterArtifact;
+  status: CardStatus;
+  onApprove: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <Shell
+      label="Delete roster"
+      status={status}
+      footer={
+        <>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={status === 'applying'}
+            onClick={onApprove}
+          >
+            {status === 'applying' ? 'Deleting…' : 'Delete roster'}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={status === 'applying'} onClick={onDiscard}>
+            Keep it
+          </Button>
+        </>
+      }
+    >
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <CalendarRange aria-hidden className="size-4 text-muted-foreground" />
+        {formatCalendarDate(artifact.startsOn)} – {formatCalendarDate(artifact.endsOn)}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        The roster and its {artifact.shifts} {artifact.shifts === 1 ? 'shift' : 'shifts'} are
+        removed for everyone.
+        {artifact.published && ' Staff have already been shown it.'} You can create a new roster for
+        the same days afterwards.
+      </p>
     </Shell>
   );
 }

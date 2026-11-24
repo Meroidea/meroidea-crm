@@ -4,13 +4,18 @@ import { z } from 'zod';
 
 import { daysBetweenDates } from '@/lib/dates';
 import { listActiveMembers } from '@/modules/members/queries';
-import { listRosterTeams } from '@/modules/roster/queries';
+import { getRosterForDate, listRosterTeams } from '@/modules/roster/queries';
 import { hasPermission } from '@/server/context';
 
 import { planRoster } from '../roster-planner';
+import {
+  loadRosterForProposal,
+  proposeDeleteRoster,
+  proposeRemoveShifts,
+} from '../roster-proposals';
 import { WEEKDAYS, type ShiftRequirement } from '../roster-solver';
 import { ROSTER_STRATEGIES } from '../types';
-import { feedback, type ToolDefinition } from './shared';
+import { feedback, type ToolContext, type ToolDefinition } from './shared';
 
 const MAX_DAYS = 14;
 const clockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -149,6 +154,99 @@ export const generateStaffRosterTool: ToolDefinition<Args> = {
       artifact: outcome.artifact,
       reply: outcome.reply,
       audit: outcome.audit,
+    };
+  },
+};
+
+/** The roster a tool acts on: the one covering `date`, else the one the person has open, else today's. */
+async function rosterFor(date: string | undefined, tool: ToolContext) {
+  const day = date ?? tool.rosterDate ?? tool.today;
+  const roster = await getRosterForDate(tool.ctx, day);
+  return { day, roster };
+}
+
+const removeArgs = z.object({
+  date: z.iso.date().optional(),
+  which: z.enum(['all', 'vacant', 'person', 'day', 'team']).default('all'),
+  personName: z.string().trim().min(1).max(120).optional(),
+  day: z.iso.date().optional(),
+  teamName: z.string().trim().min(1).max(40).optional(),
+});
+
+/**
+ * "Delete all the shifts on the roster" from the drawer (ADR-079): the shifts that would go, as a
+ * card the manager confirms. Removing runs only from that click, through the roster service.
+ */
+export const removeRosterShiftsTool: ToolDefinition<z.output<typeof removeArgs>> = {
+  name: 'remove_roster_shifts',
+  description:
+    'Prepare removing shifts from a roster, for the manager to confirm: all of them (the default), the vacant ones, one person’s, one day’s, or one team’s. Without date, the roster the user has open (or this week’s) is used. Nothing is removed until the user confirms in the app.',
+  parameters: {
+    type: 'object',
+    properties: {
+      date: {
+        type: 'string',
+        description:
+          'Any day of the roster, YYYY-MM-DD; leave out for the roster the user has open.',
+      },
+      which: { type: 'string', enum: ['all', 'vacant', 'person', 'day', 'team'] },
+      personName: { type: 'string', description: 'For which=person.' },
+      day: { type: 'string', description: 'For which=day: YYYY-MM-DD.' },
+      teamName: { type: 'string', description: 'For which=team.' },
+    },
+  },
+  args: removeArgs,
+  available: ({ ctx }) => hasPermission(ctx, 'rosters.manage'),
+
+  async run(input, tool) {
+    const { day, roster } = await rosterFor(input.date, tool);
+    if (!roster) return feedback(`There is no roster covering ${day}.`);
+    const proposal = proposeRemoveShifts(await loadRosterForProposal(tool.ctx, roster.id), {
+      which: input.which,
+      personName: input.personName,
+      date: input.day,
+      teamName: input.teamName,
+    });
+    if (!proposal.ok) return feedback(proposal.message, proposal.extra);
+    return {
+      kind: 'artifact',
+      artifact: proposal.artifact,
+      reply: proposal.reply,
+      audit: { rosterId: roster.id, which: input.which, shifts: proposal.artifact.shiftIds.length },
+    };
+  },
+};
+
+const deleteArgs = z.object({ date: z.iso.date().optional() });
+
+/** "Delete the roster" from the drawer: the roster and its shifts, as a card to confirm. */
+export const deleteRosterTool: ToolDefinition<z.output<typeof deleteArgs>> = {
+  name: 'delete_roster',
+  description:
+    'Prepare deleting a whole roster with all its shifts, for the manager to confirm. Use only when they ask to delete the roster itself; to clear its shifts use remove_roster_shifts. Without date, the roster the user has open (or this week’s) is used.',
+  parameters: {
+    type: 'object',
+    properties: {
+      date: {
+        type: 'string',
+        description:
+          'Any day of the roster, YYYY-MM-DD; leave out for the roster the user has open.',
+      },
+    },
+  },
+  args: deleteArgs,
+  available: ({ ctx }) => hasPermission(ctx, 'rosters.manage'),
+
+  async run(input, tool) {
+    const { day, roster } = await rosterFor(input.date, tool);
+    if (!roster) return feedback(`There is no roster covering ${day}.`);
+    const proposal = proposeDeleteRoster(await loadRosterForProposal(tool.ctx, roster.id));
+    if (!proposal.ok) return feedback(proposal.message);
+    return {
+      kind: 'artifact',
+      artifact: proposal.artifact,
+      reply: proposal.reply,
+      audit: { rosterId: roster.id, shifts: proposal.artifact.shifts },
     };
   },
 };

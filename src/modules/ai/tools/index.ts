@@ -4,7 +4,7 @@ import { createDraftInvoiceTool } from './invoice';
 import { draftCommunicationTool } from './communication';
 import { analyseDocumentTool } from './document';
 import { suggestNextActionsTool } from './next-actions';
-import { generateStaffRosterTool } from './roster';
+import { deleteRosterTool, generateStaffRosterTool, removeRosterShiftsTool } from './roster';
 import type { ToolContext, ToolDefinition } from './shared';
 
 // Each tool's input type differs; the registry only needs what they share.
@@ -14,6 +14,8 @@ type AnyTool = ToolDefinition<any>;
 export const TOOLS: AnyTool[] = [
   createDraftInvoiceTool,
   generateStaffRosterTool,
+  removeRosterShiftsTool,
+  deleteRosterTool,
   draftCommunicationTool,
   analyseDocumentTool,
   suggestNextActionsTool,

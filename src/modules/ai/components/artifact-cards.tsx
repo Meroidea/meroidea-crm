@@ -10,6 +10,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, useTransition, type ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -18,11 +19,15 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { formatCalendarDate, formatMoney } from '@/lib/format';
 import { invoiceNumber } from '@/modules/invoices/types';
+import { deleteRosterAction, removeShiftsAction } from '@/modules/roster/actions';
 
 import { approveInvoiceDraftAction, approveNoteAction, approveRosterAction } from '../actions';
 import { ROSTER_STRATEGY_TEXT } from '../types';
+import { DeleteRosterCard, RemoveCard, type CardStatus } from './roster-agent-cards';
 import type {
   AssistantArtifact,
+  DeleteRosterArtifact,
+  RemoveShiftsArtifact,
   CommunicationDraftArtifact,
   DocumentSummaryArtifact,
   InvoiceDraftArtifact,
@@ -628,5 +633,73 @@ export function ArtifactCard({
       return <DocumentCard artifact={artifact} />;
     case 'next_actions':
       return <NextActionsCard artifact={artifact} />;
+    case 'remove_shifts':
+      return <ConfirmRemoveShifts artifact={artifact} />;
+    case 'delete_roster':
+      return <ConfirmDeleteRoster artifact={artifact} />;
   }
+}
+
+/** The drawer's "remove these shifts" card: removed through the roster service on the click. */
+function ConfirmRemoveShifts({ artifact }: { artifact: RemoveShiftsArtifact }) {
+  const router = useRouter();
+  const [status, setStatus] = useState<CardStatus>('open');
+  const [error, setError] = useState<string | null>(null);
+  const confirm = async () => {
+    setStatus('applying');
+    setError(null);
+    const result = await removeShiftsAction({
+      rosterId: artifact.rosterId,
+      shiftIds: artifact.shiftIds,
+      reason: 'agent',
+    });
+    if (!result.ok) {
+      setStatus('open');
+      setError(result.error.message);
+      return;
+    }
+    setStatus('applied');
+    router.refresh();
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <RemoveCard
+        artifact={artifact}
+        status={status}
+        onApprove={confirm}
+        onDiscard={() => setStatus('discarded')}
+      />
+      <Problem message={error} />
+    </div>
+  );
+}
+
+/** The drawer's "delete this roster" card: deleted through the roster service on the click. */
+function ConfirmDeleteRoster({ artifact }: { artifact: DeleteRosterArtifact }) {
+  const router = useRouter();
+  const [status, setStatus] = useState<CardStatus>('open');
+  const [error, setError] = useState<string | null>(null);
+  const confirm = async () => {
+    setStatus('applying');
+    setError(null);
+    const result = await deleteRosterAction({ id: artifact.rosterId });
+    if (!result.ok) {
+      setStatus('open');
+      setError(result.error.message);
+      return;
+    }
+    setStatus('applied');
+    router.refresh();
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <DeleteRosterCard
+        artifact={artifact}
+        status={status}
+        onApprove={confirm}
+        onDiscard={() => setStatus('discarded')}
+      />
+      <Problem message={error} />
+    </div>
+  );
 }

@@ -109,7 +109,7 @@ export async function draftInvoiceWithMeroAI(
       dueDate: read.dueDate ?? undefined,
       notes: read.notes ?? undefined,
     },
-    { ctx, today, attachment: null },
+    { ctx, today, attachment: null, rosterDate: null },
   );
   if (outcome.kind === 'feedback') {
     const matches = (outcome.data.matches as { name: string }[] | undefined)?.map(

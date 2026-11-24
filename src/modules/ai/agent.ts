@@ -93,6 +93,9 @@ function systemInstruction(
     input.context.opportunityId
       ? `The user is viewing an ${opportunity.singular.toLowerCase()} with id ${input.context.opportunityId}.`
       : '',
+    tool.rosterDate
+      ? `The user has the roster for the week containing ${tool.rosterDate} open; "the roster", "this roster" or "all shifts" mean that one unless they name other days. To remove its shifts use remove_roster_shifts; to delete the roster itself use delete_roster. Both only prepare a confirmation the user approves.`
+      : '',
     tool.attachment
       ? `The user attached a file, "${tool.attachment.name}" (${tool.attachment.mimeType}). Use analyse_document to review it.`
       : '',
@@ -127,6 +130,9 @@ export async function runAssistant(
     ctx,
     today: zonedToday(ctx.tenant.timezone),
     attachment: input.file ? await readAttachment(input.file) : null,
+    rosterDate: input.context.viewingRoster
+      ? (input.context.rosterDate ?? zonedToday(ctx.tenant.timezone))
+      : null,
   };
   const tools = availableTools(tool);
   const byName = new Map(tools.map((definition) => [definition.name, definition]));
