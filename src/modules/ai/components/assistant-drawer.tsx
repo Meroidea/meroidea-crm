@@ -195,7 +195,7 @@ export function AssistantDrawer({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="AI assistant" title="AI assistant">
+        <Button variant="ghost" size="icon" aria-label="MeroAI" title="MeroAI">
           <Sparkles aria-hidden />
         </Button>
       </SheetTrigger>
@@ -205,7 +205,7 @@ export function AssistantDrawer({
       >
         <SheetHeader className="border-b pr-12">
           <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" aria-hidden /> AI assistant
+            <Sparkles className="size-4 text-primary" aria-hidden /> MeroAI
           </SheetTitle>
           <SheetDescription>
             Drafts and previews only. Nothing is saved or sent until you approve it.

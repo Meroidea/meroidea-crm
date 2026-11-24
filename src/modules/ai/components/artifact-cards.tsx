@@ -20,6 +20,7 @@ import { formatCalendarDate, formatMoney } from '@/lib/format';
 import { invoiceNumber } from '@/modules/invoices/types';
 
 import { approveInvoiceDraftAction, approveNoteAction, approveRosterAction } from '../actions';
+import { ROSTER_STRATEGY_TEXT } from '../types';
 import type {
   AssistantArtifact,
   CommunicationDraftArtifact,
@@ -237,7 +238,14 @@ function InvoiceCard({ artifact }: { artifact: InvoiceDraftArtifact }) {
   );
 }
 
-function RosterCard({ artifact }: { artifact: RosterPreviewArtifact }) {
+export function RosterCard({
+  artifact,
+  onApproved,
+}: {
+  artifact: RosterPreviewArtifact;
+  /** Called once the shifts are saved, e.g. to refresh the roster page underneath. */
+  onApproved?: () => void;
+}) {
   const [state, setState] = useState<CardState>('open');
   const [result, setResult] = useState<RosterApprovalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -262,13 +270,15 @@ function RosterCard({ artifact }: { artifact: RosterPreviewArtifact }) {
           }),
         ),
       });
-      if (response.ok) setResult(response.data);
-      else setError(response.error.message);
+      if (response.ok) {
+        setResult(response.data);
+        onApproved?.();
+      } else setError(response.error.message);
     });
 
   return (
     <CardShell
-      title={`Roster, ${formatCalendarDate(artifact.startsOn)} – ${formatCalendarDate(artifact.endsOn)}`}
+      title={`${artifact.strategy ? ROSTER_STRATEGY_TEXT[artifact.strategy].title : 'Roster'}, ${formatCalendarDate(artifact.startsOn)} – ${formatCalendarDate(artifact.endsOn)}`}
       badge={result ? <Badge>Added, not published</Badge> : <DraftBadge />}
       footer={
         result ? (
@@ -321,6 +331,21 @@ function RosterCard({ artifact }: { artifact: RosterPreviewArtifact }) {
           </div>
         ))}
       </div>
+      {artifact.estimatedCost && (
+        <p className="flex items-baseline justify-between gap-2 rounded-md bg-muted px-2 py-1.5 text-xs">
+          <span className="text-muted-foreground">Estimated wages</span>
+          <span className="font-medium tabular-nums">
+            {formatMoney(artifact.estimatedCost.total, artifact.estimatedCost.currency)}
+            {artifact.estimatedCost.unpriced > 0 && (
+              <span className="font-normal text-muted-foreground">
+                {' '}
+                + {artifact.estimatedCost.unpriced} shift
+                {artifact.estimatedCost.unpriced === 1 ? '' : 's'} without a rate
+              </span>
+            )}
+          </span>
+        </p>
+      )}
       {artifact.people.length > 0 && (
         <div className="text-xs">
           <p className="mb-1 font-medium">Hours in this period</p>

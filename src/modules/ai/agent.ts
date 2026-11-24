@@ -26,7 +26,7 @@ const MAX_STEPS = 3;
 const PERSON_PER_HOUR = 30;
 const BUSINESS_PER_DAY = 300;
 
-async function enforceLimits(ctx: TenantContext): Promise<void> {
+export async function enforceLimits(ctx: TenantContext): Promise<void> {
   const person = await consumeRateLimit({
     bucket: `ai:person:${ctx.tenantId}`,
     subject: ctx.userId,
@@ -85,7 +85,7 @@ function systemInstruction(
       ? `You can use these tools: ${toolNames.join(', ')}. Use one when the user asks for what it does. Tools only prepare drafts and previews: nothing is saved, sent or published until the user approves it in the app. Never say you saved, sent, scheduled or published anything.`
       : 'This user has no assistant tools available, so answer questions only.',
     'If the user asks for something no tool covers or they lack access to, say so plainly.',
-    'Act rather than ask whenever a sensible default exists. Resolve relative dates like "next week" from today; weeks start on Monday and end on Sunday. To build a roster without shift times, call generate_staff_roster without shiftRequirements: it repeats the previous week\u2019s shifts.',
+    'Act rather than ask whenever a sensible default exists. Resolve relative dates like "next week" from today; weeks start on Monday and end on Sunday. To build a roster without shift times, call generate_staff_roster without shiftRequirements: it covers the business\u2019s trading hours, so never ask when a day starts or ends.',
     'Ask one short question only when something essential has no default (who an invoice is for, or its prices). If the user answers briefly (yes, ok, sure), carry on with the defaults instead of asking again.',
     input.context.contactId
       ? `The user is viewing a ${contact.singular.toLowerCase()} with id ${input.context.contactId}; "this person" or "them" means that one.`

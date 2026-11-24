@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { MAX_ATTACHMENT_BYTES } from './attachments';
+import { ROSTER_STRATEGIES } from './types';
 
 export const MAX_PROMPT_LENGTH = 4000;
 export const MAX_HISTORY = 10;
@@ -65,3 +66,18 @@ export const approveNoteSchema = z.object({
 });
 
 export type ApproveNoteInput = z.output<typeof approveNoteSchema>;
+
+/** Ask MeroAI on the roster page (ADR-076): a way of working, and optionally a few words more. */
+export const meroAIRosterSchema = z.object({
+  startsOn: isoDate,
+  span: z.enum(['week', 'fortnight']),
+  strategy: z.enum(ROSTER_STRATEGIES),
+  instructions: z
+    .string()
+    .trim()
+    .max(500, 'Keep it under 500 characters')
+    .optional()
+    .transform((value) => value || undefined),
+});
+
+export type MeroAIRosterInput = z.output<typeof meroAIRosterSchema>;

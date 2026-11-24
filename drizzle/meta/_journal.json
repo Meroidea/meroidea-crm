@@ -589,6 +589,13 @@
       "when": 1795436159440,
       "tag": "0083_ai_assistant",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1795486821444,
+      "tag": "0084_trading_hours",
+      "breakpoints": true
     }
   ]
 }

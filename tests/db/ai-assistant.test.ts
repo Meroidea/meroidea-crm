@@ -460,14 +460,15 @@ describe('rosters', () => {
     expect(artifact.shifts.every((shift) => shift.date <= addDaysToDate(next, 4))).toBe(true);
   });
 
-  it('with no shift times and no week before, asks rather than inventing shifts', async () => {
+  it('with no shift times, no trading hours and no week before, asks for the trading hours rather than inventing shifts', async () => {
     const empty = addDaysToDate(monday, 70);
     const result = await generateStaffRosterTool.run(
       { startDate: empty, endDate: addDaysToDate(empty, 6) },
       toolContext(owner),
     );
     expect(result).toMatchObject({ kind: 'feedback' });
-    expect(JSON.stringify(result)).toContain('no roster for the week before');
+    // It points the manager at trading hours, so it never has to ask when a day starts (ADR-076).
+    expect(JSON.stringify(result)).toContain('Set your trading hours');
   });
 
   it('staff cannot add shifts from a preview', async () => {

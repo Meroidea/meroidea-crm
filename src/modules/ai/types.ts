@@ -46,8 +46,46 @@ export type RosterPreviewShift = {
   note: string | null;
 };
 
+/** MeroAI's ways of building a roster (ADR-076). */
+export const ROSTER_STRATEGIES = [
+  'copy_last_week',
+  'lowest_cost',
+  'most_productive',
+  'even_hours',
+] as const;
+export type RosterStrategy = (typeof ROSTER_STRATEGIES)[number];
+
+export const ROSTER_STRATEGY_TEXT: Record<RosterStrategy, { title: string; description: string }> =
+  {
+    copy_last_week: {
+      title: 'Copy last week',
+      description:
+        'The same shifts with the same people. Anyone now away is swapped for someone free.',
+    },
+    lowest_cost: {
+      title: 'Lowest wage cost',
+      description:
+        'Covers your trading hours with the cheapest available person for each shift, loadings included.',
+    },
+    most_productive: {
+      title: 'Most productive',
+      description:
+        'Puts your most reliable people on first: hours actually worked and tasks done on time, last 4 weeks.',
+    },
+    even_hours: {
+      title: 'Even hours',
+      description: 'Covers your trading hours and shares the hours out fairly across the team.',
+    },
+  };
+
 export type RosterPreviewArtifact = {
   kind: 'roster_preview';
+  /** How it was built; absent for previews from before strategies existed. */
+  strategy?: RosterStrategy;
+  /** Where the shifts came from: the person's request, the trading hours, or last week. */
+  source?: 'request' | 'trading_hours' | 'last_week';
+  /** What the rostered shifts would cost, where the viewer may see pay; null otherwise. */
+  estimatedCost?: { total: string; currency: string; unpriced: number } | null;
   startsOn: string;
   endsOn: string;
   shifts: RosterPreviewShift[];

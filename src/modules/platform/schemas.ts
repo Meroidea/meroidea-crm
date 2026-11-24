@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { tradingWeekSchema } from '@/modules/trading-hours/schemas';
+
 import { BUSINESS_TYPES, FEATURE_KEYS } from '@/lib/features';
 import { isValidAbn } from '@/modules/hiring/identifiers';
 
@@ -82,6 +84,8 @@ export const createBusinessSchema = z
     latitude: location.latitude.default(''),
     longitude: location.longitude.default(''),
     radiusMetres: location.radiusMetres.default(10),
+    /** When the business trades (ADR-076); its admin can change them later in Settings. */
+    tradingHours: tradingWeekSchema.optional(),
   })
   .refine(bothOrNeither.check, bothOrNeither.issue);
 

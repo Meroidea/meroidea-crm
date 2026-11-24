@@ -2,24 +2,14 @@ import 'server-only';
 
 import { z } from 'zod';
 
-import { addDaysToDate, daysBetweenDates } from '@/lib/dates';
+import { daysBetweenDates } from '@/lib/dates';
 import { listActiveMembers } from '@/modules/members/queries';
-import {
-  getRosterForDate,
-  getRosterRules,
-  listRosterLeave,
-  listRosterShifts,
-  listRosterTeams,
-} from '@/modules/roster/queries';
-import { hasPermission, type TenantContext } from '@/server/context';
+import { listRosterTeams } from '@/modules/roster/queries';
+import { hasPermission } from '@/server/context';
 
-import {
-  requirementsFromWeek,
-  solveRoster,
-  WEEKDAYS,
-  type ShiftRequirement,
-} from '../roster-solver';
-import type { RosterPreviewArtifact } from '../types';
+import { planRoster } from '../roster-planner';
+import { WEEKDAYS, type ShiftRequirement } from '../roster-solver';
+import { ROSTER_STRATEGIES } from '../types';
 import { feedback, type ToolDefinition } from './shared';
 
 const MAX_DAYS = 14;
@@ -28,6 +18,7 @@ const clockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const args = z.object({
   startDate: z.iso.date(),
   endDate: z.iso.date(),
+  strategy: z.enum(ROSTER_STRATEGIES).optional(),
   shiftRequirements: z
     .array(
       z.object({
@@ -48,35 +39,24 @@ const args = z.object({
 
 type Args = z.output<typeof args>;
 
-/** Shifts on any roster covering part of the days from `from` to `to`, both inclusive. */
-async function shiftsBetween(ctx: TenantContext, from: string, to: string) {
-  const days = daysBetweenDates(from, to) + 1;
-  const rosterIds = new Set<string>();
-  for (let index = 0; index < days; index += 1) {
-    const roster = await getRosterForDate(ctx, addDaysToDate(from, index));
-    if (roster) rosterIds.add(roster.id);
-  }
-  return (await Promise.all([...rosterIds].map((id) => listRosterShifts(ctx, id))))
-    .flat()
-    .filter((shift) => shift.date >= from && shift.date <= to);
-}
-
 /**
- * A roster preview for the manager. The model reads the request into shift requirements; the
- * solver assigns people, avoiding time away, other shifts and lopsided hours. Nothing is saved:
- * approving adds the shifts as unpublished changes, which staff see only once the manager
- * publishes the roster (roster/service.ts), and never replaces a shift already there.
+ * A roster preview from the chat, through the same planner as the roster page's Ask MeroAI
+ * (roster-planner.ts). The model only turns the person's words into arguments: when they give no
+ * shift times, the trading hours (or last week) decide, so it never has to ask when a day starts
+ * or ends. Nothing is saved until the manager approves.
  */
 export const generateStaffRosterTool: ToolDefinition<Args> = {
   name: 'generate_staff_roster',
-  description: `Build a staff roster preview for the manager to approve. Covers up to ${MAX_DAYS} days. Turn the user's request into shift requirements (weekdays, times in 24-hour HH:MM, how many people). When the user gives no shift times, leave shiftRequirements out: the previous week's shifts are repeated. Staff are assigned automatically, balancing hours and avoiding leave and clashes. Nothing is saved or published until the manager approves.`,
+  description: `Build a staff roster preview for the manager to approve, for up to ${MAX_DAYS} days. Leave shiftRequirements out unless the user gives specific shift times: the business's trading hours (or last week's shifts) are used. strategy: copy_last_week (same shifts and people as last week), lowest_cost (cheapest staff), most_productive (most reliable staff first) or even_hours (the default). Staff are assigned automatically, avoiding leave and clashes. Nothing is saved or published until the manager approves.`,
   parameters: {
     type: 'object',
     properties: {
       startDate: { type: 'string', description: 'First day, YYYY-MM-DD.' },
       endDate: { type: 'string', description: 'Last day, YYYY-MM-DD, inclusive.' },
+      strategy: { type: 'string', enum: [...ROSTER_STRATEGIES] },
       shiftRequirements: {
         type: 'array',
+        description: 'Only when the user gives specific shifts.',
         items: {
           type: 'object',
           properties: {
@@ -113,14 +93,8 @@ export const generateStaffRosterTool: ToolDefinition<Args> = {
     const days = daysBetweenDates(input.startDate, input.endDate) + 1;
     if (days < 1) return feedback('The end date is before the start date.');
     if (days > MAX_DAYS) return feedback(`A roster preview covers at most ${MAX_DAYS} days.`);
-    const dates = Array.from({ length: days }, (_, index) => addDaysToDate(input.startDate, index));
 
-    const [members, teams, leave, rules] = await Promise.all([
-      listActiveMembers(ctx),
-      listRosterTeams(ctx),
-      listRosterLeave(ctx, input.startDate, input.endDate),
-      getRosterRules(ctx),
-    ]);
+    const [members, teams] = await Promise.all([listActiveMembers(ctx), listRosterTeams(ctx)]);
 
     const requirements: ShiftRequirement[] = [];
     for (const requirement of input.shiftRequirements ?? []) {
@@ -146,95 +120,35 @@ export const generateStaffRosterTool: ToolDefinition<Args> = {
       });
     }
 
-    // No times given: repeat the week before, day for day, so "build next week's roster" works
-    // without the manager typing out shifts they already set up last week.
-    let repeated = false;
-    if (requirements.length === 0) {
-      const lastWeek = await shiftsBetween(
-        ctx,
-        addDaysToDate(input.startDate, -7),
-        addDaysToDate(input.startDate, -1),
-      );
-      if (lastWeek.length === 0) {
-        return feedback(
-          'There is no roster for the week before to repeat. Ask the user which shifts they need: days, times and how many people.',
-        );
-      }
-      requirements.push(...requirementsFromWeek(lastWeek));
-      repeated = true;
-    }
-
-    let people = members;
+    let onlyUserIds: string[] | undefined;
     if (input.staffIds?.length || input.staffNames?.length) {
       const ids = new Set(input.staffIds ?? []);
       const names = (input.staffNames ?? []).map((name) => name.toLowerCase());
-      people = members.filter(
-        (member) =>
-          ids.has(member.userId) ||
-          names.some((name) => member.fullName.toLowerCase().includes(name)),
-      );
-      if (people.length === 0) {
+      onlyUserIds = members
+        .filter(
+          (member) =>
+            ids.has(member.userId) ||
+            names.some((name) => member.fullName.toLowerCase().includes(name)),
+        )
+        .map((member) => member.userId);
+      if (onlyUserIds.length === 0) {
         return feedback('None of the people named are active members of this workspace.');
       }
     }
 
-    // Shifts already rostered in the period count towards each person's hours.
-    const existing = await shiftsBetween(ctx, input.startDate, input.endDate);
-
-    const result = solveRoster({
-      dates,
+    const outcome = await planRoster(ctx, {
+      startDate: input.startDate,
+      endDate: input.endDate,
+      strategy: input.strategy ?? 'even_hours',
       requirements,
-      people: people.map((person) => ({
-        userId: person.userId,
-        name: person.fullName,
-        teamIds: teams
-          .filter((team) => team.memberIds.includes(person.userId))
-          .map((team) => team.id),
-      })),
-      leave,
-      existing,
-      breakRules: rules.breakRules,
+      onlyUserIds,
     });
-
-    const nameOf = new Map(members.map((member) => [member.userId, member.fullName]));
-    const teamOf = new Map(teams.map((team) => [team.id, team.name]));
-    const artifact: RosterPreviewArtifact = {
-      kind: 'roster_preview',
-      startsOn: input.startDate,
-      endsOn: input.endDate,
-      shifts: result.shifts.map((shift) => ({
-        ...shift,
-        personName: shift.userId ? (nameOf.get(shift.userId) ?? null) : null,
-        teamName: shift.teamId ? (teamOf.get(shift.teamId) ?? null) : null,
-      })),
-      people: result.load
-        .filter((load) => load.newShifts > 0 || load.existingMinutes > 0)
-        .map((load) => ({ ...load, name: nameOf.get(load.userId) ?? 'Unknown' })),
-      unfilled: result.unfilled,
-      warnings: [
-        ...(repeated
-          ? ['Shifts repeat the week before; change any of them on the roster after approving.']
-          : []),
-        ...result.warnings,
-        ...(existing.length > 0
-          ? [
-              `${existing.length} shift${existing.length === 1 ? ' is' : 's are'} already rostered in this period and ${existing.length === 1 ? 'was' : 'were'} left as ${existing.length === 1 ? 'it is' : 'they are'}.`,
-            ]
-          : []),
-      ],
-    };
-    const filled = result.shifts.length - result.unfilled;
+    if (outcome.kind === 'unavailable') return feedback(outcome.message);
     return {
       kind: 'artifact',
-      artifact,
-      reply: `Here is a roster preview for ${input.startDate} to ${input.endDate}${repeated ? ', repeating last week\u2019s shifts' : ''}: ${filled} of ${result.shifts.length} shifts filled${result.unfilled ? `, ${result.unfilled} left vacant` : ''}. Approving adds them as unpublished changes; staff see nothing until you publish the roster.`,
-      audit: {
-        repeatedLastWeek: repeated,
-        startsOn: input.startDate,
-        endsOn: input.endDate,
-        shifts: result.shifts.length,
-        unfilled: result.unfilled,
-      },
+      artifact: outcome.artifact,
+      reply: outcome.reply,
+      audit: outcome.audit,
     };
   },
 };
