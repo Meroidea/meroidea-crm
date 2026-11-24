@@ -23,7 +23,7 @@ export type DayEntry = {
   breakMinutes: number;
   workedMinutes: number;
   status: 'pending' | 'approved' | 'rejected';
-  source: 'clock' | 'manual';
+  source: 'clock' | 'manual' | 'roster';
 };
 
 export type DayRow = {

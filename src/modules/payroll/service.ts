@@ -27,6 +27,7 @@ import { getRosterRules } from '@/modules/roster/queries';
 import { centsToAmount, ORDINARY_LOADINGS } from '@/modules/roster/rules';
 import type { RosterRules } from '@/modules/roster/types';
 import { employerSnapshot } from '@/modules/settings/business';
+import { recordPaidRosterTime } from '@/modules/timesheets/hooks';
 import { audit } from '@/server/audit';
 import { hasFeature, hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
@@ -95,6 +96,7 @@ export async function authoriseRoster(
         ? await approvedTimeFor(tx, ctx, roster.startsOn, roster.endsOn)
         : await tx
             .select({
+              id: rosterShifts.id,
               userId: rosterShifts.userId,
               startsAt: rosterShifts.startsAt,
               endsAt: rosterShifts.endsAt,
@@ -347,6 +349,28 @@ export async function authoriseRoster(
       created += 1;
     }
 
+    // Paid from the roster: Timesheets shows what was paid as authorised time (ADR-083).
+    const recordedTime =
+      input.hoursFrom === 'roster'
+        ? await recordPaidRosterTime(
+            tx,
+            ctx,
+            shifts.flatMap((shift) =>
+              'id' in shift && typeof shift.id === 'string' && shift.userId
+                ? [
+                    {
+                      id: shift.id,
+                      userId: shift.userId,
+                      startsAt: shift.startsAt,
+                      endsAt: shift.endsAt,
+                      breakMinutes: shift.breakMinutes,
+                    },
+                  ]
+                : [],
+            ),
+          )
+        : 0;
+
     await tx
       .update(rosters)
       .set({ authorisedAt: new Date(), authorisedBy: ctx.userId, updatedBy: ctx.userId })
@@ -359,6 +383,7 @@ export async function authoriseRoster(
         authorisedForPay: true,
         hoursFrom: input.hoursFrom,
         payslips: created,
+        recordedTime,
         skipped: skipped.length,
         taxCalculated,
         taxByHand: taxByHand.length,

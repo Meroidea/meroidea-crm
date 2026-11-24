@@ -2402,3 +2402,43 @@ authorised timesheet is exported as Excel in the layout the owner already uses.
   and paid breaks do not change what is paid.
 - The export is still `.xlsx` and its pay columns are named after the award's rates (ADR-044).
 - A business that wants different tiers changes its break rules; nothing about them is in code.
+
+## ADR-083 — Timesheets show everyone's clock-ins, and the authorised hours once a period is paid
+
+**Status.** Accepted (2026-11-25).
+
+**Context.** After a roster for 9 to 15 November was published and authorised for pay, the pay run
+showed everyone's hours but Timesheets showed nothing. Payroll had paid the rostered hours (its
+default), and that path wrote no timesheet entries; Timesheets only ever showed clocked or typed
+time. The owner described how it should work: People → Timesheets shows staff clock-ins and
+clock-outs (managers everyone's, staff their own); before the roster is authorised, a shift shows
+its clock times or "No clock-in"; once it is authorised, staff see their authorised hours, and
+managers see everyone's complete authorised timesheet and export it from there.
+
+**Decision.**
+1. *Paid from the roster means recorded in Timesheets.* When `authoriseRoster` pays rostered hours,
+   each paid shift becomes an approved time entry (`source = 'roster'`, linked to its shift, the
+   rostered times and break), in the same transaction, through `recordPaidRosterTime`
+   (`src/modules/timesheets/hooks.ts`). Time already recorded against or over a shift is left
+   alone. Nothing is recorded while Timesheets is switched off for the business, and the step runs
+   in a savepoint so it can never stop a pay run. Paying from approved timesheets adds nothing.
+2. *Weeks already paid.* Migration `0085` widens `time_entries.source` to allow `roster` and does
+   the same for every roster already authorised for pay, except those whose authorisation
+   recorded `hoursFrom: 'timesheets'`, approved as by whoever authorised the roster, when they did.
+3. *One Timesheet view.* The default Timesheets view is now the pay period's timesheet: the
+   roster's period, else the calendar week, with previous and next. Someone with
+   `timesheets.manage` sees a section per person for everyone; anyone else sees only their own
+   (the database's row rules enforce the same for shifts and time). Each row is a published shift
+   or a stretch of recorded time, with its status: waiting, approved, still clocked in, rejected,
+   "No clock-in" for a finished shift with nothing recorded, upcoming; once the period is
+   authorised, "Authorised" with the authorised times (or "Not paid" where a period paid from
+   approved time had nothing for a shift). Managers export the whole period to Excel from there.
+   It replaces the "My time" and "Team" lists; approving still happens on the row, on "Approve by
+   day" and on "Pay period".
+
+**Consequences.**
+- Approving a corrected time replaces the clocked time on the entry, so after approval the view
+  shows the approved times; the original clock times are kept only in the audit log.
+- Between a deploy and its migration (ADR-075) a roster paid from the roster records no entries
+  (the check refuses the new source value, and the savepoint skips it); the migration's backfill
+  then records them.

@@ -146,7 +146,13 @@ function DayRow({
           </p>
           {entry && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {running ? 'Still clocked in' : entry.source === 'clock' ? 'Clocked' : 'Typed in'}
+              {running
+                ? 'Still clocked in'
+                : entry.source === 'clock'
+                  ? 'Clocked'
+                  : entry.source === 'roster'
+                    ? 'Paid from the roster'
+                    : 'Typed in'}
             </p>
           )}
         </div>
