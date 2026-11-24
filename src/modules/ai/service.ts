@@ -6,8 +6,8 @@ import { logActivity } from '@/modules/activities/service';
 import type { SaveInvoiceInput } from '@/modules/invoices/schemas';
 import { saveInvoice } from '@/modules/invoices/service';
 import { listActiveMembers } from '@/modules/members/queries';
-import { getRosterForDate } from '@/modules/roster/queries';
-import { createRoster, saveShift } from '@/modules/roster/service';
+import { getRosterForDate, rostersOfShifts } from '@/modules/roster/queries';
+import { createRoster, removeShifts, saveShift } from '@/modules/roster/service';
 import { audit } from '@/server/audit';
 import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
@@ -47,12 +47,13 @@ export async function approveInvoiceDraft(
 
 /**
  * Adds an approved roster preview's shifts. Each one is saved as an unpublished change, so staff
- * see nothing until the manager publishes. Shifts are only ever added, never replacing one that is
- * there; any the roster service refuses (a clash, a locked roster) are reported back, not forced.
+ * see nothing until the manager publishes. Shifts already there stay, unless the manager asked the
+ * roster agent to replace them (ADR-079), in which case those are removed first; any shift the
+ * roster service refuses (a clash, a locked roster) is reported back, not forced.
  */
 export async function approveRosterPreview(
   ctx: TenantContext,
-  input: ApproveRosterInput,
+  input: Omit<ApproveRosterInput, 'replaceShiftIds'> & { replaceShiftIds?: string[] },
 ): Promise<RosterApprovalResult> {
   requirePermission(ctx, 'rosters.manage');
   const names = new Map(
@@ -88,6 +89,20 @@ export async function approveRosterPreview(
       return null;
     }
   };
+
+  // "Delete existing shifts first" (ADR-079): the shifts the plan replaces go before any is added,
+  // one roster at a time, all or nothing within each.
+  let removed = 0;
+  const replacing = input.replaceShiftIds ?? [];
+  if (replacing.length > 0) {
+    const byRoster = new Map<string, string[]>();
+    for (const [shiftId, rosterId] of await rostersOfShifts(ctx, replacing)) {
+      byRoster.set(rosterId, [...(byRoster.get(rosterId) ?? []), shiftId]);
+    }
+    for (const [rosterId, shiftIds] of byRoster) {
+      removed += (await removeShifts(ctx, { rosterId, shiftIds, reason: 'replace' })).removed;
+    }
+  }
 
   const shifts = [...input.shifts].sort((a, b) =>
     a.date === b.date ? a.startTime.localeCompare(b.startTime) : a.date.localeCompare(b.date),
@@ -134,8 +149,15 @@ export async function approveRosterPreview(
     rosters: covering.map((roster) => roster.id),
     shiftsSaved: saved.length,
     shiftsSkipped: skipped.length,
+    shiftsReplaced: removed,
   });
-  return { saved: saved.length, skipped, firstDate: shifts[0]?.date ?? null };
+  return {
+    saved: saved.length,
+    removed,
+    skipped,
+    firstDate: shifts[0]?.date ?? null,
+    rosterIds: covering.map((roster) => roster.id),
+  };
 }
 
 /** Saves an approved note on the contact's timeline, as the person, through the activities module. */
@@ -151,4 +173,21 @@ export async function approveNote(
   });
   await recordApproval(ctx, 'activity', created.id, { contactId: input.contactId });
   return created;
+}
+
+/** A thumbs up or down on the roster agent: the rating and what it was about, nothing more. */
+export async function recordRosterFeedback(
+  ctx: TenantContext,
+  input: { rating: 'up' | 'down'; about: 'plan' | 'check' | 'reply' },
+): Promise<{ saved: true }> {
+  requirePermission(ctx, 'ai.use');
+  await withRls(ctx, (tx) =>
+    audit(tx, ctx, {
+      action: 'ai_assist',
+      entityType: 'ai_assistant',
+      entityId: null,
+      context: { surface: 'roster_agent', action: 'feedback', ...input },
+    }),
+  );
+  return { saved: true as const };
 }

@@ -53,7 +53,7 @@ export async function enforceLimits(ctx: TenantContext): Promise<void> {
   }
 }
 
-async function readAttachment(file: File): Promise<Attachment> {
+export async function readAttachment(file: File): Promise<Attachment> {
   const bytes = Buffer.from(await file.arrayBuffer());
   const mimeType = sniffAttachmentType(bytes, file.name);
   if (!mimeType) {

@@ -2240,3 +2240,68 @@ says MeroAI is working.
 - New MeroAI surfaces use `MeroOrb` and these classes, not a sparkle icon.
 - Dark mode is not in the MVP. The orb sits on its own dark core, so it already reads on either
   background.
+
+## ADR-079 — The roster agent: a docked MeroAI panel that builds, applies, checks and takes follow-ups
+
+**Status.** Accepted (2026-11-24).
+
+**Context.** The owner asked for an AI roster agent of the kind workforce products now offer: a
+panel beside the roster that asks how to start, drafts a plan, applies it once approved, checks the
+result, explains what still needs the manager, and then takes requests in words ("delete all
+shifts"), with an Instant build that fills open shifts in one click. ADR-076's strategies and solver already plan a
+roster in code; what was missing was the flow, learning from more than last week, contracted hours,
+replacing what is there, the check, and a conversation about an existing roster.
+
+**Decision.**
+1. *Where.* On an open roster, "Roster agent" in the toolbar opens a docked panel beside the grid
+   (over it on a narrow screen). On a week with no roster, the agent sits beside "Create a roster";
+   approving creates the week first, so it always starts on the day being looked at. It replaces
+   ADR-076's "Fill this roster with MeroAI" card and the empty-week Ask MeroAI card. Needs `ai.use`
+   and `rosters.manage`. No new table, permission or migration.
+2. *The start form.* "MeroAI figures it out" learns the last four weeks: a shift (weekday, times,
+   team) is in the pattern with the median number of people across the weeks that were rostered,
+   offered first to whoever most often had it (`requirementsFromRecentWeeks`). "Use something
+   saved" copies a roster the manager picks, day for day (`requirementsCopyingPeriod`). Options:
+   *Give contracted hours first* (full- and part-time staff are offered shifts before anyone else
+   until they reach their contract's weekly hours; needs `employees.manage`, as pay rates do);
+   *Use my staff numbers* (shifts cover the trading hours with each day's staff count, instead of
+   the pattern); *Delete existing shifts first*; *Who goes on first* (ADR-076's even hours, lowest
+   wage cost, most reliable). Notes and an attached file (an availability sheet) go to the fast
+   model only, which returns who cannot work when, who alone to roster, and a priority ("minimum
+   wages" means lowest cost); names are matched in code and what was understood is listed back.
+3. *Plan, approve, apply, check.* The plan card shows shifts and hours by team, cover against the
+   staff numbers, estimated wages, gaps, what was taken from the notes and things to check, and
+   every shift on request. Approving runs `approveRosterPreview` as before; with *Delete existing
+   shifts first* it first removes the replaced shifts through the new `removeShifts` (one roster at
+   a time, all or nothing, removals staff were shown kept for publishing). The agent then runs
+   `checkRoster`: vacant shifts, stretches short of the staff numbers (quarter hours, vacant shifts
+   cover nobody), shifts on leave, anyone over 38 hours a week, anyone short of contracted hours.
+   The solver now says why a shift is vacant: nobody in its team, everyone free at the hours cap,
+   or nobody free.
+4. *Follow-ups in words.* `chatAboutRoster` gives the reasoning model one read tool
+   (`roster_overview`) and four proposal tools: remove shifts (all, vacant, a person's, a day's, a
+   team's), fill vacant shifts, give one shift to someone else or leave it vacant, and rebuild.
+   As in ADR-074, no tool writes: each returns a card, and the change runs from the manager's click
+   through the roster service (`removeShifts`, `reassignShift` → `saveShift`, `applyVacantFill`,
+   `approveRosterPreview`), which checks every rule again. Thumbs up or down are audited as counts.
+5. *Instant build.* In the roster's Actions menu, for anyone with `rosters.manage`, with no model:
+   on a roster with vacant shifts it fills them; on an empty roster it builds the usual week (the
+   pattern, else the trading hours) with contracted hours first; it applies directly, as unpublished
+   changes, because the manager asked for exactly that and staff see nothing until publishing. The
+   same menu gains "Remove visible shifts" (the shifts on screen, after the team filter).
+6. *Demand on the grid.* With trading hours set, each day header shows rostered hours against the
+   hours the staff numbers need ("21h / 17h").
+7. *Conversation.* Kept in the browser tab's session storage per business and period, never on the
+   server, so it survives a refresh and the roster appearing after approval; the panel opens by
+   itself when there is one.
+8. *Audit.* `ai_assist` rows with `surface: 'roster_agent'` and `action: 'build' | 'chat' |
+   'feedback'`; `ai_approve` for applied fills; `removeShifts` writes one `delete` row listing the
+   shift ids and why. Never notes, replies or names.
+
+**Consequences.**
+- Staff availability beyond leave, roster templates and per-hour demand forecasts are still not
+  modelled: "figures it out" is only as good as the last four weeks, and cover is measured against
+  one staff count per day.
+- Instant build fills vacant shifts by fair hours with contracted hours first; a cost or
+  reliability order needs the agent's plan.
+- A conversation lasts for the browser tab's session; a manager on another device starts afresh.

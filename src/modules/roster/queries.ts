@@ -67,6 +67,68 @@ export async function getRosterForDate(
   return row ?? null;
 }
 
+/** One roster by id, for someone who manages rosters. */
+export async function getRoster(ctx: TenantContext, id: string): Promise<RosterSummary | null> {
+  requirePermission(ctx, 'rosters.manage');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select(summary)
+      .from(rosters)
+      .where(and(eq(rosters.tenantId, ctx.tenantId), eq(rosters.id, id), isNull(rosters.deletedAt)))
+      .limit(1),
+  );
+  return row ?? null;
+}
+
+/** Which roster each of these live shifts is on, for someone who manages rosters. */
+export async function rostersOfShifts(
+  ctx: TenantContext,
+  shiftIds: string[],
+): Promise<Map<string, string>> {
+  requirePermission(ctx, 'rosters.manage');
+  if (shiftIds.length === 0) return new Map();
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({ id: rosterShifts.id, rosterId: rosterShifts.rosterId })
+      .from(rosterShifts)
+      .where(
+        and(
+          eq(rosterShifts.tenantId, ctx.tenantId),
+          inArray(rosterShifts.id, shiftIds),
+          isNull(rosterShifts.deletedAt),
+        ),
+      ),
+  );
+  return new Map(rows.map((row) => [row.id, row.rosterId]));
+}
+
+/**
+ * Rosters covering any of the days from `from` to `to`, both inclusive, that the person may see:
+ * one query where looking day by day would take one per day.
+ */
+export async function listRostersBetween(
+  ctx: TenantContext,
+  from: string,
+  to: string,
+): Promise<RosterSummary[]> {
+  requirePermission(ctx, 'rosters.view');
+  return withRls(ctx, (tx) =>
+    tx
+      .select(summary)
+      .from(rosters)
+      .where(
+        and(
+          eq(rosters.tenantId, ctx.tenantId),
+          isNull(rosters.deletedAt),
+          lte(rosters.startsOn, to),
+          gte(rosters.endsOn, from),
+          hasPermission(ctx, 'rosters.manage') ? undefined : eq(rosters.status, 'published'),
+        ),
+      )
+      .orderBy(asc(rosters.startsOn)),
+  );
+}
+
 /** Whether an earlier roster exists to copy shifts from when creating one starting `startsOn`. */
 export async function hasEarlierRoster(ctx: TenantContext, startsOn: string): Promise<boolean> {
   requirePermission(ctx, 'rosters.manage');
@@ -349,4 +411,76 @@ export async function listRosterLeave(
       ),
   );
   return rows.map((row) => ({ ...row, status: row.status as RosterLeave['status'] }));
+}
+
+/**
+ * Contracted weekly hours of full- and part-time staff, from their newest accepted contract, for
+ * the roster agent's "contracted hours first" (ADR-079). Casuals and contractors have none.
+ * Contracts are employee records, so only someone who manages them gets an answer.
+ */
+export async function listContractedMinutes(
+  ctx: TenantContext,
+): Promise<Record<string, number> | null> {
+  if (!hasPermission(ctx, 'rosters.manage') || !hasPermission(ctx, 'employees.manage')) {
+    return null;
+  }
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        userId: employees.userId,
+        employmentType: employmentContracts.employmentType,
+        hoursPerWeek: employmentContracts.hoursPerWeek,
+      })
+      .from(employmentContracts)
+      .innerJoin(
+        employees,
+        and(
+          eq(employees.tenantId, employmentContracts.tenantId),
+          eq(employees.id, employmentContracts.employeeId),
+        ),
+      )
+      .where(
+        and(
+          eq(employmentContracts.tenantId, ctx.tenantId),
+          eq(employmentContracts.status, 'accepted'),
+          isNull(employmentContracts.deletedAt),
+          isNull(employees.deletedAt),
+          isNotNull(employees.userId),
+        ),
+      )
+      .orderBy(desc(employmentContracts.acceptedAt)),
+  );
+  const minutes: Record<string, number> = {};
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (!row.userId || seen.has(row.userId)) continue;
+    seen.add(row.userId);
+    if (row.employmentType !== 'full_time' && row.employmentType !== 'part_time') continue;
+    const hours = Number(row.hoursPerWeek ?? 0);
+    if (hours > 0) minutes[row.userId] = Math.round(hours * 60);
+  }
+  return minutes;
+}
+
+/** The latest rosters that end before `before`, newest first, to copy one from. */
+export async function listEarlierRosters(
+  ctx: TenantContext,
+  before: string,
+  limit = 8,
+): Promise<RosterSummary[]> {
+  requirePermission(ctx, 'rosters.manage');
+  return withRls(ctx, (tx) =>
+    tx
+      .select(summary)
+      .from(rosters)
+      .where(
+        and(
+          eq(rosters.tenantId, ctx.tenantId),
+          isNull(rosters.deletedAt),
+          lt(rosters.endsOn, before),
+        ),
+      )
+      .orderBy(desc(rosters.startsOn))
+      .limit(limit),
+  );
 }

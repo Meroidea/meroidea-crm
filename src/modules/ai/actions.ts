@@ -9,12 +9,26 @@ import { runAssistant } from './agent';
 import { chaseOverdueInvoices, draftInvoiceWithMeroAI } from './meroai-invoices';
 import { buildRosterWithMeroAI } from './meroai-roster';
 import {
+  applyVacantFill,
+  buildRosterWithAgent,
+  checkRoster,
+  instantBuild,
+  planVacantFill,
+} from './roster-agent';
+import { chatAboutRoster } from './roster-chat';
+import {
   approveNoteSchema,
   approveRosterSchema,
   assistantRequestSchema,
   meroAIInvoiceDraftSchema,
   meroAIRosterSchema,
+  rosterAgentBuildSchema,
+  rosterChatSchema,
+  rosterFeedbackSchema,
+  rosterIdInputSchema,
+  vacantFillSchema,
 } from './schemas';
+import { recordRosterFeedback } from './service';
 import * as approvals from './service';
 
 /**
@@ -60,4 +74,44 @@ export const draftInvoiceWithMeroAIAction = authedAction(
 export const chaseOverdueInvoicesAction = authedAction(
   { permission: 'invoices.manage', input: z.object({}) },
   (ctx) => chaseOverdueInvoices(ctx),
+);
+
+/** The roster agent's plan from its start form (ADR-079); a preview, saved only on approval. */
+export const buildRosterWithAgentAction = authedAction(
+  { permission: 'rosters.manage', input: rosterAgentBuildSchema },
+  (ctx, input) => buildRosterWithAgent(ctx, input),
+);
+
+/** A follow-up to the roster agent in words; answers, or a proposal to confirm. */
+export const chatAboutRosterAction = authedAction(
+  { permission: 'rosters.manage', input: rosterChatSchema },
+  (ctx, input) => chatAboutRoster(ctx, input),
+);
+
+/** The agent's check of a saved roster: vacant shifts, gaps in cover, leave, hours. */
+export const checkRosterAction = authedAction(
+  { permission: 'rosters.manage', input: rosterIdInputSchema },
+  (ctx, input) => checkRoster(ctx, input.rosterId),
+);
+
+/** Who could take each vacant shift; nothing saved. */
+export const planVacantFillAction = authedAction(
+  { permission: 'rosters.manage', input: rosterIdInputSchema },
+  (ctx, input) => planVacantFill(ctx, input.rosterId),
+);
+
+export const applyVacantFillAction = authedAction(
+  { permission: 'rosters.manage', input: vacantFillSchema, revalidate: ['/roster'] },
+  (ctx, input) => applyVacantFill(ctx, input),
+);
+
+/** Instant build from the roster's Actions menu: no model, applied as unpublished changes. */
+export const instantBuildAction = authedAction(
+  { permission: 'rosters.manage', input: rosterIdInputSchema, revalidate: ['/roster'] },
+  (ctx, input) => instantBuild(ctx, input.rosterId),
+);
+
+export const rosterFeedbackAction = authedAction(
+  { permission: 'ai.use', input: rosterFeedbackSchema },
+  (ctx, input) => recordRosterFeedback(ctx, input),
 );

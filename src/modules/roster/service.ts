@@ -32,6 +32,8 @@ import {
   type CopyShiftInput,
   type CreateRosterInput,
   type PublishRosterInput,
+  type ReassignShiftInput,
+  type RemoveShiftsInput,
   type SaveRulesInput,
   type SaveShiftInput,
   type SaveTeamInput,
@@ -912,5 +914,105 @@ export async function removeHoliday(ctx: TenantContext, id: string): Promise<{ i
     if (!removed) throw new AppError('NOT_FOUND', 'That holiday was not found.');
     await audit(tx, ctx, { action: 'delete', entityType: 'public_holiday', entityId: id });
     return removed;
+  });
+}
+
+/**
+ * Removes several shifts of one roster at once: "Remove visible shifts", and the roster agent
+ * replacing a period (ADR-079). All or nothing, in one transaction. Like removing one shift, a
+ * removal staff have already been shown is kept as a change to announce when publishing.
+ */
+export async function removeShifts(
+  ctx: TenantContext,
+  input: RemoveShiftsInput,
+): Promise<{ removed: number }> {
+  requirePermission(ctx, 'rosters.manage');
+  const ids = [...new Set(input.shiftIds)];
+  return withRls(ctx, async (tx) => {
+    const roster = await loadRoster(tx, ctx, input.rosterId);
+    assertNotAuthorised(roster);
+    const rows = await tx
+      .select({ id: rosterShifts.id, publishedAt: rosterShifts.publishedAt })
+      .from(rosterShifts)
+      .where(
+        and(
+          eq(rosterShifts.tenantId, ctx.tenantId),
+          eq(rosterShifts.rosterId, roster.id),
+          inArray(rosterShifts.id, ids),
+          isNull(rosterShifts.deletedAt),
+        ),
+      );
+    if (rows.length !== ids.length) {
+      throw new AppError(
+        'CONFLICT',
+        'Some of those shifts have changed or are not on this roster. Refresh and try again.',
+      );
+    }
+    const now = new Date();
+    const seen = rows.filter((row) => row.publishedAt !== null).map((row) => row.id);
+    const unseen = rows.filter((row) => row.publishedAt === null).map((row) => row.id);
+    const inRoster = and(
+      eq(rosterShifts.tenantId, ctx.tenantId),
+      eq(rosterShifts.rosterId, roster.id),
+    );
+    if (seen.length > 0) {
+      await tx
+        .update(rosterShifts)
+        .set({ deletedAt: now, unpublishedChanges: true, updatedBy: ctx.userId })
+        .where(and(inRoster, inArray(rosterShifts.id, seen)));
+    }
+    if (unseen.length > 0) {
+      await tx
+        .update(rosterShifts)
+        .set({ deletedAt: now, unpublishedChanges: false, updatedBy: ctx.userId })
+        .where(and(inRoster, inArray(rosterShifts.id, unseen)));
+    }
+    await audit(tx, ctx, {
+      action: 'delete',
+      entityType: 'roster_shift',
+      entityId: roster.id,
+      context: { rosterId: roster.id, removedShifts: ids, reason: input.reason },
+    });
+    return { removed: rows.length };
+  });
+}
+
+/**
+ * Gives a shift to someone else, or leaves it vacant, keeping its day, times, team, breaks and
+ * note: the roster agent's "give Sam's Friday to Alex" (ADR-079). Goes through saveShift, so every
+ * rule a manager's own edit meets (active member, in the team, no overlap) is met here too.
+ */
+export async function reassignShift(
+  ctx: TenantContext,
+  input: ReassignShiftInput,
+): Promise<{ id: string }> {
+  requirePermission(ctx, 'rosters.manage');
+  const [shift] = await withRls(ctx, (tx) =>
+    tx
+      .select()
+      .from(rosterShifts)
+      .where(
+        and(
+          eq(rosterShifts.tenantId, ctx.tenantId),
+          eq(rosterShifts.id, input.shiftId),
+          isNull(rosterShifts.deletedAt),
+        ),
+      )
+      .limit(1),
+  );
+  if (!shift) throw new AppError('NOT_FOUND', 'That shift was not found.');
+  const timezone = ctx.tenant.timezone;
+  const start = instantToZoned(timezone, shift.startsAt);
+  return saveShift(ctx, {
+    id: shift.id,
+    rosterId: shift.rosterId,
+    userId: input.userId,
+    teamId: shift.teamId,
+    date: start.date,
+    startTime: start.time,
+    endTime: instantToZoned(timezone, shift.endsAt).time,
+    breaks: shift.breaks,
+    autoBreaks: shift.autoBreaks,
+    note: shift.note,
   });
 }
