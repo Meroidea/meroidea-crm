@@ -22,7 +22,7 @@ export type AuthoriseSource = {
     endTime: string | null;
     breakMinutes: number;
     status: 'pending' | 'approved' | 'rejected';
-    source: 'clock' | 'manual';
+    source: 'clock' | 'manual' | 'roster';
   } | null;
   /** The viewer may approve this person's time (not their own, unless they are the Admin). */
   canApprove: boolean;

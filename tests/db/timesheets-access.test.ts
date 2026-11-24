@@ -18,6 +18,7 @@ import { createRosterSchema, publishRosterSchema, saveShiftSchema } from '@/modu
 import { createRoster, publishRoster, saveShift } from '@/modules/roster/service';
 import { workedMinutes } from '@/modules/timesheets/minutes';
 import { getOpenEntry, listTimeEntries } from '@/modules/timesheets/queries';
+import { getTimesheet } from '@/modules/timesheets/sheet';
 import { manualEntrySchema } from '@/modules/timesheets/schemas';
 import {
   clockIn,
@@ -261,6 +262,10 @@ describe('paying from timesheets', () => {
     const [slip] = await listPayslipsForRoster(owner, rosterId);
     // 6h30m at 30.00 = 195.00, not the 8 rostered hours.
     expect(slip).toMatchObject({ minutes: 390, gross: '195.00', superAmount: '23.40' });
+    // Paid from approved time: nothing is added from the roster (ADR-083).
+    const fromRoster = await adminDb().execute(sql`
+      select count(*)::int as n from time_entries where tenant_id = ${alphaTenant} and source = 'roster'`);
+    expect((fromRoster as unknown as { n: number }[])[0]?.n).toBe(0);
   });
 
   it('time in an authorised pay period can no longer change', async () => {
@@ -272,6 +277,86 @@ describe('paying from timesheets', () => {
     expect(await code(saveManualEntry(owner, manual('2024-06-06', '09:00', '10:00')))).toBe(
       'CONFLICT',
     );
+  });
+});
+
+describe('paying from the roster shows in Timesheets (ADR-083)', () => {
+  const PAID = { from: '2024-06-17', to: '2024-06-23' };
+  let rosterId: string;
+
+  beforeAll(async () => {
+    rosterId = (
+      await createRoster(owner, createRosterSchema.parse({ startsOn: PAID.from, span: 'week' }))
+    ).id;
+    for (const [userId, date] of [
+      [casey.userId, '2024-06-17'],
+      [drew.userId, '2024-06-18'],
+    ] as const) {
+      await saveShift(
+        owner,
+        saveShiftSchema.parse({ rosterId, userId, date, startTime: '09:00', endTime: '17:00' }),
+      );
+    }
+    await publishRoster(owner, publishRosterSchema.parse({ id: rosterId }));
+  }, 60_000);
+
+  it('before it is authorised, a finished shift with no time says nobody clocked in', async () => {
+    const sheet = await getTimesheet(casey, PAID.from);
+    expect(sheet.locked).toBe(false);
+    expect(sheet.people.map((person) => person.userId)).toEqual([casey.userId]);
+    expect(sheet.people[0]?.rows.map((row) => row.status)).toEqual(['no_clock']);
+  });
+
+  it('authorising with rostered hours records each paid shift as approved time', async () => {
+    await authoriseRoster(
+      owner,
+      authoriseRosterSchema.parse({
+        rosterId,
+        paymentDate: '2024-06-26',
+        superRate: '12',
+        employerDetails: 'Clock Alpha Pty Ltd',
+        hoursFrom: 'roster',
+      }),
+    );
+    const recorded = (await adminDb().execute(sql`
+      select user_id, status, source, break_minutes from time_entries
+      where tenant_id = ${alphaTenant} and source = 'roster' order by clock_in`)) as unknown as {
+      user_id: string;
+      status: string;
+      source: string;
+      break_minutes: number;
+    }[];
+    expect(recorded.map((row) => [row.user_id, row.status])).toEqual([
+      [casey.userId, 'approved'],
+      [drew.userId, 'approved'],
+    ]);
+  });
+
+  it('staff see their own authorised hours, and nobody else’s', async () => {
+    const sheet = await getTimesheet(casey, PAID.from);
+    expect(sheet).toMatchObject({ locked: true, everyone: false });
+    expect(sheet.people.map((person) => person.userId)).toEqual([casey.userId]);
+    expect(sheet.people[0]?.rows[0]).toMatchObject({ status: 'authorised', source: 'roster' });
+    expect(sheet.people[0]?.approvedMinutes).toBeGreaterThan(0);
+  });
+
+  it('a manager sees everyone’s authorised timesheet', async () => {
+    const sheet = await getTimesheet(owner, PAID.from);
+    expect(sheet.everyone).toBe(true);
+    expect(
+      sheet.people
+        .filter((person) => person.rows.length)
+        .map((p) => p.userId)
+        .sort(),
+    ).toEqual([casey.userId, drew.userId].sort());
+    expect(
+      sheet.people.flatMap((person) => person.rows).every((row) => row.status === 'authorised'),
+    ).toBe(true);
+  });
+
+  it('another business sees none of it', async () => {
+    const sheet = await getTimesheet(betaOwner, PAID.from);
+    expect(sheet.people.flatMap((person) => person.rows)).toEqual([]);
   });
 });
 

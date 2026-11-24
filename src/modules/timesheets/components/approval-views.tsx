@@ -18,8 +18,7 @@ import {
 import type { TimesheetPeriod } from '@/modules/timesheets/period';
 
 export const TIMESHEET_VIEWS = [
-  ['mine', 'My time'],
-  ['team', 'Team'],
+  ['mine', 'Timesheet'],
   ['day', 'Approve by day'],
   ['period', 'Pay period'],
 ] as const;
@@ -32,8 +31,8 @@ export function TimesheetViewNav({ view, date }: { view: string; date?: string }
           key={key}
           href={
             key === 'mine'
-              ? '/timesheets'
-              : `/timesheets?view=${key}${date && (key === 'day' || key === 'period') ? `&date=${date}` : ''}`
+              ? `/timesheets${date ? `?date=${date}` : ''}`
+              : `/timesheets?view=${key}${date ? `&date=${date}` : ''}`
           }
           aria-current={view === key ? 'page' : undefined}
           className={cn(

@@ -1256,7 +1256,7 @@ time_entries  id, tenant_id, user_id
               shift_id uuid                 -- fk (tenant_id, shift_id) -> roster_shifts; the rostered shift the time was worked against, set on the daily approval screen
               clock_in timestamptz, clock_out timestamptz   -- null while clocked in; out > in
               break_minutes int (0–720), note
-              source                -- clock | manual
+              source                -- clock | manual | roster (paid from the roster, ADR-083; migration 0085)
               status                -- pending | approved | rejected (approved needs clock_out)
               decided_by, decided_at, created_at, updated_at, created_by, updated_by, deleted_at
               clock_in_distance_m, clock_out_distance_m     -- metres from the business; null when no location applies
@@ -1268,6 +1268,9 @@ Payroll (§7e) can pay a period from approved entries instead of rostered hours
 (`authoriseRoster` with `hoursFrom: 'timesheets'`): it refuses while any entry that started in
 the period is still running or waiting, and skips rejected ones. Once a roster covering a date
 is authorised, entries that started on that date can no longer be added, changed or decided.
+Paid with rostered hours (`hoursFrom: 'roster'`), each paid shift is recorded as an approved
+entry with `source = 'roster'` in the same transaction, unless time is already recorded against
+or over it; migration `0085` did the same for periods authorised before then (ADR-083).
 
 Location (ADR-033): `tenants.location_latitude numeric(9,6)`, `location_longitude numeric(9,6)`
 (both or neither) and `clock_radius_metres int default 10 check 5–1000`, set only by the platform

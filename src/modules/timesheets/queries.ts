@@ -17,7 +17,8 @@ export type TimeEntryRow = {
   clockOut: Date | null;
   breakMinutes: number;
   note: string | null;
-  source: 'clock' | 'manual';
+  /** Clocked, typed in, or paid from the roster (ADR-083). */
+  source: 'clock' | 'manual' | 'roster';
   status: EntryStatus;
 };
 
