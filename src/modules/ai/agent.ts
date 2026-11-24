@@ -26,7 +26,7 @@ const MAX_STEPS = 3;
 const PERSON_PER_HOUR = 30;
 const BUSINESS_PER_DAY = 300;
 
-async function enforceLimits(ctx: TenantContext): Promise<void> {
+export async function enforceLimits(ctx: TenantContext): Promise<void> {
   const person = await consumeRateLimit({
     bucket: `ai:person:${ctx.tenantId}`,
     subject: ctx.userId,
@@ -85,7 +85,8 @@ function systemInstruction(
       ? `You can use these tools: ${toolNames.join(', ')}. Use one when the user asks for what it does. Tools only prepare drafts and previews: nothing is saved, sent or published until the user approves it in the app. Never say you saved, sent, scheduled or published anything.`
       : 'This user has no assistant tools available, so answer questions only.',
     'If the user asks for something no tool covers or they lack access to, say so plainly.',
-    'If something essential is missing (who an invoice is for, prices, dates, shift times), ask one short question instead of guessing. Resolve relative dates like "next week" from today; weeks start on Monday.',
+    'Act rather than ask whenever a sensible default exists. Resolve relative dates like "next week" from today; weeks start on Monday and end on Sunday. To build a roster without shift times, call generate_staff_roster without shiftRequirements: it covers the business\u2019s trading hours, so never ask when a day starts or ends.',
+    'Ask one short question only when something essential has no default (who an invoice is for, or its prices). If the user answers briefly (yes, ok, sure), carry on with the defaults instead of asking again.',
     input.context.contactId
       ? `The user is viewing a ${contact.singular.toLowerCase()} with id ${input.context.contactId}; "this person" or "them" means that one.`
       : '',
@@ -156,12 +157,16 @@ export async function runAssistant(
   const trail: { tool: string; outcome: string }[] = [];
   let auditDetails: Record<string, unknown> = {};
   let steps = 0;
+  // The model that answered the first step answers the rest: a conversation with function calls
+  // carries signatures only the model that wrote them accepts.
+  let model: string | undefined;
+  let fellBack = false;
 
   while (steps < MAX_STEPS) {
     steps += 1;
     // The last step must answer in words, so a request never ends in silence.
     const final = steps === MAX_STEPS && tools.length > 0;
-    const result = await aiService.generate(
+    const answer = await aiService.generate(
       'reasoning',
       contents,
       final
@@ -170,7 +175,13 @@ export async function runAssistant(
             toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } },
           }
         : config,
+      // Choosing a tool and filling in its arguments needs little thinking, and thinking is what
+      // made requests slow: Gemini 3 thinks at length unless told otherwise.
+      { thinking: 'low', timeoutMs: 20_000, model },
     );
+    model = answer.model;
+    fellBack ||= answer.fellBack;
+    const result = answer.response;
     const text = aiService.responseText(result);
     const calls: FunctionCall[] = result.functionCalls ?? [];
     if (calls.length === 0) {
@@ -252,7 +263,8 @@ export async function runAssistant(
       entityType: 'ai_assistant',
       entityId: input.context.contactId ?? input.context.opportunityId ?? null,
       context: {
-        model: aiService.modelFor('reasoning'),
+        model: model ?? aiService.modelFor('reasoning'),
+        fellBack,
         steps,
         tools: trail,
         actionTaken: response.actionTaken,

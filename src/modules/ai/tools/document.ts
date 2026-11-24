@@ -105,6 +105,9 @@ export const analyseDocumentTool: ToolDefinition<Args> = {
       ],
       jsonSchema: summaryJsonSchema,
       schema: summarySchema,
+      // Reading a whole document carefully is worth a little more time than routing a request.
+      thinking: 'medium',
+      timeoutMs: 45_000,
     });
     const artifact: DocumentSummaryArtifact = {
       kind: 'document_summary',

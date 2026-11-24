@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -6,7 +6,9 @@ import { EmptyState } from '@/components/data/empty-state';
 import { PageHeader } from '@/components/data/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { addDaysToDate, mondayOf, zonedToday } from '@/lib/dates';
+import { addDaysToDate, daysBetweenDates, mondayOf, zonedToday } from '@/lib/dates';
+import { MeroAIRosterCard } from '@/modules/ai/components/meroai-roster';
+import { rosterStrategyOptions } from '@/modules/ai/roster-planner';
 import { listActiveMembers } from '@/modules/members/queries';
 import { CreateRosterCard } from '@/modules/roster/components/create-roster-card';
 import { RosterBoard } from '@/modules/roster/components/roster-board';
@@ -23,6 +25,7 @@ import {
   listRosterTeams,
 } from '@/modules/roster/queries';
 import { rosterPageParamsSchema } from '@/modules/roster/schemas';
+import { isAiConfigured } from '@/server/ai';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'Roster' };
@@ -32,6 +35,10 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
   requirePermission(ctx, 'rosters.view');
   const canManage = hasPermission(ctx, 'rosters.manage');
   const canPay = hasPermission(ctx, 'payroll.manage');
+  // MeroAI builds rosters for whoever can manage them, once the platform owner has switched the
+  // assistant on for this business (ADR-076).
+  const meroAI = canManage && hasPermission(ctx, 'ai.use');
+  const canEditSettings = hasPermission(ctx, 'settings.manage');
   const today = zonedToday(ctx.tenant.timezone);
   const params = rosterPageParamsSchema.parse(await searchParams);
   const date = params.date ?? today;
@@ -53,15 +60,17 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
   if (roster) {
     const wholeRoster = canSeeWholeRoster(ctx);
     const editable = canManage && !roster.authorisedAt;
-    const [shifts, everyone, teams, rules, rates, leave, removed] = await Promise.all([
-      listRosterShifts(ctx, roster.id),
-      listActiveMembers(ctx),
-      listRosterTeams(ctx),
-      getRosterRules(ctx),
-      listRosterRates(ctx),
-      listRosterLeave(ctx, roster.startsOn, roster.endsOn),
-      editable ? listRemovedShifts(ctx, roster.id) : [],
-    ]);
+    const [shifts, everyone, teams, rules, rates, leave, removed, meroAIOptions] =
+      await Promise.all([
+        listRosterShifts(ctx, roster.id),
+        listActiveMembers(ctx),
+        listRosterTeams(ctx),
+        getRosterRules(ctx),
+        listRosterRates(ctx),
+        listRosterLeave(ctx, roster.startsOn, roster.endsOn),
+        editable ? listRemovedShifts(ctx, roster.id) : [],
+        meroAI && editable ? rosterStrategyOptions(ctx, roster.startsOn) : null,
+      ]);
     // General staff get a roster of one: themselves.
     const people = wholeRoster
       ? everyone
@@ -109,6 +118,32 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
             </p>
           )
         )}
+        {meroAIOptions && (
+          <details className="group rounded-xl border border-primary/30 bg-card">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
+              <Sparkles aria-hidden className="size-4 text-primary" />
+              Fill this roster with MeroAI
+              <span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">
+                Copy last week, lowest wage cost, most productive or even hours
+              </span>
+            </summary>
+            <div className="border-t p-4">
+              <MeroAIRosterCard
+                defaultStart={roster.startsOn}
+                fixed={{
+                  startsOn: roster.startsOn,
+                  span:
+                    daysBetweenDates(roster.startsOn, roster.endsOn) + 1 > 7 ? 'fortnight' : 'week',
+                }}
+                options={meroAIOptions.options}
+                tradingHoursSet={meroAIOptions.tradingHoursSet}
+                canEditSettings={canEditSettings}
+                canReadNotes={isAiConfigured()}
+                className="border-0 p-0 shadow-none"
+              />
+            </div>
+          </details>
+        )}
         <RosterBoard
           roster={roster}
           shifts={shifts}
@@ -128,7 +163,10 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
   }
 
   const weekStart = mondayOf(date);
-  const canCopy = canManage ? await hasEarlierRoster(ctx, weekStart) : false;
+  const [canCopy, meroAIOptions] = await Promise.all([
+    canManage ? hasEarlierRoster(ctx, weekStart) : false,
+    meroAI ? rosterStrategyOptions(ctx, weekStart) : null,
+  ]);
 
   return (
     <div className="flex w-full flex-col gap-5">
@@ -155,8 +193,20 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
       </div>
 
       {canManage ? (
-        // Keyed so the form's defaults follow the week being looked at.
-        <CreateRosterCard key={weekStart} defaultStart={weekStart} canCopy={canCopy} />
+        // Keyed so the forms' defaults follow the week being looked at.
+        <div className={meroAIOptions ? 'grid items-start gap-5 lg:grid-cols-2' : undefined}>
+          <CreateRosterCard key={weekStart} defaultStart={weekStart} canCopy={canCopy} />
+          {meroAIOptions && (
+            <MeroAIRosterCard
+              key={`meroai-${weekStart}`}
+              defaultStart={weekStart}
+              options={meroAIOptions.options}
+              tradingHoursSet={meroAIOptions.tradingHoursSet}
+              canEditSettings={canEditSettings}
+              canReadNotes={isAiConfigured()}
+            />
+          )}
+        </div>
       ) : (
         <Card>
           <CardContent>

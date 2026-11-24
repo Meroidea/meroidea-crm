@@ -30,6 +30,7 @@ import {
 import { getAcceptedAgreement } from '@/modules/settings/queries';
 import { workspaceSchema } from '@/modules/settings/schemas';
 import { provisionTenant } from '@/modules/tenants/provision';
+import { getTradingHours } from '@/modules/trading-hours/queries';
 import {
   hasFeature,
   hasPermission,
@@ -116,7 +117,19 @@ beforeAll(async () => {
 
   const created = await createBusiness(
     admin,
-    business({ latitude: '-33.868820', longitude: '151.209290', radiusMetres: '25' }),
+    business({
+      latitude: '-33.868820',
+      longitude: '151.209290',
+      radiusMetres: '25',
+      // Open every day 07:00–15:00 with three on, except closed on Mondays (ADR-076).
+      tradingHours: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+        weekday,
+        open: weekday !== 1,
+        opensAt: weekday === 1 ? '' : '07:00',
+        closesAt: weekday === 1 ? '' : '15:00',
+        staffNeeded: 3,
+      })),
+    }),
   );
   cafeTenant = created.tenantId;
   cafeOwnerId = await ownerOf(cafeTenant);
@@ -136,6 +149,30 @@ afterAll(async () => {
   for (const { tenantId, userIds } of cleanup) await destroyWorkspace(tenantId, userIds);
   await adminDb().execute(sql`delete from service_agreements where id = ${agreementId}`);
 }, 60_000);
+
+const rows = async <T>(query: ReturnType<typeof sql>) =>
+  (await adminDb().execute(query)) as unknown as T[];
+
+describe('trading hours at onboarding', () => {
+  it('are saved with the business, and its admin can read them', async () => {
+    const saved = await rows<{
+      weekday: number;
+      opens_at: string | null;
+      staff_needed: number;
+    }>(sql`
+      select weekday, opens_at::text, staff_needed from trading_hours
+      where tenant_id = ${cafeTenant} order by weekday`);
+    expect(saved).toHaveLength(7);
+    expect(saved.find((day) => day.weekday === 1)?.opens_at).toBeNull();
+    expect(saved.find((day) => day.weekday === 2)).toMatchObject({
+      opens_at: '07:00:00',
+      staff_needed: 3,
+    });
+    expect((await getTradingHours(cafeOwner)).filter((day) => day.opensAt !== null)).toHaveLength(
+      6,
+    );
+  });
+});
 
 describe('onboarding a business', () => {
   it('creates a workspace with who and where the business is, its features and an owner login', async () => {

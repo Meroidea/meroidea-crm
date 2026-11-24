@@ -4,11 +4,18 @@ import { sniffAttachmentType } from '@/modules/ai/attachments';
 import { decimalString, invoiceTotals, lineTotal } from '@/modules/ai/invoice-math';
 import {
   backoffDelayMs,
+  isTimeout,
   serverRetryDelayMs,
+  shouldFallBack,
   withBackoff,
   type RetryOptions,
 } from '@/modules/ai/retry';
-import { solveRoster, weekdayOf, type SolverInput } from '@/modules/ai/roster-solver';
+import {
+  requirementsFromWeek,
+  solveRoster,
+  weekdayOf,
+  type SolverInput,
+} from '@/modules/ai/roster-solver';
 
 const apiError = (status: number, message = 'failed') =>
   Object.assign(new Error(message), { status });
@@ -302,5 +309,74 @@ describe('roster solver', () => {
     expect(result.shifts.map((shift) => shift.userId)).toEqual(['cai', null]);
     expect(result.unfilled).toBe(1);
     expect(result.warnings[0]).toContain('left vacant');
+  });
+});
+
+describe('when another model should answer', () => {
+  const error = (status: number) => Object.assign(new Error('x'), { status });
+
+  it('falls back on quota, overload and timeouts only', () => {
+    expect(shouldFallBack(error(429))).toBe(true);
+    expect(shouldFallBack(error(503))).toBe(true);
+    expect(shouldFallBack(error(504))).toBe(true);
+    expect(shouldFallBack(Object.assign(new Error('x'), { name: 'TimeoutError' }))).toBe(true);
+    expect(shouldFallBack(error(400))).toBe(false);
+    expect(shouldFallBack(error(403))).toBe(false);
+    expect(isTimeout(error(503))).toBe(false);
+  });
+
+  it('never retries a timed-out call on the same model', async () => {
+    const run = vi.fn(async () => {
+      throw error(504);
+    });
+    await expect(
+      withBackoff(run, { retries: 2, baseDelayMs: 1, maxDelayMs: 1 }),
+    ).rejects.toMatchObject({
+      status: 504,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('repeating last week', () => {
+  // 2026-11-23 is a Monday.
+  it('turns a week of shifts into requirements, day for day', () => {
+    const week = [
+      { date: '2026-11-23', startTime: '07:00', endTime: '15:00', teamId: null },
+      { date: '2026-11-23', startTime: '07:00', endTime: '15:00', teamId: null },
+      { date: '2026-11-24', startTime: '07:00', endTime: '15:00', teamId: null },
+      { date: '2026-11-24', startTime: '07:00', endTime: '15:00', teamId: null },
+      { date: '2026-11-28', startTime: '10:00', endTime: '16:00', teamId: 'bar' },
+    ];
+    expect(requirementsFromWeek(week)).toEqual([
+      {
+        weekdays: ['mon', 'tue'],
+        startTime: '07:00',
+        endTime: '15:00',
+        staffNeeded: 2,
+        teamId: null,
+        note: null,
+      },
+      {
+        weekdays: ['sat'],
+        startTime: '10:00',
+        endTime: '16:00',
+        staffNeeded: 1,
+        teamId: 'bar',
+        note: null,
+      },
+    ]);
+  });
+
+  it('keeps days with different head counts apart', () => {
+    const week = [
+      { date: '2026-11-23', startTime: '09:00', endTime: '17:00', teamId: null },
+      { date: '2026-11-24', startTime: '09:00', endTime: '17:00', teamId: null },
+      { date: '2026-11-24', startTime: '09:00', endTime: '17:00', teamId: null },
+    ];
+    expect(requirementsFromWeek(week).map((item) => [item.weekdays, item.staffNeeded])).toEqual([
+      [['mon'], 1],
+      [['tue'], 2],
+    ]);
   });
 });

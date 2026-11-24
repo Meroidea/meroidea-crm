@@ -53,7 +53,7 @@ vi.mock('@/server/ai', () => {
         model.calls.push({ tier, contents: structuredClone(contents), config });
         const next = model.queue.shift();
         if (!next) throw new Error('No model response queued');
-        return next;
+        return { response: next, model: modelFor(tier), fellBack: false };
       },
       generateJson: async () => {
         throw new Error('This test does not expect a structured model call');
@@ -435,6 +435,40 @@ describe('rosters', () => {
     });
     expect(second.saved).toBe(0);
     expect(second.skipped).toHaveLength(11);
+  });
+
+  it('with no shift times, repeats the week before instead of asking', async () => {
+    // The previous test added Monday–Friday 07:00–15:00 for two, and Monday 09:00–13:00 on Floor.
+    const next = addDaysToDate(monday, 7);
+    const preview = await generateStaffRosterTool.run(
+      { startDate: next, endDate: addDaysToDate(next, 6) },
+      toolContext(owner),
+    );
+    expect(preview.kind).toBe('artifact');
+    const artifact = (preview as { artifact: RosterPreviewArtifact }).artifact;
+    expect(artifact.shifts).toHaveLength(11);
+    expect(artifact.warnings[0]).toContain('repeat the week before');
+    expect(artifact.shifts.filter((shift) => shift.teamName === 'Floor')).toEqual([
+      expect.objectContaining({
+        date: next,
+        startTime: '09:00',
+        endTime: '13:00',
+        userId: max.userId,
+      }),
+    ]);
+    // Nothing on the weekend, as the week before had nothing.
+    expect(artifact.shifts.every((shift) => shift.date <= addDaysToDate(next, 4))).toBe(true);
+  });
+
+  it('with no shift times, no trading hours and no week before, asks for the trading hours rather than inventing shifts', async () => {
+    const empty = addDaysToDate(monday, 70);
+    const result = await generateStaffRosterTool.run(
+      { startDate: empty, endDate: addDaysToDate(empty, 6) },
+      toolContext(owner),
+    );
+    expect(result).toMatchObject({ kind: 'feedback' });
+    // It points the manager at trading hours, so it never has to ask when a day starts (ADR-076).
+    expect(JSON.stringify(result)).toContain('Set your trading hours');
   });
 
   it('staff cannot add shifts from a preview', async () => {

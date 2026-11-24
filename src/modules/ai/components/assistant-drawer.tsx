@@ -21,6 +21,20 @@ import { MAX_HISTORY, MAX_PROMPT_LENGTH } from '../schemas';
 import type { AssistantArtifact } from '../types';
 import { ArtifactCard } from './artifact-cards';
 
+/** Shown while a request runs; mounted per request, so its clock starts at zero each time. */
+function Working() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setSeconds((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <p className="mr-4 w-fit animate-pulse rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+      {seconds < 6 ? 'Thinking…' : `Still working… ${seconds}s`}
+    </p>
+  );
+}
+
 type Message = {
   id: number;
   role: 'user' | 'assistant';
@@ -181,7 +195,7 @@ export function AssistantDrawer({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="AI assistant" title="AI assistant">
+        <Button variant="ghost" size="icon" aria-label="MeroAI" title="MeroAI">
           <Sparkles aria-hidden />
         </Button>
       </SheetTrigger>
@@ -191,7 +205,7 @@ export function AssistantDrawer({
       >
         <SheetHeader className="border-b pr-12">
           <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" aria-hidden /> AI assistant
+            <Sparkles className="size-4 text-primary" aria-hidden /> MeroAI
           </SheetTitle>
           <SheetDescription>
             Drafts and previews only. Nothing is saved or sent until you approve it.
@@ -239,11 +253,7 @@ export function AssistantDrawer({
               </div>
             ),
           )}
-          {pending && (
-            <p className="mr-4 w-fit animate-pulse rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-              Thinking…
-            </p>
-          )}
+          {pending && <Working />}
           <div ref={endRef} />
         </div>
 

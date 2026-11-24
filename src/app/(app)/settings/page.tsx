@@ -59,6 +59,8 @@ import { ACCOUNT_STATUS_LABELS, PLATFORM_LABELS } from '@/modules/social/format'
 import { listAccounts } from '@/modules/social/queries';
 import { BusinessForm } from '@/modules/settings/components/business-form';
 import { WorkspaceForm } from '@/modules/settings/components/workspace-form';
+import { TradingHoursForm } from '@/modules/trading-hours/components/trading-hours-editor';
+import { getTradingHours } from '@/modules/trading-hours/queries';
 import { getAcceptedAgreement, getSettingsLists } from '@/modules/settings/queries';
 import {
   hasFeature,
@@ -113,7 +115,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
       ? params.entity
       : 'contact';
   const needsPeople = ['routing', 'pipeline'].includes(tab);
-  const [lists, agreement, leadConfig, pipelines, itemPipelines, members, teams] =
+  const [lists, agreement, leadConfig, pipelines, itemPipelines, members, teams, tradingDays] =
     await Promise.all([
       getSettingsLists(ctx),
       getAcceptedAgreement(ctx),
@@ -122,6 +124,7 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
       crm && tab === 'pipeline' ? getPipelineSummaries(ctx, 'opportunity_item') : [],
       needsPeople ? listActiveMembers(ctx) : [],
       needsPeople ? getTeams(ctx) : [],
+      tab === 'general' ? getTradingHours(ctx) : [],
     ]);
   const selectedPipelineId =
     [...pipelines, ...itemPipelines].find((candidate) => candidate.id === pipelineParam)?.id ??
@@ -244,6 +247,16 @@ export default async function SettingsPage({ searchParams }: PageProps<'/setting
                     country: ctx.tenant.country ?? '',
                   }}
                 />
+              </CardContent>
+              <CardHeader className="border-t pt-6">
+                <CardTitle>Trading hours</CardTitle>
+                <CardDescription>
+                  When you are open and how many staff you need on. MeroAI builds rosters to cover
+                  these hours, so it never has to ask when your day starts or ends.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TradingHoursForm days={tradingDays} />
               </CardContent>
               <CardHeader className="border-t pt-6">
                 <CardTitle>Contact details</CardTitle>

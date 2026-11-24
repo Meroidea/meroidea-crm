@@ -20,6 +20,7 @@ import { AppError } from '@/lib/errors';
 import { FEATURES, isFeatureKey, type FeatureKey } from '@/lib/features';
 import { notify } from '@/modules/notifications/service';
 import { provisionTenant } from '@/modules/tenants/provision';
+import { writeTradingWeek } from '@/modules/trading-hours/service';
 import { createLinkToken } from '@/server/crypto';
 import { adminDb } from '@/server/db/admin';
 import { sendEmail } from '@/server/email';
@@ -242,6 +243,9 @@ export async function createBusiness(
             clockRadiusMetres: input.radiusMetres,
           })
           .where(eq(tenants.id, tenantId));
+        if (input.tradingHours) {
+          await writeTradingWeek(tx, tenantId, input.tradingHours, admin.userId);
+        }
         await tx.insert(tenantAgreements).values({
           tenantId,
           agreementId: agreement.id,
@@ -262,6 +266,7 @@ export async function createBusiness(
             onboardedBy: 'platform',
             features: input.features,
             clockLocation: input.latitude ? 'set' : 'none',
+            tradingHours: input.tradingHours ? 'set' : 'none',
             agreementSent: true,
           },
         });

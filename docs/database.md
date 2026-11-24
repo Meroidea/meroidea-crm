@@ -1449,6 +1449,22 @@ role. Writes happen only when a person approves a draft, through the owning modu
 - `public_rate_limits` buckets `ai:person:<tenant>` (per person, hourly) and `ai:business`
   (per business, daily) share the one platform key's quota fairly.
 
+## 7m-4. Trading hours 🟢 (migration `0084`, ADR-076)
+
+```
+trading_hours: id, tenant_id, weekday smallint (0 = Sunday … 6 = Saturday), opens_at time null,
+  closes_at time null, staff_needed smallint not null default 1, created_at, updated_at, updated_by
+  unique (tenant_id, weekday), unique (tenant_id, id)
+  check weekday between 0 and 6; check (opens_at is null) = (closes_at is null);
+  check staff_needed between 1 and 50
+```
+When the business trades, one row per weekday, in the business's timezone; no times means closed,
+and a close at or before the open means trading past midnight. Set by the platform owner at
+onboarding (`createBusiness`, in the same transaction as the workspace) and changed by the
+business's admin in Settings → Workspace. MeroAI covers these hours when it builds a roster.
+Business-wide, so no feature switch. RLS: `trading_hours_read` lets every member of the business
+read them; `trading_hours_write` needs `settings.manage`. Grants: select, insert, update, delete.
+
 ## 7n. Questions and concerns 🟢
 
 A question a member of staff sends to managers or to the admin only (ADR-049). Kept as the record

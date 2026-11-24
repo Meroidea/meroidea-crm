@@ -136,6 +136,7 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
     'roster_teams',
     'public_holidays',
     'workforce_settings',
+    'trading_hours',
     'rosters',
     'activities',
     'tasks',

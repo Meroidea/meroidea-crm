@@ -22,6 +22,12 @@ import {
   startSupportAccessAction,
   setBusinessLocationAction,
 } from '@/modules/platform/actions';
+import {
+  checkTradingWeek,
+  toTradingWeekValues,
+  TradingWeekFields,
+} from '@/modules/trading-hours/components/trading-hours-editor';
+import { defaultTradingWeek } from '@/modules/trading-hours/types';
 
 function FeaturePicker({
   value,
@@ -126,6 +132,8 @@ export function NewBusinessForm() {
     radiusMetres: '10',
   });
   const [features, setFeatures] = useState<FeatureKey[]>([...BUSINESS_TYPES[0].features]);
+  const [tradingWeek, setTradingWeek] = useState(() => toTradingWeekValues(defaultTradingWeek()));
+  const [tradingErrors, setTradingErrors] = useState<Record<number, string | undefined>>({});
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<
@@ -154,7 +162,10 @@ export function NewBusinessForm() {
   const submit = () =>
     startTransition(async () => {
       setError(null);
-      const result = await createBusinessAction({ ...values, features });
+      const checked = checkTradingWeek(tradingWeek);
+      setTradingErrors(checked.ok ? {} : checked.errors);
+      if (!checked.ok) return setError(checked.message);
+      const result = await createBusinessAction({ ...values, features, tradingHours: tradingWeek });
       if (!result.ok) {
         setErrors(result.error.fieldErrors ?? {});
         return setError(result.error.message);
@@ -246,6 +257,20 @@ export function NewBusinessForm() {
           Once set, staff can clock in and out only within the radius. Leave empty for no
           restriction; you can add it later on the business’s page.
         </p>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="font-semibold">Trading hours</legend>
+        <p className="text-xs text-muted-foreground">
+          When they are open and how many staff they need on. MeroAI builds their rosters from
+          these, and their admin can change them in Settings.
+        </p>
+        <TradingWeekFields
+          value={tradingWeek}
+          onChange={setTradingWeek}
+          errors={tradingErrors}
+          disabled={isPending}
+        />
       </fieldset>
 
       <fieldset>

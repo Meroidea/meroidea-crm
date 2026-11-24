@@ -2072,6 +2072,19 @@ Every read must stay within the person's business and permissions, and every act
    - Audit rows and rate-limit counters are kept per business.
    - A DB test suite states each of these.
 
+9. *Speed and resilience (after the first week in production).* Gemini 3 thinks at length by
+   default: the first live requests took up to a minute, and one ended in Google's own 504.
+   - The routing step runs at `low` thinking, next steps at `low`, document review at `medium`;
+     the fast model keeps its default.
+   - Every attempt has a deadline (20 s routing, 25 s reasoning, 45 s documents, 15 s fast). A
+     timed-out call is never retried on the same model.
+   - When the reasoning model is out of quota (429), overloaded (503) or too slow (504 or our
+     deadline), the fast model answers instead; free-tier quotas are per model. A conversation
+     that already holds function calls stays on the model that started it, because their
+     signatures are tied to it. The audit row records the model that answered and `fellBack`.
+   - Building a roster without shift times repeats the previous week, day for day; with no week
+     before, the assistant asks. A brief "yes" means carry on with the defaults.
+
 **Consequences.**
 - **Free tier and personal data.** Google's terms let it use prompts and responses on unpaid
   quota to improve its products, and people may review them. Business records (names, activity
@@ -2114,3 +2127,50 @@ record. The project rules forbid changing the cloud database by hand or from a l
   production was ever migrated another way, compare that table with `drizzle/meta/_journal.json`
   before the first run.
 - Preview deployments still have no migrated database of their own.
+
+## ADR-076 — MeroAI in each section, starting with rosters; trading hours
+
+**Context.** The owner wants AI that feels exclusive, premium and efficient: available in each
+section, beside the manual way of doing the same job, rather than one generic chat window. For
+rosters, MeroAI should offer ways of working (copy last week, lowest wages, most productive) and
+never ask when a business's day starts or ends, so trading hours are recorded at onboarding and
+kept up to date by the business's admin.
+
+**Decision.**
+1. *Trading hours.* New table `trading_hours` (migration `0084`): per weekday, open and close
+   times (none = closed; a close before the open runs past midnight) and how many staff should be
+   on. The platform owner fills them in the onboarding form, in the same transaction that creates
+   the business; the admin edits them in Settings → Workspace (`settings.manage`). Everyone in the
+   business can read them. Not tied to a feature. The helpdesk's `business_hours` (ADR-069) stays
+   separate: it holds named calendars for response targets and belongs to the helpdesk feature.
+2. *Ask MeroAI on the roster page.* Beside "Create a roster" sits "Ask MeroAI", and on an open
+   roster a "Fill this roster with MeroAI" panel. Needs `ai.use` and `rosters.manage`. Four ways
+   of working, planned in code by `planRoster` (roster-planner.ts):
+   - *Copy last week:* last week's shifts, offered first to the people who had them; anyone now
+     away or busy is replaced by whoever is free.
+   - *Lowest wage cost:* the cheapest person for each shift, priced exactly as the roster page
+     prices it (`costOfShift`: hourly rate × the day's loading, award loadings included). Only for
+     people who may see pay; people without a rate are rostered last.
+   - *Most productive:* people with the best record over the last four weeks first: worked hours
+     against rostered hours, and tasks finished on time (`productivityScore`). Newcomers sit in the
+     middle. Needs Productivity reports.
+   - *Even hours:* the solver's fair spread.
+   Shifts come from the trading hours (a day longer than eight hours becomes back-to-back
+   shifts, each with the day's staff count), else from last week; with neither, MeroAI says to
+   set trading hours. Every strategy keeps the solver's rules and caps each person at 38 ordinary
+   hours a week. A strategy that cannot run says why and is not swapped for another.
+3. *Efficient by design.* Choosing a strategy calls no model: the roster is instant, free, the
+   same every time and unaffected by model outages. Only words the manager adds ("Sam can't work
+   Friday") go to the fast model, which lists who cannot work when; names are matched to the team
+   in code and anything unmatched is reported. Previews show the estimated wages where the viewer
+   may see pay. Approving goes through `approveRosterPreview` as before.
+4. *The chat tool uses the same planner* (with an optional strategy), so both ways give the same
+   roster. The header chat is now called MeroAI and stays until invoices, documents and replies
+   have their own section-level MeroAI, one module at a time.
+
+**Consequences.**
+- A business onboarded before this has no trading hours until its admin sets them; until then
+  MeroAI repeats last week, or asks for the hours.
+- Staff arriving before opening or leaving after closing, split shifts and per-hour staffing
+  levels are not modelled yet.
+- "Most productive" is only as good as the timesheets and tasks the business records.

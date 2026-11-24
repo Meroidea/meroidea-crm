@@ -4,7 +4,13 @@ import { saveInvoiceSchema } from '@/modules/invoices/schemas';
 import { authedAction } from '@/server/action';
 
 import { runAssistant } from './agent';
-import { approveNoteSchema, approveRosterSchema, assistantRequestSchema } from './schemas';
+import { buildRosterWithMeroAI } from './meroai-roster';
+import {
+  approveNoteSchema,
+  approveRosterSchema,
+  assistantRequestSchema,
+  meroAIRosterSchema,
+} from './schemas';
 import * as approvals from './service';
 
 /**
@@ -32,4 +38,10 @@ export const approveRosterAction = authedAction(
 export const approveNoteAction = authedAction(
   { permission: 'activities.create', input: approveNoteSchema, revalidate: ['/contacts'] },
   (ctx, input) => approvals.approveNote(ctx, input),
+);
+
+/** Ask MeroAI on the roster page: a preview built with the chosen way of working (ADR-076). */
+export const buildRosterWithMeroAIAction = authedAction(
+  { permission: 'rosters.manage', input: meroAIRosterSchema },
+  (ctx, input) => buildRosterWithMeroAI(ctx, input),
 );

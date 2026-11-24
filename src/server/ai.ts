@@ -2,6 +2,7 @@ import 'server-only';
 
 import {
   GoogleGenAI,
+  ThinkingLevel,
   type Content,
   type GenerateContentConfig,
   type GenerateContentResponse,
@@ -9,7 +10,7 @@ import {
 import type { z } from 'zod';
 
 import { AppError } from '@/lib/errors';
-import { errorStatus, withBackoff } from '@/modules/ai/retry';
+import { errorStatus, isTimeout, shouldFallBack, withBackoff } from '@/modules/ai/retry';
 import { serverEnv } from '@/server/env';
 
 /**
@@ -19,9 +20,12 @@ import { serverEnv } from '@/server/env';
  * - `reasoning` for tool calling, rosters, documents and next steps;
  * - `fast` for drafting replies and other short text.
  *
- * Rate limits (429) and overload (503) are retried with backoff, at most twice; after that, or
- * when Google says the quota is gone for the day, the person gets a plain message instead of an
- * error. Nothing a prompt or a reply says is ever logged: only the status code.
+ * Rate limits (429) and overload (503) are retried with backoff, at most twice. Every attempt has
+ * a deadline, and the reasoning model is told how hard to think: Gemini 3 thinks at length by
+ * default, which made a simple request take close to a minute. When the reasoning model is out
+ * of quota, overloaded or too slow, the fast model answers instead (quotas are per model), so a
+ * busy model slows a request down rather than failing it. Only when both fail does the person
+ * get a plain message. Nothing a prompt or a reply says is ever logged: only the status code.
  */
 
 export type ModelTier = 'reasoning' | 'fast';
@@ -57,7 +61,6 @@ function getClient(): GoogleGenAI {
 function toAppError(error: unknown): AppError {
   if (error instanceof AppError) return error;
   const status = errorStatus(error);
-  console.error('[ai] model call failed', { status });
   if (status === 429) {
     return new AppError(
       'RATE_LIMITED',
@@ -70,6 +73,12 @@ function toAppError(error: unknown): AppError {
       'The AI assistant is busy right now. Please try again shortly.',
     );
   }
+  if (isTimeout(error)) {
+    return new AppError(
+      'INTERNAL',
+      'The AI assistant took too long to answer. Please try again, or ask for something smaller.',
+    );
+  }
   if (status === 400 || status === 401 || status === 403) {
     return new AppError(
       'INTERNAL',
@@ -79,17 +88,80 @@ function toAppError(error: unknown): AppError {
   return new AppError('INTERNAL', 'The AI assistant could not answer. Please try again.');
 }
 
+const logFailure = (error: unknown, model: string) =>
+  console.error('[ai] model call failed', {
+    status: errorStatus(error) ?? (isTimeout(error) ? 'timeout' : null),
+    model,
+  });
+
+export type Thinking = 'minimal' | 'low' | 'medium' | 'high';
+
+const THINKING_LEVEL: Record<Thinking, ThinkingLevel> = {
+  minimal: ThinkingLevel.MINIMAL,
+  low: ThinkingLevel.LOW,
+  medium: ThinkingLevel.MEDIUM,
+  high: ThinkingLevel.HIGH,
+};
+
+export type GenerateOptions = {
+  /** How hard the reasoning model thinks; lower is faster. The fast model keeps its own default. */
+  thinking?: Thinking;
+  /** Our deadline for one attempt, in milliseconds. */
+  timeoutMs?: number;
+  /**
+   * Answer with this model and no other. A conversation with function calls stays on the model
+   * that started it: its turns carry signatures only that model accepts.
+   */
+  model?: string;
+};
+
+export type GenerateResult = {
+  response: GenerateContentResponse;
+  model: string;
+  fellBack: boolean;
+};
+
+const DEFAULT_TIMEOUT_MS: Record<ModelTier, number> = { reasoning: 25_000, fast: 15_000 };
+
 async function generate(
   tier: ModelTier,
   contents: Content[],
   config: GenerateContentConfig,
-): Promise<GenerateContentResponse> {
+  options: GenerateOptions = {},
+): Promise<GenerateResult> {
   const ai = getClient();
-  const model = modelFor(tier);
+  const reasoning = modelFor('reasoning');
+  const fallback = modelFor('fast');
+  const primary = options.model ?? modelFor(tier);
+
+  const call = (model: string, timeoutMs: number) =>
+    withBackoff(() =>
+      ai.models.generateContent({
+        model,
+        contents,
+        config: {
+          ...config,
+          abortSignal: AbortSignal.timeout(timeoutMs),
+          ...(model === reasoning && options.thinking
+            ? { thinkingConfig: { thinkingLevel: THINKING_LEVEL[options.thinking] } }
+            : {}),
+        },
+      }),
+    );
+
   try {
-    return await withBackoff(() => ai.models.generateContent({ model, contents, config }));
+    const response = await call(primary, options.timeoutMs ?? DEFAULT_TIMEOUT_MS[tier]);
+    return { response, model: primary, fellBack: false };
   } catch (error) {
-    throw toAppError(error);
+    logFailure(error, primary);
+    if (options.model || primary === fallback || !shouldFallBack(error)) throw toAppError(error);
+    try {
+      const response = await call(fallback, DEFAULT_TIMEOUT_MS.fast);
+      return { response, model: fallback, fellBack: true };
+    } catch (second) {
+      logFailure(second, fallback);
+      throw toAppError(second);
+    }
   }
 }
 
@@ -114,13 +186,18 @@ async function generateJson<T>(
     systemInstruction: string;
     jsonSchema: Record<string, unknown>;
     schema: z.ZodType<T>;
-  },
+  } & Pick<GenerateOptions, 'thinking' | 'timeoutMs'>,
 ): Promise<T> {
-  const response = await generate(tier, request.contents, {
-    systemInstruction: request.systemInstruction,
-    responseMimeType: 'application/json',
-    responseJsonSchema: request.jsonSchema,
-  });
+  const { response } = await generate(
+    tier,
+    request.contents,
+    {
+      systemInstruction: request.systemInstruction,
+      responseMimeType: 'application/json',
+      responseJsonSchema: request.jsonSchema,
+    },
+    { thinking: request.thinking, timeoutMs: request.timeoutMs },
+  );
   let parsed: unknown;
   try {
     parsed = JSON.parse(responseText(response));

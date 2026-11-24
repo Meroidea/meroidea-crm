@@ -176,6 +176,7 @@ export const suggestNextActionsTool: ToolDefinition<Args> = {
       ],
       jsonSchema: suggestionsJsonSchema,
       schema: suggestionsSchema,
+      thinking: 'low',
     });
 
     const byRef = new Map(items.map((item) => [item.ref, item]));
