@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { addDaysToDate, mondayOf, zonedToday } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
+import { runAssistant } from '@/modules/ai/agent';
 import {
   buildRosterWithAgent,
   checkRoster,
@@ -10,7 +11,11 @@ import {
   planVacantFill,
 } from '@/modules/ai/roster-agent';
 import { chatAboutRoster } from '@/modules/ai/roster-chat';
-import { rosterAgentBuildSchema, rosterChatSchema } from '@/modules/ai/schemas';
+import {
+  assistantRequestSchema,
+  rosterAgentBuildSchema,
+  rosterChatSchema,
+} from '@/modules/ai/schemas';
 import { approveRosterPreview } from '@/modules/ai/service';
 import { listRosterShifts } from '@/modules/roster/queries';
 import { removeShiftsSchema } from '@/modules/roster/schemas';
@@ -337,5 +342,48 @@ describe('chatting with the agent', () => {
     const input = rosterChatSchema.parse({ rosterId: roster!.id, prompt: 'who is on Monday?' });
     await expectCode(() => chatAboutRoster(betaOwner, input), 'NOT_FOUND');
     await expectCode(() => chatAboutRoster(staff, input), 'FORBIDDEN');
+  });
+});
+
+describe('the MeroAI drawer on the roster page', () => {
+  const ask = (ctx: TenantContext, prompt: string) =>
+    runAssistant(
+      ctx,
+      assistantRequestSchema.parse({
+        prompt,
+        context: { viewingRoster: true, rosterDate: addDaysToDate(target, 2) },
+      }),
+    );
+
+  it('"delete all the shifts" proposes every shift of the roster on screen, removing none', async () => {
+    const [roster] = await rows<{ id: string }>(sql`
+      select id from rosters where tenant_id = ${alphaTenant} and starts_on = ${target}`);
+    const before = await listRosterShifts(owner, roster!.id);
+    model.call = { name: 'remove_roster_shifts', args: { which: 'all' } };
+    const result = await ask(owner, 'delete all the shifts on roster');
+    expect(result.actionTaken).toBe('remove_roster_shifts');
+    expect(result.artifact?.kind).toBe('remove_shifts');
+    if (result.artifact?.kind !== 'remove_shifts') throw new Error('no proposal');
+    expect(result.artifact.rosterId).toBe(roster!.id);
+    expect([...result.artifact.shiftIds].sort()).toEqual(before.map((shift) => shift.id).sort());
+    expect(await listRosterShifts(owner, roster!.id)).toHaveLength(before.length);
+  });
+
+  it('"delete roster" proposes the roster on screen, deleting nothing', async () => {
+    model.call = { name: 'delete_roster', args: {} };
+    const result = await ask(owner, 'delete roster');
+    expect(result.artifact?.kind).toBe('delete_roster');
+    if (result.artifact?.kind !== 'delete_roster') throw new Error('no proposal');
+    expect(result.artifact.startsOn).toBe(target);
+    const [still] = await rows<{ n: number }>(sql`
+      select count(*)::int as n from rosters where id = ${result.artifact.rosterId} and deleted_at is null`);
+    expect(still?.n).toBe(1);
+  });
+
+  it('another business gets no proposal for these days, and staff cannot ask at all', async () => {
+    model.call = { name: 'remove_roster_shifts', args: { which: 'all' } };
+    const foreign = await ask(betaOwner, 'delete all the shifts on roster');
+    expect(foreign.artifact).toBeNull();
+    await expectCode(() => ask(staff, 'delete all the shifts on roster'), 'FORBIDDEN');
   });
 });

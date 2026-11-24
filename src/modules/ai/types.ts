@@ -7,6 +7,8 @@
 export type ToolName =
   | 'create_draft_invoice'
   | 'generate_staff_roster'
+  | 'remove_roster_shifts'
+  | 'delete_roster'
   | 'draft_communication'
   | 'analyse_document'
   | 'suggest_next_actions';
@@ -155,6 +157,8 @@ export type NextActionsArtifact = { kind: 'next_actions'; actions: NextAction[] 
 export type AssistantArtifact =
   | InvoiceDraftArtifact
   | RosterPreviewArtifact
+  | RemoveShiftsArtifact
+  | DeleteRosterArtifact
   | CommunicationDraftArtifact
   | DocumentSummaryArtifact
   | NextActionsArtifact;
@@ -192,6 +196,17 @@ export type RemoveShiftsArtifact = {
   shifts: { date: string; startTime: string; endTime: string; personName: string | null }[];
 };
 
+/** A whole roster the manager is asked to confirm deleting, with all its shifts. */
+export type DeleteRosterArtifact = {
+  kind: 'delete_roster';
+  rosterId: string;
+  startsOn: string;
+  endsOn: string;
+  shifts: number;
+  /** Staff have been shown it, so deleting takes shifts away they know about. */
+  published: boolean;
+};
+
 /** One shift the roster agent proposes to give to someone else, or leave vacant. */
 export type ChangeShiftArtifact = {
   kind: 'change_shift';
@@ -206,7 +221,11 @@ export type ChangeShiftArtifact = {
 
 /** What the roster agent can put in front of the manager. */
 export type RosterAgentArtifact =
-  RosterPreviewArtifact | FillVacantArtifact | RemoveShiftsArtifact | ChangeShiftArtifact;
+  | RosterPreviewArtifact
+  | FillVacantArtifact
+  | RemoveShiftsArtifact
+  | DeleteRosterArtifact
+  | ChangeShiftArtifact;
 
 /** The roster agent's check after a change: what still needs the manager. */
 export type RosterCheck = {

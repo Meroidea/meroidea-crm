@@ -17,6 +17,8 @@ export type ToolContext = {
   /** Today in the workspace's timezone. */
   today: string;
   attachment: Attachment | null;
+  /** A day of the roster the person has open, when they are on the Roster page. */
+  rosterDate: string | null;
 };
 
 /**

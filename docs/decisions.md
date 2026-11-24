@@ -2339,3 +2339,24 @@ word "meroAI", so the mark itself says the name; and for MeroAI's buttons and pa
 **Consequences.**
 - MeroAI no longer follows a business's primary colour anywhere: its look is the same everywhere.
 - Black dots on a very dark background would not show; dark mode is still out of scope.
+
+## ADR-081 — The MeroAI drawer can remove a roster's shifts or delete the roster
+
+**Status.** Accepted (2026-11-25).
+
+**Context.** In the header's MeroAI drawer, "delete all the shifts on roster" and "delete roster"
+were answered with "I cannot": only the roster agent's chat (ADR-079) had those tools.
+
+**Decision.**
+- The drawer gets two tools for anyone with `rosters.manage`: `remove_roster_shifts` (all of a
+  roster's shifts by default, or the vacant ones, one person's, one day's or one team's) and
+  `delete_roster`. On the Roster page the drawer tells MeroAI which week is open (the page's
+  `date`, else today), so "the roster" means the one on screen; elsewhere a day can be named.
+- As ever (ADR-074), neither tool writes. Each returns a card listing what would go; confirming
+  runs `removeShifts` or `deleteRoster` in the roster service, which checks permission, the
+  business and the lock again and audits the change.
+- The roster agent's chat gains the same `delete_roster` proposal. The selection logic lives in
+  one place, `roster-proposals.ts`, for both.
+
+**Consequences.**
+- A roster authorised for pay is refused at the proposal and again by the service.

@@ -14,6 +14,7 @@ import { formatCalendarDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   createRosterAction,
+  deleteRosterAction,
   reassignShiftAction,
   removeShiftsAction,
 } from '@/modules/roster/actions';
@@ -40,6 +41,7 @@ import {
 import {
   ChangeCard,
   CheckCard,
+  DeleteRosterCard,
   FillCard,
   PlanCard,
   RemoveCard,
@@ -260,6 +262,19 @@ export function RosterAgent({
         });
         if (!result.ok) failure = result.error.message;
         else push({ id: newId(), role: 'agent', text: `Removed ${result.data.removed} shifts.` });
+      } else if (artifact.kind === 'delete_roster') {
+        const result = await deleteRosterAction({ id: artifact.rosterId });
+        if (!result.ok) failure = result.error.message;
+        else {
+          push({
+            id: newId(),
+            role: 'agent',
+            text: 'The roster is deleted. You can build a new one for these days from the start form.',
+          });
+          setStatus(message.id, 'applied');
+          router.refresh();
+          return;
+        }
       } else {
         const result = await reassignShiftAction({
           shiftId: artifact.shiftId,
@@ -658,6 +673,13 @@ export function RosterAgent({
                   />
                 ) : message.artifact.kind === 'remove_shifts' ? (
                   <RemoveCard
+                    artifact={message.artifact}
+                    status={message.status}
+                    onApprove={() => approve(message)}
+                    onDiscard={() => setStatus(message.id, 'discarded')}
+                  />
+                ) : message.artifact.kind === 'delete_roster' ? (
+                  <DeleteRosterCard
                     artifact={message.artifact}
                     status={message.status}
                     onApprove={() => approve(message)}

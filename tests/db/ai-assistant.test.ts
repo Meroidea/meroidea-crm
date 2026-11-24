@@ -91,6 +91,7 @@ const toolContext = (ctx: TenantContext): ToolContext => ({
   ctx,
   today: zonedToday(ctx.tenant.timezone),
   attachment: null,
+  rosterDate: null,
 });
 
 let alphaTenant: string;
@@ -505,7 +506,7 @@ describe('every business gets the same assistant, and only its own data', () => 
     model.queue.push(say('Hello.'));
     await runAssistant(betaOwner, ask('Hello'));
     expect(declarations()).toEqual(alphaTools);
-    expect(alphaTools).toHaveLength(4); // all but document review, which needs a file
+    expect(alphaTools).toHaveLength(6); // all but document review, which needs a file
   });
 
   it('tells the model only about the business asking', async () => {

@@ -5,9 +5,6 @@ import { z } from 'zod';
 
 import { addDaysToDate, daysBetweenDates } from '@/lib/dates';
 import { AppError } from '@/lib/errors';
-import { formatCalendarDate } from '@/lib/format';
-import { listActiveMembers } from '@/modules/members/queries';
-import { getRoster, listRosterShifts, listRosterTeams } from '@/modules/roster/queries';
 import { audit } from '@/server/audit';
 import { aiService } from '@/server/ai';
 import { requirePermission, type TenantContext } from '@/server/context';
@@ -15,6 +12,13 @@ import { withRls } from '@/server/db/with-rls';
 
 import { enforceLimits } from './agent';
 import { checkRoster, planVacantFill } from './roster-agent';
+import {
+  loadRosterForProposal,
+  personNamed,
+  proposeDeleteRoster,
+  proposeRemoveShifts,
+  type LoadedRoster,
+} from './roster-proposals';
 import { planRoster } from './roster-planner';
 import type { RosterChatInput } from './schemas';
 import { DATA_RULE, dataBlock } from './tools/shared';
@@ -29,38 +33,7 @@ import type { RosterAgentArtifact } from './types';
 
 const MAX_STEPS = 3;
 
-type Loaded = Awaited<ReturnType<typeof loadRoster>>;
-
-async function loadRoster(ctx: TenantContext, rosterId: string) {
-  const roster = await getRoster(ctx, rosterId);
-  if (!roster) throw new AppError('NOT_FOUND', 'That roster was not found.');
-  const [shifts, members, teams] = await Promise.all([
-    listRosterShifts(ctx, roster.id),
-    listActiveMembers(ctx),
-    listRosterTeams(ctx),
-  ]);
-  return { roster, shifts, members, teams };
-}
-
-const matches = (name: string, wanted: string) => {
-  const lower = name.toLowerCase();
-  const target = wanted.trim().toLowerCase();
-  return lower === target || lower.split(/\s+/).includes(target) || lower.includes(target);
-};
-
-function personNamed(loaded: Loaded, name: string) {
-  const exact = loaded.members.filter(
-    (member) => member.fullName.toLowerCase() === name.trim().toLowerCase(),
-  );
-  if (exact.length === 1) return { person: exact[0]! };
-  const found = loaded.members.filter((member) => matches(member.fullName, name));
-  if (found.length === 1) return { person: found[0]! };
-  return {
-    problem: found.length
-      ? `Several people match "${name}": ${found.map((member) => member.fullName).join(', ')}. Ask which one.`
-      : `Nobody in the team is called "${name}".`,
-  };
-}
+type Loaded = LoadedRoster;
 
 type ToolOutcome =
   | { kind: 'data'; data: Record<string, unknown> }
@@ -158,62 +131,23 @@ const TOOLS: Tool[] = [
     },
     args: removeArgs,
     async run(args: z.output<typeof removeArgs>, loaded) {
-      let chosen = loaded.shifts;
-      let description = `All ${loaded.shifts.length} shifts`;
-      if (args.which === 'vacant') {
-        chosen = loaded.shifts.filter((shift) => !shift.userId);
-        description = `The ${chosen.length} vacant shifts`;
-      } else if (args.which === 'person') {
-        if (!args.personName)
-          return { kind: 'data', data: { ok: false, message: 'Whose shifts?' } };
-        const found = personNamed(loaded, args.personName);
-        if (!found.person) return { kind: 'data', data: { ok: false, message: found.problem } };
-        chosen = loaded.shifts.filter((shift) => shift.userId === found.person.userId);
-        description = `${found.person.fullName}’s ${chosen.length} shift${chosen.length === 1 ? '' : 's'}`;
-      } else if (args.which === 'day') {
-        if (!args.date) return { kind: 'data', data: { ok: false, message: 'Which day?' } };
-        chosen = loaded.shifts.filter((shift) => shift.date === args.date);
-        description = `The ${chosen.length} shift${chosen.length === 1 ? '' : 's'} on ${formatCalendarDate(args.date)}`;
-      } else if (args.which === 'team') {
-        const team = loaded.teams.find(
-          (item) => item.name.toLowerCase() === (args.teamName ?? '').toLowerCase(),
-        );
-        if (!team) {
-          return {
-            kind: 'data',
-            data: {
-              ok: false,
-              message: `There is no team called "${args.teamName ?? ''}".`,
-              teams: loaded.teams.map((item) => item.name),
-            },
-          };
-        }
-        chosen = loaded.shifts.filter((shift) => shift.teamId === team.id);
-        description = `The ${chosen.length} ${team.name} shift${chosen.length === 1 ? '' : 's'}`;
-      }
-      if (chosen.length === 0) {
-        return {
-          kind: 'data',
-          data: { ok: false, message: 'No shifts on this roster match that.' },
-        };
-      }
-      const nameOf = new Map(loaded.members.map((member) => [member.userId, member.fullName]));
-      return {
-        kind: 'artifact',
-        reply: `${description} will be removed when you confirm. Staff who were shown them are told when you next publish.`,
-        artifact: {
-          kind: 'remove_shifts',
-          rosterId: loaded.roster.id,
-          shiftIds: chosen.map((shift) => shift.id),
-          description,
-          shifts: chosen.map((shift) => ({
-            date: shift.date,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-            personName: shift.userId ? (nameOf.get(shift.userId) ?? 'Former member') : null,
-          })),
-        },
-      };
+      const proposal = proposeRemoveShifts(loaded, args);
+      return proposal.ok
+        ? { kind: 'artifact', artifact: proposal.artifact, reply: proposal.reply }
+        : { kind: 'data', data: { ok: false, message: proposal.message, ...proposal.extra } };
+    },
+  },
+  {
+    name: 'propose_delete_roster',
+    description:
+      'Prepare deleting the open roster itself, with all its shifts, for the manager to confirm. Use only when they ask to delete the roster, not just its shifts.',
+    parameters: { type: 'object', properties: {} },
+    args: overviewArgs,
+    async run(_args: z.output<typeof overviewArgs>, loaded) {
+      const proposal = proposeDeleteRoster(loaded);
+      return proposal.ok
+        ? { kind: 'artifact', artifact: proposal.artifact, reply: proposal.reply }
+        : { kind: 'data', data: { ok: false, message: proposal.message } };
     },
   },
   {
@@ -346,7 +280,7 @@ export async function chatAboutRoster(
     );
   }
   await enforceLimits(ctx);
-  const loaded = await loadRoster(ctx, input.rosterId);
+  const loaded = await loadRosterForProposal(ctx, input.rosterId);
   const days = daysBetweenDates(loaded.roster.startsOn, loaded.roster.endsOn) + 1;
   const dates = Array.from({ length: days }, (_, index) => {
     const date = addDaysToDate(loaded.roster.startsOn, index);
