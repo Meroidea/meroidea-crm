@@ -57,6 +57,28 @@ export function twelveHour(time: string): string {
 }
 
 const hours = (minutes: number) => Number((minutes / 60).toFixed(2));
+
+const clockMinutes = (time: string) => {
+  const [hour = 0, minute = 0] = time.split(':').map(Number);
+  return hour * 60 + minute;
+};
+const asClock = (minutes: number) => {
+  const wrapped = ((minutes % 1440) + 1440) % 1440;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
+};
+
+/**
+ * The unpaid break as a time of day, "01:00 PM-01:30 PM", as the rostering tool's file shows it.
+ * When breaks were taken is not recorded, so it is placed the way that tool places it: on the hour
+ * nearest before the middle of the shift (10:00 to 17:30 → 1:00 PM; 10:00 to 20:30 → 3:00 PM).
+ */
+export function breakWindow(startTime: string, endTime: string, breakMinutes: number): string {
+  const start = clockMinutes(startTime);
+  let length = clockMinutes(endTime) - start;
+  if (length <= 0) length += 1440;
+  const from = start + Math.floor(length / 2 / 60) * 60;
+  return `${twelveHour(asClock(from))}-${twelveHour(asClock(from + breakMinutes))}`;
+}
 const money = (amount: string, currency: string) =>
   new Intl.NumberFormat('en-AU', {
     style: 'currency',
@@ -195,10 +217,12 @@ export function buildTimesheetWorkbook(input: {
           const first = worked[0];
           const last = worked[worked.length - 1];
           if (!first || !last) return [null, null, null];
-          const unpaid = worked.reduce((sum, entry) => sum + entry.breakMinutes, 0);
+          const withBreak = worked.find((entry) => entry.breakMinutes > 0);
           return [
             twelveHour(first.startTime),
-            unpaid > 0 ? `${unpaid} min` : null,
+            withBreak
+              ? breakWindow(withBreak.startTime, withBreak.endTime, withBreak.breakMinutes)
+              : null,
             twelveHour(last.endTime),
           ];
         }),

@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Timer } from 'luci
 import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
+import { MeroAITimesheets } from '@/modules/ai/components/meroai-timesheets';
 import { PageHeader } from '@/components/data/page-header';
 import { Button } from '@/components/ui/button';
 import { addDaysToDate } from '@/lib/dates';
@@ -60,12 +61,15 @@ export function ApprovalViews({
   period,
   currency,
   today,
+  meroAI = false,
 }: {
   view: 'day' | 'period';
   show: 'pending' | 'approved' | 'all';
   period: TimesheetPeriod;
   currency: string;
   today: string;
+  /** MeroAI may prepare the period's authorisation (ADR-082). */
+  meroAI?: boolean;
 }) {
   const { date } = period;
   const money = (cents: number) => formatMoney(centsToAmount(cents), currency);
@@ -238,6 +242,13 @@ export function ApprovalViews({
               </ul>
             )}
           </div>
+
+          {meroAI && !period.locked && (
+            <MeroAITimesheets
+              date={date}
+              exportButton={<ExportPeriod date={date} disabled={false} />}
+            />
+          )}
 
           <div className="overflow-x-auto rounded-xl border bg-card">
             <table className="w-full min-w-[40rem] text-left text-sm">

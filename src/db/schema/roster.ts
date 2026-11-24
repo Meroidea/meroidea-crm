@@ -159,7 +159,7 @@ export const rosterShifts = pgTable(
   ],
 );
 
-/** A break the roster adds by itself to a shift at least `fromMinutes` long. */
+/** A break added by itself to a shift longer than `fromMinutes` (ADR-082). */
 export type BreakRule = { fromMinutes: number; minutes: number; paid: boolean };
 
 /**

@@ -153,6 +153,32 @@ export const rosterFeedbackSchema = z.object({
   about: z.enum(['plan', 'check', 'reply']),
 });
 
+/** "Authorise with MeroAI" on the timesheets pay period: the period containing this day. */
+export const timesheetPrepareSchema = z.object({ date: isoDate });
+
+/** The rows the manager reviewed and authorises; each is checked again by the timesheet service. */
+export const timesheetAuthoriseSchema = z.object({
+  rows: z
+    .array(
+      z.object({
+        key: z.string().max(80),
+        userId: z.uuid(),
+        shiftId: z.uuid().nullable(),
+        entryId: z.uuid().nullable(),
+        date: isoDate,
+        start: clockTime,
+        end: clockTime,
+        breakMinutes: z.number().int().min(0).max(720),
+      }),
+    )
+    .min(1, 'There is nothing to authorise')
+    .max(500),
+  /** How many rows the manager changed from MeroAI's proposal, for the audit log. */
+  edited: z.number().int().min(0).max(500).default(0),
+});
+
+export type TimesheetAuthoriseInput = z.output<typeof timesheetAuthoriseSchema>;
+
 /** Ask MeroAI on the invoices page (ADR-077): an invoice described in a sentence or two. */
 export const meroAIInvoiceDraftSchema = z.object({
   text: z

@@ -129,7 +129,7 @@ export function RulesSheet({ rules, onClose }: { rules: RosterRules; onClose: ()
             <div className="mt-2 flex flex-col gap-2">
               {rows.map((row, index) => (
                 <div key={index} className="flex items-center gap-1.5 text-sm">
-                  <span className="text-muted-foreground">From</span>
+                  <span className="text-muted-foreground">Longer than</span>
                   <Input
                     type="number"
                     inputMode="decimal"
@@ -194,7 +194,9 @@ export function RulesSheet({ rules, onClose }: { rules: RosterRules; onClose: ()
               )}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Unpaid breaks come off the hours worked. Any shift’s breaks can still be set by hand.
+              Each rule adds its break to shifts longer than its hours, and rules add up. Unpaid
+              breaks come off the hours worked. MeroAI uses the same rules when it authorises
+              timesheets. Any shift’s breaks can still be set by hand.
             </p>
           </fieldset>
 

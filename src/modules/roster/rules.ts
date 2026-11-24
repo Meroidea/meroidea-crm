@@ -32,10 +32,14 @@ export function shiftLength(startTime: string, endTime: string): number {
   return length <= 0 ? length + 1440 : length;
 }
 
-/** The breaks a shift of this length gets under the workspace's rules, shortest shift first. */
+/**
+ * The breaks a shift of this length gets under the workspace's rules, shortest shift first. A
+ * rule applies to shifts *longer than* its length (ADR-082): "more than 5 hours" earns the meal
+ * break, as the awards and most businesses word it, so a shift of exactly 5 hours does not.
+ */
 export function autoBreaks(lengthMinutes: number, rules: BreakRule[]): ShiftBreak[] {
   return [...rules]
-    .filter((rule) => rule.fromMinutes <= lengthMinutes)
+    .filter((rule) => lengthMinutes > rule.fromMinutes)
     .sort((a, b) => a.fromMinutes - b.fromMinutes)
     .map(({ minutes, paid }) => ({ minutes, paid }));
 }

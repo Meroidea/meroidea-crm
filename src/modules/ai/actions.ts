@@ -8,6 +8,7 @@ import { authedAction } from '@/server/action';
 import { runAssistant } from './agent';
 import { chaseOverdueInvoices, draftInvoiceWithMeroAI } from './meroai-invoices';
 import { buildRosterWithMeroAI } from './meroai-roster';
+import { authoriseTimesheets, prepareTimesheetAuthorisation } from './meroai-timesheets';
 import {
   applyVacantFill,
   buildRosterWithAgent,
@@ -26,6 +27,8 @@ import {
   rosterChatSchema,
   rosterFeedbackSchema,
   rosterIdInputSchema,
+  timesheetAuthoriseSchema,
+  timesheetPrepareSchema,
   vacantFillSchema,
 } from './schemas';
 import { recordRosterFeedback } from './service';
@@ -114,4 +117,16 @@ export const instantBuildAction = authedAction(
 export const rosterFeedbackAction = authedAction(
   { permission: 'ai.use', input: rosterFeedbackSchema },
   (ctx, input) => recordRosterFeedback(ctx, input),
+);
+
+/** MeroAI's proposed authorisation of a pay period's timesheets (ADR-082); nothing is saved. */
+export const prepareTimesheetAuthorisationAction = authedAction(
+  { permission: 'timesheets.manage', input: timesheetPrepareSchema },
+  (ctx, input) => prepareTimesheetAuthorisation(ctx, input.date),
+);
+
+/** The manager's final authorisation of the rows they reviewed. */
+export const authoriseTimesheetsAction = authedAction(
+  { permission: 'timesheets.manage', input: timesheetAuthoriseSchema, revalidate: ['/timesheets'] },
+  (ctx, input) => authoriseTimesheets(ctx, input),
 );

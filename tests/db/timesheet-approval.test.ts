@@ -211,7 +211,7 @@ describe('the pay period', () => {
 
   it('exports the same approved time as an Excel workbook, for this business only', async () => {
     const file = await exportTimesheetWorkbook(owner, MONDAY);
-    expect(file.filename).toMatch(/^timesheets___2024-07-01_\d+\.xlsx$/);
+    expect(file.filename).toMatch(/^timesheets_2024-07-01_\d+\.xlsx$/);
     expect(file.rows).toBe(1);
     // A zip archive starts with the letters PK.
     expect(Buffer.from(file.base64, 'base64').subarray(0, 2).toString()).toBe('PK');
