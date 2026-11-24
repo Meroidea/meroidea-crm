@@ -69,3 +69,22 @@ export async function withBackoff<T>(
     }
   }
 }
+
+/**
+ * A call that ran out of time: Google's own deadline (504) or ours (the request was aborted).
+ * Waiting and asking the same model again would take as long, so it is never retried.
+ */
+export function isTimeout(error: unknown): boolean {
+  if (errorStatus(error) === 504) return true;
+  const name = error instanceof Error ? error.name : '';
+  return name === 'AbortError' || name === 'TimeoutError';
+}
+
+/**
+ * Whether another model should answer instead: the first is out of quota (quotas are per model),
+ * overloaded, or too slow. Anything else (a bad request, a bad key) would fail there too.
+ */
+export function shouldFallBack(error: unknown): boolean {
+  const status = errorStatus(error);
+  return status === 429 || status === 503 || isTimeout(error);
+}

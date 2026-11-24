@@ -2072,6 +2072,19 @@ Every read must stay within the person's business and permissions, and every act
    - Audit rows and rate-limit counters are kept per business.
    - A DB test suite states each of these.
 
+9. *Speed and resilience (after the first week in production).* Gemini 3 thinks at length by
+   default: the first live requests took up to a minute, and one ended in Google's own 504.
+   - The routing step runs at `low` thinking, next steps at `low`, document review at `medium`;
+     the fast model keeps its default.
+   - Every attempt has a deadline (20 s routing, 25 s reasoning, 45 s documents, 15 s fast). A
+     timed-out call is never retried on the same model.
+   - When the reasoning model is out of quota (429), overloaded (503) or too slow (504 or our
+     deadline), the fast model answers instead; free-tier quotas are per model. A conversation
+     that already holds function calls stays on the model that started it, because their
+     signatures are tied to it. The audit row records the model that answered and `fellBack`.
+   - Building a roster without shift times repeats the previous week, day for day; with no week
+     before, the assistant asks. A brief "yes" means carry on with the defaults.
+
 **Consequences.**
 - **Free tier and personal data.** Google's terms let it use prompts and responses on unpaid
   quota to improve its products, and people may review them. Business records (names, activity

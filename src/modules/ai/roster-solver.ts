@@ -208,3 +208,49 @@ export function solveRoster(input: SolverInput): SolverResult {
     warnings,
   };
 }
+
+/**
+ * Shift requirements that repeat a week already rostered, for "build next week's roster" with no
+ * times given: each weekday gets the same shifts, at the same times, in the same teams, with as
+ * many people as that day had (vacant shifts included). Weekdays with the same shift share one
+ * requirement.
+ */
+export function requirementsFromWeek(
+  shifts: { date: string; startTime: string; endTime: string; teamId: string | null }[],
+): ShiftRequirement[] {
+  const perDay = new Map<string, number>();
+  for (const shift of shifts) {
+    const key = `${weekdayOf(shift.date)}|${shift.startTime}|${shift.endTime}|${shift.teamId ?? ''}`;
+    perDay.set(key, (perDay.get(key) ?? 0) + 1);
+  }
+  const grouped = new Map<string, ShiftRequirement>();
+  for (const [key, count] of perDay) {
+    const [weekday, startTime, endTime, teamId] = key.split('|') as [
+      Weekday,
+      string,
+      string,
+      string,
+    ];
+    const group = `${startTime}|${endTime}|${teamId}|${count}`;
+    const requirement = grouped.get(group) ?? {
+      weekdays: [],
+      startTime,
+      endTime,
+      staffNeeded: count,
+      teamId: teamId || null,
+      note: null,
+    };
+    requirement.weekdays.push(weekday);
+    grouped.set(group, requirement);
+  }
+  const order = (day: Weekday) => (WEEKDAYS.indexOf(day) + 6) % 7; // Monday first
+  return [...grouped.values()]
+    .map((requirement) => ({
+      ...requirement,
+      weekdays: [...requirement.weekdays].sort((a, b) => order(a) - order(b)),
+    }))
+    .sort(
+      (a, b) =>
+        a.startTime.localeCompare(b.startTime) || order(a.weekdays[0]!) - order(b.weekdays[0]!),
+    );
+}
