@@ -1,9 +1,10 @@
 'use client';
 
-import { FileText, Paperclip, Send, Sparkles, X } from 'lucide-react';
+import { FileText, Paperclip, Send, X } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from 'react';
 
+import { MeroOrb } from '@/components/motion/mero-orb';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -29,9 +30,10 @@ function Working() {
     return () => clearInterval(timer);
   }, []);
   return (
-    <p className="mr-4 w-fit animate-pulse rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-      {seconds < 6 ? 'Thinking…' : `Still working… ${seconds}s`}
-    </p>
+    <div className="mr-4 flex w-fit items-center gap-2.5 rounded-full border bg-card py-1 pr-4 pl-1 text-sm text-muted-foreground shadow-sm">
+      <MeroOrb size={28} state="thinking" />
+      <span>{seconds < 6 ? 'MeroAI is thinking…' : `Still working… ${seconds}s`}</span>
+    </div>
   );
 }
 
@@ -195,17 +197,24 @@ export function AssistantDrawer({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="MeroAI" title="MeroAI">
-          <Sparkles aria-hidden />
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="MeroAI"
+          title="MeroAI"
+          className="rounded-full"
+        >
+          <MeroOrb size={26} state={pending ? 'thinking' : 'idle'} />
         </Button>
       </SheetTrigger>
       <SheetContent
         side="right"
-        className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg"
+        className="meroai-surface gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg"
       >
         <SheetHeader className="border-b pr-12">
-          <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" aria-hidden /> MeroAI
+          <SheetTitle className="flex items-center gap-2.5 text-lg">
+            <MeroOrb size={34} state={pending ? 'thinking' : 'idle'} />
+            <span className="meroai-text font-semibold tracking-tight">MeroAI</span>
           </SheetTitle>
           <SheetDescription>
             Drafts and previews only. Nothing is saved or sent until you approve it.
@@ -214,13 +223,21 @@ export function AssistantDrawer({
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4" aria-live="polite">
           {messages.length === 0 && (
-            <div className="flex flex-col gap-2 text-sm text-muted-foreground">
-              <p>Ask in your own words, or start with one of these.</p>
-              {onContact && (
-                <p className="text-xs">
-                  I can see which {contactLabel.toLowerCase()} you have open.
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 py-6 text-center">
+              <MeroOrb size={132} state={pending ? 'thinking' : 'idle'} />
+              <div className="flex flex-col gap-1">
+                <p className="text-lg font-semibold tracking-tight">
+                  Hi, I’m <span className="meroai-text">MeroAI</span>
                 </p>
-              )}
+                <p className="max-w-xs text-sm text-muted-foreground">
+                  Ask in your own words, or start with one of the suggestions below.
+                </p>
+                {onContact && (
+                  <p className="text-xs text-muted-foreground">
+                    I can see which {contactLabel.toLowerCase()} you have open.
+                  </p>
+                )}
+              </div>
             </div>
           )}
           {messages.map((message) =>
@@ -327,8 +344,8 @@ export function AssistantDrawer({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Ask the assistant…"
-              aria-label="Ask the assistant"
+              placeholder="Ask MeroAI…"
+              aria-label="Ask MeroAI"
               maxLength={MAX_PROMPT_LENGTH}
               rows={2}
               className="max-h-40 min-h-10 flex-1 resize-none"
@@ -336,6 +353,7 @@ export function AssistantDrawer({
             <Button
               type="submit"
               size="icon"
+              className="meroai-button rounded-full"
               aria-label="Send"
               disabled={pending || !prompt.trim()}
             >

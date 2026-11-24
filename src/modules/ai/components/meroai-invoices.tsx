@@ -1,9 +1,10 @@
 'use client';
 
-import { Check, Copy, ExternalLink, Mail, Send, Sparkles } from 'lucide-react';
+import { Check, Copy, ExternalLink, Mail, Send } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
 
+import { MeroOrb } from '@/components/motion/mero-orb';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -171,13 +172,12 @@ export function MeroAIInvoicesPanel({
     });
 
   return (
-    <details
-      className="group rounded-xl border border-primary/30 bg-card"
-      open={hasOverdue || undefined}
-    >
+    <details className="group meroai-edge meroai-surface rounded-xl" open={hasOverdue || undefined}>
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-4 py-3 text-sm font-medium">
-        <Sparkles aria-hidden className="size-4 text-primary" />
-        Ask MeroAI
+        <MeroOrb size={24} state={pending ? 'thinking' : 'idle'} />
+        <span>
+          Ask <span className="meroai-text">MeroAI</span>
+        </span>
         <span className="ml-auto text-xs font-normal text-muted-foreground">
           Draft an invoice from a sentence, or chase what is overdue
           {hasOverdue && ` (${formatMoney(overdueTotal, currency)})`}
@@ -237,9 +237,8 @@ export function MeroAIInvoicesPanel({
               <Button
                 onClick={draftInvoice}
                 disabled={pending || text.trim().length < 5}
-                className="sm:self-start"
+                className="meroai-button sm:self-start"
               >
-                <Sparkles aria-hidden />
                 {pending ? 'MeroAI is drafting…' : 'Draft with MeroAI'}
               </Button>
               {draft && (
@@ -264,8 +263,11 @@ export function MeroAIInvoicesPanel({
               resend the invoice.
             </p>
             {reminders === null ? (
-              <Button onClick={chase} disabled={pending || !hasOverdue} className="sm:self-start">
-                <Sparkles aria-hidden />
+              <Button
+                onClick={chase}
+                disabled={pending || !hasOverdue}
+                className="meroai-button sm:self-start"
+              >
                 {pending
                   ? 'Writing reminders…'
                   : hasOverdue
