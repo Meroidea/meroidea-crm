@@ -1435,6 +1435,20 @@ Public reads, counters, feedback and linked reads are written only by `src/modul
 (privileged, starting from the slug). `app.erase_contact_traces` also deletes the person's
 `kb_article_views` and `kb_article_links`.
 
+## 7m-3. AI assistant 🟢 (migration `0083`, ADR-074)
+
+No tables. The assistant keeps no conversations and stores nothing a model says: a conversation
+lives only in the open drawer. The migration maps the `ai` permission family to the
+`ai_assistant` feature in `app.permission_feature`, and gives `ai.use` to every Admin and Manager
+role. Writes happen only when a person approves a draft, through the owning module's service
+(`invoices`, `roster_shifts` / `rosters`, `activities`), under that module's own policies.
+
+- `audit_logs` gains two actions: `ai_assist` (one row per request: tool, model, steps, outcome,
+  ids and counts, the attachment's type and size, never the prompt, the reply or record contents)
+  and `ai_approve` (the record a person saved from a draft).
+- `public_rate_limits` buckets `ai:person:<tenant>` (per person, hourly) and `ai:business`
+  (per business, daily) share the one platform key's quota fairly.
+
 ## 7n. Questions and concerns 🟢
 
 A question a member of staff sends to managers or to the admin only (ADR-049). Kept as the record

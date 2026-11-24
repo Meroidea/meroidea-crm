@@ -116,6 +116,12 @@ export const FEATURES = [
       'A shared email address whose messages arrive in the inbox, with replies sent from it, threaded, and linked to contacts and tickets.',
   },
   {
+    key: 'ai_assistant',
+    label: 'AI assistant',
+    description:
+      'Drafts invoices, rosters and replies, summarises documents and suggests next steps, for a person to review and approve. Uses Google Gemini (ADR-074).',
+  },
+  {
     key: 'books',
     label: 'Bookkeeping',
     description:
@@ -157,6 +163,7 @@ const FAMILY_FEATURE: Record<string, FeatureKey> = {
   training: 'training',
   books: 'books',
   kb: 'knowledge_base',
+  ai: 'ai_assistant',
 };
 
 /**

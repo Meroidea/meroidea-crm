@@ -10,11 +10,13 @@ import { PrivacyBlurToggle } from '@/components/layout/privacy-blur-toggle';
 import { UserMenu } from '@/components/layout/user-menu';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AssistantDrawer } from '@/modules/ai/components/assistant-drawer';
 import { getMyName } from '@/modules/members/queries';
 import { sweepIfDue } from '@/modules/notifications/alerts';
 import { countUnread } from '@/modules/notifications/queries';
 import { SupportBanner } from '@/modules/platform/components/platform-tools';
-import { requireTenantContext } from '@/server/context';
+import { isAiConfigured } from '@/server/ai';
+import { hasPermission, requireTenantContext } from '@/server/context';
 import { getPlatformAdmin } from '@/server/platform';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
@@ -55,6 +57,22 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 >
                   Platform
                 </Link>
+              )}
+              {hasPermission(ctx, 'ai.use') && isAiConfigured() && (
+                <AssistantDrawer
+                  // A new business means a new drawer: a conversation never follows a person
+                  // from one business into another (ADR-074).
+                  key={ctx.tenantId}
+                  contactLabel={ctx.tenant.labels.contact.singular}
+                  abilities={{
+                    invoices: hasPermission(ctx, 'invoices.manage'),
+                    rosters: hasPermission(ctx, 'rosters.manage'),
+                    contacts: hasPermission(ctx, 'contacts.view'),
+                    nextActions:
+                      hasPermission(ctx, 'opportunities.view') || hasPermission(ctx, 'tasks.view'),
+                    saveNotes: hasPermission(ctx, 'activities.create'),
+                  }}
+                />
               )}
               <NotificationBell unread={unread} />
               <PrivacyBlurToggle />

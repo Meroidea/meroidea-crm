@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/data/page-header';
 import { addDaysToDate, zonedToday } from '@/lib/dates';
 import { InvoiceEditor } from '@/modules/invoices/components/invoice-tools';
 import { getLastFromDetails } from '@/modules/invoices/queries';
+import { DEFAULT_PAYMENT_DAYS, defaultTaxRate } from '@/modules/invoices/types';
 import { requirePermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'New invoice' };
@@ -24,9 +25,8 @@ export default async function NewInvoicePage() {
         defaults={{
           fromDetails: (await getLastFromDetails(ctx)) ?? ctx.tenant.name,
           issueDate: today,
-          dueDate: addDaysToDate(today, 14),
-          // Goods and services tax where the workspace is Australian; otherwise the admin sets it.
-          taxRate: ctx.tenant.country === 'AU' ? '10' : '0',
+          dueDate: addDaysToDate(today, DEFAULT_PAYMENT_DAYS),
+          taxRate: defaultTaxRate(ctx.tenant.country),
         }}
       />
     </div>

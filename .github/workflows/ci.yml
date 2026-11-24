@@ -8,7 +8,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request replaces its older run. On main, runs queue instead: a run
+  # cancelled part-way could otherwise stop a production migration (ADR-075).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -101,3 +103,35 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # Production migrations (ADR-075): once every check has passed on main, apply the pending
+  # migrations to the production database, here and never from a laptop (docs/architecture.md
+  # §12). Drizzle applies them all in one transaction, so a failure leaves production as it was.
+  migrate-production:
+    name: Migrate production database
+    needs: [checks, database, e2e]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # The secret lives in the `production` environment, which can require an approval and be
+    # limited to main in the repository's settings.
+    environment: production
+    # One at a time, and never cancelled part-way.
+    concurrency:
+      group: production-migrations
+      cancel-in-progress: false
+    env:
+      DATABASE_URL_DIRECT: ${{ secrets.PRODUCTION_DATABASE_URL_DIRECT }}
+    steps:
+      - name: Check the production database is configured
+        run: |
+          if [ -z "$DATABASE_URL_DIRECT" ]; then
+            echo "::error title=Production not migrated::Add the secret PRODUCTION_DATABASE_URL_DIRECT to the production environment: the Supabase session pooler URL (port 5432). See ADR-075."
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate

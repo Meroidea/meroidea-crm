@@ -1931,6 +1931,8 @@ a business wants chats from its customers joined to their records.
 - Not built: attachments from visitors, typing indicators, offline email of replies to visitors,
   per-agent names in the widget (replies show the widget's name), office hours.
 
+<<<<<<< HEAD
+
 ## ADR-073 — Marketing in three areas: Social inbox, Email and campaigns; one inbox layout with each channel's own feel
 
 **Context.** The owner asked, on 23 November 2026, for three sub-modules under Marketing: a Social
@@ -1998,3 +2000,117 @@ decisions:
 - Not built here: Marketing campaigns (email and WhatsApp, under the Spam Act 2003: consent,
   sender identification, unsubscribe within five working days), and Gmail or Outlook sync.
 
+>>>>>>> origin/main
+
+## ADR-074 — AI assistant: Gemini drafts, people approve
+
+**Context.** The owner asked for an AI assistant that drafts invoices, rosters and messages,
+reviews documents and suggests next steps, on Google Gemini's free tier through the official SDK,
+with two models: `gemini-3.8-flash` for reasoning and tool calling, and `gemini-3.5-flash-lite` for
+fast drafting. AI must never finalise money, send messages or change a live roster by itself.
+Every read must stay within the person's business and permissions, and every action audited.
+
+**Decision.**
+1. *A feature and a permission.* New feature `ai_assistant` and permission `ai.use` (family `ai`,
+   in `app.permission_feature`, migration `0083`). Admins and Managers get it; an admin can give it
+   to anyone. The feature is off until the platform owner switches it on per business.
+2. *One service.* `src/server/ai.ts` holds the key (`GEMINI_API_KEY`, server only), picks the model
+   by tier (`reasoning` / `fast`; names overridable by `GEMINI_MODEL_REASONING` /
+   `GEMINI_MODEL_FAST` when Google retires one), and retries 429 and 503 with exponential backoff
+   and jitter, at most twice. It waits as long as Google's `retryDelay` asks when that is under 8
+   seconds, and gives up at once when it is longer (a daily quota: waiting cannot help). The SDK's
+   own retries are off. Failures become plain messages; only the HTTP status is logged.
+3. *Tools prepare; people approve.* The reasoning model gets function declarations for only the
+   tools the person's permissions allow (invoice `invoices.manage`, roster `rosters.manage`,
+   message `contacts.view`, next steps `opportunities.view`/`tasks.view`, document review when a
+   file is attached). A tool reads through the owning module's own scoped queries, and returns a
+   preview artifact. **No tool writes.** Approving runs the module's ordinary service from the
+   person's own click (`approveInvoiceDraft` → `saveInvoice` as a draft; `approveRosterPreview` →
+   `createRoster` + `saveShift` as unpublished changes; `approveNote` → `logActivity`). Each service
+   checks permission, scope and its rules again and audits itself; an `ai_approve` row records where
+   the record began.
+   - Invoices: previewed, not saved, because invoice numbers have no gaps and a discarded draft
+     would leave a voided number. Totals are worked exactly as the database works them; the
+     database recalculates on save. Approval always makes a new draft; sending stays separate.
+   - Rosters: the model turns the request into shift requirements; a deterministic solver assigns
+     people. It never rosters anyone on pending or approved leave, never double-books (overnight
+     shifts included), gives one shift a day each, balances hours including shifts already rostered,
+     fills the seat the fewest people can take first, and leaves a seat vacant rather than break a
+     rule. Approval only adds shifts, never replaces one; staff see nothing until a manager
+     publishes.
+   - Messages: email and SMS drafts are sent by the person from their own app (`mailto:` /
+     `sms:` links); only an internal note is saved here, on approval.
+   - Next steps: deals and tasks go to the model under short refs (D1, T1), and every link in the
+     answer is built from the item, never written by the model; a made-up ref is dropped.
+4. *An agent loop with limits.* One action per request; at most three model turns. A tool that
+   needs input (two contacts with that name, an invalid date) answers the model, which corrects
+   itself or asks the person. The last turn is forced to answer in words.
+5. *Data minimisation and injection.* Tools send only what the task needs: names, history, deal
+   and task facts; never dates of birth, contact emails or phone numbers. Workspace text goes to
+   the model inside fenced `<crm_data>` blocks with an instruction to treat it as data. Because no
+   tool writes, a prompt hidden in a customer's message can at worst produce a preview a person
+   then reads.
+6. *A Server Action, not a route.* `askAssistantAction` (rules/architecture.md keeps route handlers
+   for webhooks and the like). Same contract as an endpoint: `{ reply, actionTaken, artifact }`.
+   Attachments (PDF, PNG, JPEG, WebP, HEIC, text; up to 4 MB, under Vercel's 4.5 MB request cap,
+   so `serverActions.bodySizeLimit` is `5mb`) are typed by their leading bytes, sent inline to the
+   model, and never stored.
+7. *Audit and limits.* One `ai_assist` row per request: model, steps, tools and outcomes, ids and
+   counts; never the prompt, the reply or record contents. Per person 30 requests an hour and per
+   business 300 a day (`public_rate_limits`), because one key's quota serves every business.
+
+8. *One assistant, separate businesses.* Every business runs the same code, models, tools and
+   limits; what differs comes only from its own settings (labels, currency, timezone, features,
+   roles). No business's information can reach another's assistant:
+   - Every read runs as the person, under their business's row-level security, with an explicit
+     `tenant_id` filter; approvals run the same way, so a preview carried into another business
+     saves nothing.
+   - The model keeps nothing between requests, and the app stores no conversation. The only
+     shared object is the stateless SDK client.
+   - The drawer is keyed by the business id, so its conversation is dropped whenever the person
+     changes business (a platform owner on support).
+   - Audit rows and rate-limit counters are kept per business.
+   - A DB test suite states each of these.
+
+**Consequences.**
+- **Free tier and personal data.** Google's terms let it use prompts and responses on unpaid
+  quota to improve its products, and people may review them. Business records (names, activity
+  notes, invoices, documents) are personal data under the Privacy Act. Before the feature is on
+  for a real business, the key should come from a Cloud project with billing enabled (paid quota is
+  not used that way), and the platform's privacy notice should name Google as a processor. The
+  code is the same either way; only the key changes. This is also the one way one business's
+  information could ever surface elsewhere: in a model Google trains on unpaid traffic.
+- The free tier's limits are small and shared by every business on the key; the per-business
+  daily cap keeps one business from using everyone's share.
+- Not built: streaming replies, saved conversations, documents over 4 MB (would need upload to
+  storage and Gemini's Files API), editing an invoice's lines inside the card (it is edited on the
+  invoice after approval), an evaluation suite for the model's answers.
+=======
+
+## ADR-075 — Production migrations run in CI, after every check passes
+
+**Context.** `docs/architecture.md` said migrations run "in CI against preview/prod", but the CI
+workflow only migrated a throwaway local database: production was migrated by hand, outside any
+record. The project rules forbid changing the cloud database by hand or from a laptop.
+
+**Decision.**
+1. A `Migrate production database` job in `.github/workflows/ci.yml` runs `npm run db:migrate` on
+   a push to `main` (or a manual run on `main`), only after `checks`, `database` and `e2e` pass.
+2. Its connection string is the secret `PRODUCTION_DATABASE_URL_DIRECT` in the GitHub environment
+   `production`, which can require a person's approval and be limited to `main`. It is the
+   Supabase session pooler URL (port 5432): GitHub-hosted runners have no IPv6, and the
+   transaction pooler (6543) is for the app, not for migrations. A missing secret fails the job
+   with a message, so a skipped migration never looks green.
+3. The job never runs twice at once and is never cancelled part-way (`production-migrations`
+   concurrency group); CI on `main` queues instead of cancelling. Drizzle applies every pending
+   migration in one transaction with its journal row, so a failure changes nothing.
+
+**Consequences.**
+- Vercel deploys `main` through its Git integration, independently of CI, so a new build can go
+  live minutes before its migration. Until Vercel's Deployment Checks are set to wait for this
+  job, every migration must work with the code already live (expand first; contract in a later
+  release), as `rules/database.md` already asks for destructive changes.
+- The first run applies everything production's `drizzle.__drizzle_migrations` does not list. If
+  production was ever migrated another way, compare that table with `drizzle/meta/_journal.json`
+  before the first run.
+- Preview deployments still have no migrated database of their own.

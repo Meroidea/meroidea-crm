@@ -22,6 +22,8 @@ const ACTION_WORDS: Record<string, string> = {
   download: 'Downloaded',
   view_sensitive: 'Revealed sensitive details',
   login: 'Signed in',
+  ai_assist: 'Used the AI assistant',
+  ai_approve: 'Approved an AI draft',
 };
 
 export function actionLabel(action: string): string {
