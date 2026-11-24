@@ -2305,3 +2305,37 @@ replacing what is there, the check, and a conversation about an existing roster.
 - Instant build fills vacant shifts by fair hours with contracted hours first; a cost or
   reliability order needs the agent's plan.
 - A conversation lasts for the browser tab's session; a manager on another device starts afresh.
+
+## ADR-080 — MeroAI's orb: a dotted sphere that writes "meroAI"
+
+**Status.** Accepted (2026-11-25). Replaces the orb's look in ADR-078; the rest of ADR-078 stands.
+
+**Context.** The owner asked for MeroAI's mark to be a sphere of dots, black on a transparent
+ground so it sits on the page's own background, and for those dots to move and transform into the
+word "meroAI", so the mark itself says the name; and for MeroAI's buttons and panels to match.
+
+**Decision.**
+- The orb is black dots spread evenly over a sphere (the same Fibonacci lattice) on a transparent
+  canvas. Only the near half shows, as on a solid globe, and the dots shrink and fade towards the
+  rim. The black is a token, `--meroai-ink` (with `--meroai-paper` for text on it), and is
+  monochrome on purpose: it reads the same on every business's brand colour.
+- From 64 pixels up, the orb loops: about 3 seconds of turning sphere, then the dots leave the
+  sphere and swirl into "meroAI", writing it from left to right; the word holds with a soft
+  twinkle, then comes apart into the turning sphere again (about 9 seconds a loop). The letters
+  come from the page's own font, drawn on a scratch canvas and sampled (`sampleMask`); each dot
+  is matched to a letter by where it sits when the loop starts, so the sphere unspools sideways
+  into the word. Smaller orbs (buttons, headers) stay a sphere, where letters would be a smudge.
+- While MeroAI works, the sphere spins faster and a band of light sweeps across it, and the word
+  waits until the work is done.
+- The maths (sampling, timing, stagger, easing) is in `mero-orb-math.ts` and unit tested. Still
+  no library; the orb still pauses off screen and in background tabs, and with reduced motion it
+  is one still frame of the sphere.
+
+- The `.meroai-*` classes follow the orb: `.meroai-button` is ink with a fine dot grain and a
+  passing glint (the ink is an image layer, because the Button's `bg-primary` utility would win
+  over a colour); `.meroai-text` is ink with a glint through the letters; `.meroai-surface` is a
+  faint field of dots fading down the card; `.meroai-edge` is a line from ink to the border.
+
+**Consequences.**
+- MeroAI no longer follows a business's primary colour anywhere: its look is the same everywhere.
+- Black dots on a very dark background would not show; dark mode is still out of scope.

@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  easeInOutCubic,
   fibonacciSphere,
   mix,
+  MORPH_CYCLE,
+  MORPH_TIMELINE,
+  morphState,
   parseRgb,
   particleCount,
   rgba,
   rotate,
+  sampleMask,
+  staggered,
   wobble,
 } from '@/components/motion/mero-orb-math';
 
@@ -70,5 +76,60 @@ describe('orb colours from the theme', () => {
     expect(mix(black, white, 0.5)).toEqual({ r: 128, g: 128, b: 128 });
     expect(mix(black, white, 3)).toEqual(white);
     expect(rgba(white, 2)).toBe('rgba(255, 255, 255, 1)');
+  });
+});
+
+describe('the orb writing meroAI', () => {
+  // A 10×4 mask with one opaque 4×2 block in the middle.
+  const mask = (() => {
+    const width = 10;
+    const height = 4;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 1; y < 3; y += 1)
+      for (let x = 3; x < 7; x += 1) data[(y * width + x) * 4 + 3] = 255;
+    return { width, height, data };
+  })();
+
+  it('places every dot inside the letters, left to right, the same way each time', () => {
+    const points = sampleMask(mask, 8);
+    expect(points).toHaveLength(8);
+    for (const p of points) {
+      expect(p.x).toBeGreaterThanOrEqual(-0.4);
+      expect(p.x).toBeLessThanOrEqual(0.4);
+    }
+    for (let i = 1; i < points.length; i += 1)
+      expect(points[i]!.x).toBeGreaterThanOrEqual(points[i - 1]!.x);
+    expect(sampleMask(mask, 8)).toEqual(points);
+  });
+
+  it('repeats letter pixels when there are more dots than pixels', () => {
+    expect(sampleMask(mask, 50)).toHaveLength(50);
+    expect(sampleMask({ width: 2, height: 2, data: new Uint8ClampedArray(16) }, 5)).toEqual([]);
+  });
+
+  it('loops: sphere, forming, held, coming apart', () => {
+    const { sphere, form, hold, release } = MORPH_TIMELINE;
+    expect(morphState(0)).toEqual({ amount: 0, forming: true });
+    expect(morphState(sphere + form / 2).amount).toBeCloseTo(0.5);
+    expect(morphState(sphere + form + hold / 2)).toEqual({ amount: 1, forming: true });
+    const apart = morphState(sphere + form + hold + release / 2);
+    expect(apart.amount).toBeCloseTo(0.5);
+    expect(apart.forming).toBe(false);
+    expect(morphState(MORPH_CYCLE + 1)).toEqual(morphState(1));
+  });
+
+  it('writes from left to right: the left dots land first', () => {
+    expect(staggered(0.5, 0, true)).toBeGreaterThan(staggered(0.5, 1, true));
+    expect(staggered(1, 1, true)).toBe(1);
+    expect(staggered(0, 0, true)).toBe(0);
+    expect(staggered(0, 1, false)).toBe(0);
+    expect(staggered(1, 0, false)).toBe(1);
+  });
+
+  it('eases in and out', () => {
+    expect(easeInOutCubic(0)).toBe(0);
+    expect(easeInOutCubic(0.5)).toBe(0.5);
+    expect(easeInOutCubic(1)).toBe(1);
+    expect(easeInOutCubic(2)).toBe(1);
   });
 });

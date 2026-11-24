@@ -6,55 +6,80 @@ import { cn } from '@/lib/utils';
 
 import {
   fibonacciSphere,
-  mix,
+  morphState,
   parseRgb,
   particleCount,
   rgba,
   rotate,
-  wobble,
+  sampleMask,
+  staggered,
+  type Point2,
   type Rgb,
 } from './mero-orb-math';
 
 export type MeroOrbState = 'idle' | 'thinking';
 
-/** A theme token (or any CSS colour) as numbers, read the way the browser resolves it. */
-function resolveRgb(token: string, fallback: Rgb): Rgb {
-  const raw = token.startsWith('--')
-    ? getComputedStyle(document.documentElement).getPropertyValue(token).trim()
-    : token;
-  if (!raw) return fallback;
-  // A canvas normalises any CSS colour it accepts to #rrggbb or rgba(): let it do the parsing.
+/**
+ * MeroAI's ink (the `--meroai-ink` token) as numbers, read the way the browser resolves it. The
+ * orb is monochrome on purpose: the same dots in every business, on whatever is behind them.
+ */
+function inkColour(element: Element): Rgb {
+  const raw = getComputedStyle(element).getPropertyValue('--meroai-ink').trim();
   const probe = document.createElement('canvas').getContext('2d');
-  if (!probe) return fallback;
-  probe.fillStyle = '#000';
+  if (!raw || !probe) return { r: 10, g: 10, b: 10 };
   probe.fillStyle = raw;
-  return parseRgb(String(probe.fillStyle)) ?? fallback;
+  return parseRgb(String(probe.fillStyle)) ?? { r: 10, g: 10, b: 10 };
 }
-
-type Particle = {
-  base: { x: number; y: number; z: number };
-  /** Ribbon particles flow and glow; the rest make the shell. */
-  ribbon: number | null;
-  color: Rgb;
-  phase: number;
-};
+const WORD = 'meroAI';
+/** Below this the word would be a smudge, so a small orb stays a sphere. */
+const WORD_MIN_SIZE = 64;
 
 /**
- * The MeroAI orb (ADR-078): a sphere of glowing particles on a deep core, coloured from the
- * theme (the business's primary and the brand chart palette), with ribbons that flow around it.
- * At rest it turns slowly and breathes; while MeroAI works it spins faster and the ribbons
- * surge. Decorative: the words around it carry the meaning.
+ * The word's dots, from the page's own font drawn on a scratch canvas and sampled (sampleMask).
+ * In orb units: x from -1 to 1 across the disc's writing width.
+ */
+function wordPoints(size: number, count: number, fontFamily: string): Point2[] {
+  const width = Math.round(size * 2);
+  const height = Math.round(size * 0.8);
+  const scratch = document.createElement('canvas');
+  scratch.width = width;
+  scratch.height = height;
+  const context = scratch.getContext('2d', { willReadFrequently: true });
+  if (!context) return [];
+  // Fit the word to the width, then draw it centred.
+  let fontSize = height * 0.8;
+  context.font = `700 ${fontSize}px ${fontFamily}`;
+  const measured = context.measureText(WORD).width;
+  fontSize *= Math.min(1, (width * 0.94) / measured);
+  context.font = `700 ${fontSize}px ${fontFamily}`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = '#000';
+  context.fillText(WORD, width / 2, height / 2);
+  return sampleMask(context.getImageData(0, 0, width, height), count);
+}
+
+/**
+ * The MeroAI orb: a sphere of evenly spaced black dots on a transparent ground, so it sits on the
+ * page's own background, seen from the front, its dots foreshortened towards the rim. On an orb
+ * large enough to read, the dots regularly leave the sphere, swirl out and write "meroAI" from
+ * left to right, hold it with a twinkle, then fly back to the turning sphere. While MeroAI works,
+ * the sphere spins faster and a band of light sweeps across it, and the word waits. Decorative:
+ * the words around it carry the meaning.
  *
  * Drawn on a plain canvas, no library. It pauses when off screen or in a background tab, and
- * draws one still frame for people who ask for reduced motion.
+ * draws one still frame of the sphere for people who ask for reduced motion.
  */
 export function MeroOrb({
   size = 32,
   state = 'idle',
+  morph = size >= WORD_MIN_SIZE,
   className,
 }: {
   size?: number;
   state?: MeroOrbState;
+  /** Whether the dots write "meroAI" between turns; on by default when the orb is big enough. */
+  morph?: boolean;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -74,124 +99,108 @@ export function MeroOrb({
     canvas.height = Math.round(size * ratio);
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    const primary = resolveRgb('--primary', { r: 75, g: 73, b: 172 });
-    const sky = resolveRgb('--chart-2', { r: 152, g: 189, b: 255 });
-    const blue = resolveRgb('--chart-3', { r: 125, g: 160, b: 250 });
-    const violet = resolveRgb('--chart-4', { r: 121, g: 120, b: 233 });
-    const coral = resolveRgb('--chart-5', { r: 243, g: 121, b: 126 });
-    const night = { r: 6, g: 6, b: 28 };
-    const core = mix(primary, night, 0.72);
-    const white = { r: 255, g: 255, b: 255 };
-
-    // Three tilted great circles: particles near one become part of a flowing ribbon.
-    const ribbons = [
-      { x: 0.2, y: 0.95, z: 0.25 },
-      { x: 0.85, y: 0.3, z: -0.4 },
-      { x: -0.5, y: 0.45, z: 0.75 },
-    ].map((n) => {
-      const length = Math.hypot(n.x, n.y, n.z);
-      return { x: n.x / length, y: n.y / length, z: n.z / length };
-    });
-    const particles: Particle[] = fibonacciSphere(particleCount(size)).map((base, index) => {
-      const near = ribbons.findIndex(
-        (n) => Math.abs(base.x * n.x + base.y * n.y + base.z * n.z) < 0.16,
-      );
-      const ribbon = near >= 0 && index % 3 !== 0 ? near : null;
-      const shade = (index * 0.618) % 1;
-      return {
-        base,
-        ribbon,
-        color:
-          ribbon === null
-            ? mix(sky, blue, shade)
-            : mix(violet, coral, ribbon === 1 ? 0.75 : shade * 0.6),
-        phase: shade * Math.PI * 2,
-      };
-    });
-
+    const DOT = inkColour(canvas);
+    const points = fibonacciSphere(particleCount(size));
     const center = size / 2;
-    const radius = size * 0.34;
-    const dot = Math.max(0.55, size / 110);
+    const radius = size * 0.46;
+    // Black on a light page needs bolder dots than white on black did, most of all when small.
+    const dot = Math.max(0.75, size / 150);
+    const writing = size * 0.47;
+
+    // The word is sampled once the page's font has loaded, so the letters are the brand's own.
+    let word: Point2[] | null = null;
+    if (morph) {
+      void document.fonts.ready.then(() => {
+        word = wordPoints(size, points.length, getComputedStyle(canvas).fontFamily || 'sans-serif');
+      });
+    }
+    // Which dot goes to which letter: settled when each loop starts, by where the dots are then,
+    // so the leftmost dots write the "m" and the sphere unspools sideways into the word.
+    let order: number[] = [];
+    let slot: number[] = [];
+    let wasSphere = true;
+
     let yaw = 0;
     let energy = stateRef.current === 'thinking' ? 1 : 0;
     let clock = 0;
+    let wordClock = 0;
     let last = performance.now();
     let frame = 0;
     let running = false;
 
     const draw = () => {
       context.clearRect(0, 0, size, size);
-      const surge = 0.05 + energy * 0.12;
-      const breathe = 1 + Math.sin(clock * 1.6) * (0.012 + energy * 0.02);
-      const r = radius * breathe;
 
-      // The deep core, then the halo that makes it read on a light page.
-      const halo = context.createRadialGradient(center, center, r * 0.4, center, center, size / 2);
-      halo.addColorStop(0, rgba(primary, 0.55 + energy * 0.25));
-      halo.addColorStop(0.62, rgba(violet, 0.18 + energy * 0.12));
-      halo.addColorStop(1, rgba(primary, 0));
-      context.fillStyle = halo;
-      context.fillRect(0, 0, size, size);
-      const body = context.createRadialGradient(
-        center - r * 0.3,
-        center - r * 0.35,
-        r * 0.1,
-        center,
-        center,
-        r * 1.05,
-      );
-      body.addColorStop(0, rgba(mix(core, primary, 0.45), 1));
-      body.addColorStop(1, rgba(core, 1));
-      context.fillStyle = body;
-      context.beginPath();
-      context.arc(center, center, r * 1.02, 0, Math.PI * 2);
-      context.fill();
+      const tilt = 0.32;
+      const sweep = Math.sin(clock * 2.2);
+      const loop = word && word.length ? morphState(wordClock) : { amount: 0, forming: true };
 
-      context.globalCompositeOperation = 'lighter';
-      const tilt = 0.38 + Math.sin(clock * 0.35) * 0.12;
-      for (const particle of particles) {
-        let lift = 1 + wobble(particle.phase, clock * 0.6) * 0.012;
-        if (particle.ribbon !== null) {
-          lift =
-            1 +
-            Math.max(0, wobble(particle.phase * 2 + particle.ribbon, clock * (0.9 + energy))) *
-              surge;
-        }
-        const p = rotate(
-          { x: particle.base.x * lift, y: particle.base.y * lift, z: particle.base.z * lift },
-          yaw + (particle.ribbon ?? 0) * 0.15 * Math.sin(clock * 0.5),
-          tilt,
-        );
-        const depth = (p.z + 1.2) / 2.4;
-        const perspective = 1 / (1.6 - p.z * 0.35);
-        const x = center + p.x * r * perspective * 1.6;
-        const y = center + p.y * r * perspective * 1.6;
-        const near = Math.pow(Math.min(1, Math.max(0, depth)), 1.6);
-        if (particle.ribbon !== null) {
-          context.fillStyle = rgba(particle.color, (0.12 + near * 0.3) * (0.7 + energy * 0.5));
-          context.beginPath();
-          context.arc(x, y, dot * (2.2 + near * 1.6), 0, Math.PI * 2);
-          context.fill();
-        }
-        context.fillStyle = rgba(
-          particle.ribbon === null ? particle.color : mix(particle.color, white, 0.25),
-          0.12 + near * 0.85,
-        );
-        context.beginPath();
-        context.arc(x, y, dot * (0.55 + near * 0.9), 0, Math.PI * 2);
-        context.fill();
+      const projected = points.map((base) => {
+        const p = rotate(base, yaw, tilt);
+        return { x: center + p.x * radius, y: center + p.y * radius, facing: p.z };
+      });
+
+      if (loop.amount === 0) {
+        wasSphere = true;
+      } else if (wasSphere && word) {
+        wasSphere = false;
+        order = projected
+          .map((_, index) => index)
+          .sort((a, b) => projected[a]!.x - projected[b]!.x);
+        slot = new Array<number>(points.length);
+        order.forEach((dotIndex, position) => {
+          slot[dotIndex] = position;
+        });
       }
 
-      // A thin rim of light, like the edge of the sphere catching it.
-      const rim = context.createRadialGradient(center, center, r * 0.92, center, center, r * 1.12);
-      rim.addColorStop(0, rgba(sky, 0));
-      rim.addColorStop(0.55, rgba(sky, 0.28 + energy * 0.2));
-      rim.addColorStop(1, rgba(sky, 0));
-      context.fillStyle = rim;
-      context.beginPath();
-      context.arc(center, center, r * 1.12, 0, Math.PI * 2);
-      context.fill();
-      context.globalCompositeOperation = 'source-over';
+      for (let index = 0; index < projected.length; index += 1) {
+        const from = projected[index]!;
+        const target = loop.amount > 0 && word ? word[slot[index] ?? 0] : undefined;
+        if (!target) {
+          // Only the near half of the sphere shows, as on a solid globe.
+          if (from.facing <= 0.02) continue;
+          const glow =
+            energy * Math.max(0, 1 - Math.abs(from.y / radius - center / radius - sweep) * 2.5);
+          context.fillStyle = rgba(DOT, Math.min(1, 0.5 + from.facing * 0.5 + glow * 0.5));
+          context.beginPath();
+          context.arc(
+            from.x,
+            from.y,
+            dot * (0.55 + from.facing * 0.75 + glow * 0.4),
+            0,
+            Math.PI * 2,
+          );
+          context.fill();
+          continue;
+        }
+
+        const place = (target.x + 1) / 2;
+        const t = staggered(loop.amount, place, loop.forming);
+        const to = { x: center + target.x * writing, y: center + target.y * writing };
+        // A swirl on the way: each dot arcs out and round, the further it travels the wider.
+        const lift = Math.sin(Math.PI * t);
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const swirl = (index % 2 === 0 ? 1 : -1) * lift * 0.35;
+        const x = from.x + dx * t - dy * swirl;
+        const y = from.y + dy * t + dx * swirl;
+        // Dots from the far side fade in as they come round; held letters twinkle softly.
+        const sphereAlpha = from.facing > 0.02 ? 0.5 + from.facing * 0.5 : 0;
+        const twinkle = 0.85 + 0.15 * Math.sin(clock * 3 + index * 1.7);
+        const alpha = sphereAlpha + (twinkle - sphereAlpha) * t;
+        const sphereSize = dot * (0.55 + Math.max(0, from.facing) * 0.75);
+        const letterSize = dot * 0.7;
+        context.fillStyle = rgba(DOT, alpha);
+        context.beginPath();
+        context.arc(
+          x,
+          y,
+          sphereSize + (letterSize - sphereSize) * t + lift * dot * 0.6,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+      }
     };
 
     const tick = (now: number) => {
@@ -200,7 +209,10 @@ export function MeroOrb({
       const target = stateRef.current === 'thinking' ? 1 : 0;
       energy += (target - energy) * Math.min(1, seconds * 3);
       clock += seconds;
-      yaw += seconds * (0.28 + energy * 1.1);
+      // While MeroAI works, the word waits: the loop runs on only once a written word is undone.
+      const loop = morphState(wordClock);
+      if (target === 0 || loop.amount > 0) wordClock += seconds;
+      yaw += seconds * (0.22 + energy * 1.2);
       draw();
       frame = requestAnimationFrame(tick);
     };
@@ -237,7 +249,7 @@ export function MeroOrb({
       document.removeEventListener('visibilitychange', onVisibility);
       reduced.removeEventListener('change', onMotion);
     };
-  }, [size]);
+  }, [size, morph]);
 
   return (
     <canvas
