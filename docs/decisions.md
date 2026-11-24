@@ -2174,3 +2174,32 @@ kept up to date by the business's admin.
 - Staff arriving before opening or leaving after closing, split shifts and per-hour staffing
   levels are not modelled yet.
 - "Most productive" is only as good as the timesheets and tasks the business records.
+
+## ADR-077 — Ask MeroAI on the invoices page: draft from a sentence, chase what is overdue
+
+**Context.** After rosters (ADR-076), the owner asked for MeroAI on the invoices page, beside the
+manual "New invoice". The two jobs worth automating there are writing an invoice and chasing
+money that is owed.
+
+**Decision.**
+1. *Where.* A collapsible "Ask MeroAI" panel under the invoices page header, open by default
+   while anything is overdue. Needs `ai.use` and `invoices.manage`.
+2. *Draft an invoice from a sentence.* The fast model only reads the sentence into customer,
+   lines, due date and notes (structured output, Zod-checked). Everything after is the chat's
+   `create_draft_invoice` tool: the customer matched to one contact through the scoped contacts
+   queries (several matches are named back, never guessed between), exact totals and tax, and the
+   invoice form's own schema. The preview is approved with `approveInvoiceDraft`, which saves a
+   draft; sending stays a separate step. A sentence with nothing to charge is refused rather than
+   priced by the model.
+3. *Chase overdue.* `listOverdueInvoices` (invoices module; sent, past due, money owed, the list's
+   own Overdue rule) feeds `writeReminder` (invoice-reminders.ts), which writes each reminder in
+   code from the invoice's figures: friendly under 14 days, firm from 14, a final notice from 45.
+   No model is used, so no amount, date or number can be wrong and no customer data leaves the
+   system. Each reminder can be edited, copied, opened in the person's email app, or followed by
+   "Resend invoice" (`sendInvoice`, on the person's click).
+4. *Audit.* `ai_assist` rows with `surface: 'invoices'` and `action: 'draft' | 'chase'`; counts and
+   ids only, never names or amounts.
+
+**Consequences.**
+- Reminders are sent from the person's own email app; Meroidea itself only re-sends the invoice.
+- Chasing covers the 50 most overdue invoices at a time.

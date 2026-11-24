@@ -111,7 +111,7 @@ const hours = (minutes: number) => {
   return m ? `${h}h ${m}m` : `${h}h`;
 };
 
-function InvoiceCard({ artifact }: { artifact: InvoiceDraftArtifact }) {
+export function InvoiceCard({ artifact }: { artifact: InvoiceDraftArtifact }) {
   const [state, setState] = useState<CardState>('open');
   const [saved, setSaved] = useState<{ id: string; number: number } | null>(null);
   const [error, setError] = useState<string | null>(null);

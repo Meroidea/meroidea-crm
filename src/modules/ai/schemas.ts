@@ -81,3 +81,14 @@ export const meroAIRosterSchema = z.object({
 });
 
 export type MeroAIRosterInput = z.output<typeof meroAIRosterSchema>;
+
+/** Ask MeroAI on the invoices page (ADR-077): an invoice described in a sentence or two. */
+export const meroAIInvoiceDraftSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(5, 'Say who the invoice is for and what to charge')
+    .max(1000, 'Keep it under 1,000 characters'),
+});
+
+export type MeroAIInvoiceDraftInput = z.output<typeof meroAIInvoiceDraftSchema>;
