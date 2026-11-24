@@ -8,6 +8,8 @@ import {
   createRosterSchema,
   holidayIdSchema,
   publishRosterSchema,
+  reassignShiftSchema,
+  removeShiftsSchema,
   rosterIdSchema,
   saveRulesSchema,
   saveShiftSchema,
@@ -77,4 +79,14 @@ export const addHolidayAction = authedAction(
 export const removeHolidayAction = authedAction(
   { permission: 'rosters.manage', input: holidayIdSchema, revalidate: PATHS },
   (ctx, input) => rosterService.removeHoliday(ctx, input.id),
+);
+
+export const removeShiftsAction = authedAction(
+  { permission: 'rosters.manage', input: removeShiftsSchema, revalidate: PATHS },
+  (ctx, input) => rosterService.removeShifts(ctx, input),
+);
+
+export const reassignShiftAction = authedAction(
+  { permission: 'rosters.manage', input: reassignShiftSchema, revalidate: PATHS },
+  (ctx, input) => rosterService.reassignShift(ctx, input),
 );

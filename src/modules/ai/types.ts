@@ -44,6 +44,8 @@ export type RosterPreviewShift = {
   breaks: { minutes: number; paid: boolean }[];
   paidMinutes: number;
   note: string | null;
+  /** Why nobody could take it, when it is vacant (ADR-079). */
+  vacantReason?: 'no_one_in_team' | 'hours_cap' | 'nobody_free';
 };
 
 /** MeroAI's ways of building a roster (ADR-076). */
@@ -82,8 +84,23 @@ export type RosterPreviewArtifact = {
   kind: 'roster_preview';
   /** How it was built; absent for previews from before strategies existed. */
   strategy?: RosterStrategy;
-  /** Where the shifts came from: the person's request, the trading hours, or last week. */
-  source?: 'request' | 'trading_hours' | 'last_week';
+  /**
+   * Where the shifts came from: the person's request, the trading hours, last week, the last
+   * four weeks' pattern, or a roster the person chose to copy.
+   */
+  source?: 'request' | 'trading_hours' | 'last_week' | 'patterns' | 'copy';
+  /** Against the trading hours' staff numbers; null when no trading hours are set. */
+  coverage?: {
+    neededMinutes: number;
+    plannedMinutes: number;
+    gaps: { date: string; from: string; to: string; short: number }[];
+  } | null;
+  /** Shifts already in the period that approving removes first (ADR-079). */
+  replaces?: string[];
+  /** Whether contracted hours were offered first. */
+  contractedFirst?: boolean;
+  /** How MeroAI read the manager's notes, in words, for the person to check. */
+  notesApplied?: string[];
   /** What the rostered shifts would cost, where the viewer may see pay; null otherwise. */
   estimatedCost?: { total: string; currency: string; unpriced: number } | null;
   startsOn: string;
@@ -148,8 +165,71 @@ export type AssistantResponse = {
   artifact: AssistantArtifact | null;
 };
 
+/** Who could take each vacant shift (ADR-079): proposed, not saved, until the manager approves. */
+export type FillVacantArtifact = {
+  kind: 'fill_vacant';
+  rosterId: string;
+  vacant: number;
+  assignments: {
+    shiftId: string;
+    userId: string;
+    personName: string;
+    teamName: string | null;
+    date: string;
+    startTime: string;
+    endTime: string;
+  }[];
+  warnings: string[];
+};
+
+/** Shifts the roster agent proposes to remove, for the manager to confirm. */
+export type RemoveShiftsArtifact = {
+  kind: 'remove_shifts';
+  rosterId: string;
+  shiftIds: string[];
+  /** "All 33 shifts", "Sam Lee's 4 shifts": what the manager is confirming. */
+  description: string;
+  shifts: { date: string; startTime: string; endTime: string; personName: string | null }[];
+};
+
+/** One shift the roster agent proposes to give to someone else, or leave vacant. */
+export type ChangeShiftArtifact = {
+  kind: 'change_shift';
+  shiftId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  fromName: string | null;
+  toUserId: string | null;
+  toName: string | null;
+};
+
+/** What the roster agent can put in front of the manager. */
+export type RosterAgentArtifact =
+  RosterPreviewArtifact | FillVacantArtifact | RemoveShiftsArtifact | ChangeShiftArtifact;
+
+/** The roster agent's check after a change: what still needs the manager. */
+export type RosterCheck = {
+  rosterId: string;
+  startsOn: string;
+  endsOn: string;
+  shifts: number;
+  vacant: number;
+  rosteredMinutes: number;
+  /** Person-minutes the trading hours ask for; null when none are set. */
+  neededMinutes: number | null;
+  gaps: { date: string; from: string; to: string; short: number }[];
+  onLeave: number;
+  /** In words, most important first. Empty when nothing needs attention. */
+  findings: string[];
+};
+
 export type RosterApprovalResult = {
   saved: number;
+  /** Shifts removed first because the plan replaced them. */
+  removed: number;
+  /** The rosters the shifts went onto. */
+  rosterIds: string[];
   skipped: { date: string; startTime: string; personName: string | null; reason: string }[];
   /** Where to open the roster afterwards. */
   firstDate: string | null;

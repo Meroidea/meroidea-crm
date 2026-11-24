@@ -19,6 +19,10 @@ export type ShiftRequirement = {
   note: string | null;
   /** Who should have each seat if they still can (by seat), e.g. last week's people. */
   preferred?: (string | null)[];
+  /** Only these calendar days, instead of every day on `weekdays` (filling one vacant shift). */
+  dates?: string[];
+  /** Carried onto the planned shift, so a caller can tell which requirement it came from. */
+  ref?: string;
 };
 
 export type SolverPerson = { userId: string; name: string; teamIds: string[] };
@@ -40,7 +44,16 @@ export type SolverInput = {
   rank?: (userId: string, date: string, paidMinutes: number) => number;
   /** The most paid minutes anyone may have in the period, existing shifts included. */
   maxMinutesPerPerson?: number;
+  /**
+   * Contracted paid minutes for the period, by person (full- and part-time staff). Someone still
+   * short of their contracted hours is offered a shift before anyone who is not, whatever the
+   * rank: a business pays those hours either way.
+   */
+  targets?: Record<string, number>;
 };
+
+/** Why nobody took a shift: nobody is in its team, everyone free has reached the hours cap, or nobody was free. */
+export type VacantReason = 'no_one_in_team' | 'hours_cap' | 'nobody_free';
 
 export type PlannedShift = {
   date: string;
@@ -52,6 +65,10 @@ export type PlannedShift = {
   breaks: { minutes: number; paid: boolean }[];
   paidMinutes: number;
   note: string | null;
+  /** The requirement's `ref`, when it had one. */
+  ref?: string;
+  /** Set when the shift is vacant. */
+  vacantReason?: VacantReason;
 };
 
 export type SolverResult = {
@@ -130,7 +147,11 @@ export function solveRoster(input: SolverInput): SolverResult {
   for (const date of input.dates) {
     const weekday = weekdayOf(date);
     const seats = input.requirements.flatMap((requirement, index) =>
-      requirement.weekdays.includes(weekday)
+      (
+        requirement.dates
+          ? requirement.dates.includes(date)
+          : requirement.weekdays.includes(weekday)
+      )
         ? Array.from({ length: requirement.staffNeeded }, (_, seat) => ({
             requirement,
             index,
@@ -167,10 +188,16 @@ export function solveRoster(input: SolverInput): SolverResult {
       // whoever has the fewest hours so far, the fewest shifts, and by name, so the same request
       // always gives the same roster.
       const rankOf = (userId: string) => input.rank?.(userId, date, paidMinutes) ?? 0;
+      const owed = (userId: string) => {
+        const target = input.targets?.[userId] ?? 0;
+        const load = minutes.get(userId)!;
+        return target > 0 && load.existing + load.added < target ? 0 : 1;
+      };
       bestCandidates.sort((a, b) => {
         const left = minutes.get(a.userId)!;
         const right = minutes.get(b.userId)!;
         return (
+          owed(a.userId) - owed(b.userId) ||
           rankOf(a.userId) - rankOf(b.userId) ||
           left.existing + left.added - (right.existing + right.added) ||
           left.shifts - right.shifts ||
@@ -180,6 +207,7 @@ export function solveRoster(input: SolverInput): SolverResult {
       const chosen =
         (preferred && bestCandidates.find((person) => person.userId === preferred)) ||
         bestCandidates[0];
+      let vacantReason: VacantReason | undefined;
       if (chosen) {
         busy.get(chosen.userId)!.push(span);
         worksOn.get(chosen.userId)!.add(date);
@@ -201,6 +229,13 @@ export function solveRoster(input: SolverInput): SolverResult {
                 .some((other) => other.start < span.end && other.end > span.start),
           );
         if (capped) cappedBy.set(index, (cappedBy.get(index) ?? 0) + 1);
+        vacantReason =
+          requirement.teamId &&
+          !input.people.some((person) => person.teamIds.includes(requirement.teamId!))
+            ? 'no_one_in_team'
+            : capped
+              ? 'hours_cap'
+              : 'nobody_free';
       }
       shifts.push({
         date,
@@ -211,6 +246,8 @@ export function solveRoster(input: SolverInput): SolverResult {
         breaks,
         paidMinutes,
         note: requirement.note,
+        ...(requirement.ref ? { ref: requirement.ref } : {}),
+        ...(vacantReason ? { vacantReason } : {}),
       });
     }
   }
@@ -221,17 +258,35 @@ export function solveRoster(input: SolverInput): SolverResult {
       order.get(a.date)! - order.get(b.date)! || minutesOf(a.startTime) - minutesOf(b.startTime),
   );
 
-  const warnings: string[] = [];
-  for (const [index, count] of shortBy) {
-    const requirement = input.requirements[index]!;
-    const capped = cappedBy.get(index) ?? 0;
-    const hours = Math.round((input.maxMinutesPerPerson ?? 0) / 60);
-    warnings.push(
-      capped === count
-        ? `${count} shift${count === 1 ? '' : 's'} from ${requirement.startTime} to ${requirement.endTime} ${count === 1 ? 'is' : 'are'} left vacant: everyone free has reached ${hours} hours, so you may need more staff.`
-        : `${count} shift${count === 1 ? '' : 's'} from ${requirement.startTime} to ${requirement.endTime} had nobody free and ${count === 1 ? 'is' : 'are'} left vacant.`,
-    );
+  // One line per kind of shift and reason, however many days or requirements it came from: the
+  // pattern of recent weeks gives each weekday its own requirement.
+  const hours = Math.round((input.maxMinutesPerPerson ?? 0) / 60);
+  const grouped = new Map<
+    string,
+    { startTime: string; endTime: string; kind: VacantReason; count: number }
+  >();
+  for (const shift of shifts) {
+    if (shift.userId || !shift.vacantReason) continue;
+    const key = `${shift.startTime}|${shift.endTime}|${shift.teamId ?? ''}|${shift.vacantReason}`;
+    const group = grouped.get(key) ?? {
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      kind: shift.vacantReason,
+      count: 0,
+    };
+    group.count += 1;
+    grouped.set(key, group);
   }
+  const warnings: string[] = [...grouped.values()].map(({ startTime, endTime, kind, count }) => {
+    const lead = `${count} shift${count === 1 ? '' : 's'} from ${startTime} to ${endTime} ${count === 1 ? 'is' : 'are'} left vacant`;
+    if (kind === 'no_one_in_team') {
+      return `${lead}: nobody who can be rostered is in ${count === 1 ? 'its' : 'their'} team. Add people to the team, or change the shifts' team.`;
+    }
+    if (kind === 'hours_cap') {
+      return `${lead}: everyone free has reached ${hours} hours, so you may need more staff.`;
+    }
+    return `${lead}: nobody was free.`;
+  });
   if (input.people.length === 0) warnings.push('Nobody was available to roster.');
 
   return {
@@ -394,4 +449,123 @@ export function productivityScore(row: {
     parts.push(row.tasksOnTime / row.tasksWithDueDate);
   }
   return parts.length ? parts.reduce((sum, part) => sum + part, 0) / parts.length : null;
+}
+
+type PatternShift = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  teamId: string | null;
+  userId: string | null;
+};
+
+/**
+ * The roster a business usually runs, read from its recent weeks (the roster agent's "MeroAI
+ * figures it out"). A shift — weekday, times and team — counts as part of the pattern with as
+ * many people as it had in a typical week: the median across the weeks that were rostered at all,
+ * so a one-off busy Saturday or a short-staffed week does not set the pattern. Each seat is
+ * offered first to the people who most often had that shift. Weeks with no shifts (closed, or
+ * never rostered) are left out rather than counted as zero.
+ */
+export function requirementsFromRecentWeeks(weeks: PatternShift[][]): ShiftRequirement[] {
+  const rostered = weeks.filter((week) => week.length > 0);
+  if (rostered.length === 0) return [];
+  const slots = new Map<
+    string,
+    { weekday: Weekday; startTime: string; endTime: string; teamId: string | null }
+  >();
+  const counts = new Map<string, number[]>();
+  const people = new Map<string, Map<string, number>>();
+  rostered.forEach((week, weekIndex) => {
+    for (const shift of week) {
+      const weekday = weekdayOf(shift.date);
+      const key = `${weekday}|${shift.startTime}|${shift.endTime}|${shift.teamId ?? ''}`;
+      if (!slots.has(key)) {
+        slots.set(key, {
+          weekday,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          teamId: shift.teamId,
+        });
+        counts.set(
+          key,
+          Array.from({ length: rostered.length }, () => 0),
+        );
+        people.set(key, new Map());
+      }
+      counts.get(key)![weekIndex]! += 1;
+      if (shift.userId) {
+        const who = people.get(key)!;
+        who.set(shift.userId, (who.get(shift.userId) ?? 0) + 1);
+      }
+    }
+  });
+
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    // Rounded up between two middles: a seat that was there half the time is kept.
+    return sorted.length % 2
+      ? sorted[middle]!
+      : Math.ceil((sorted[middle - 1]! + sorted[middle]!) / 2);
+  };
+  const order = (day: Weekday) => (WEEKDAYS.indexOf(day) + 6) % 7; // Monday first
+  const requirements: ShiftRequirement[] = [];
+  for (const [key, slot] of slots) {
+    const staffNeeded = median(counts.get(key)!);
+    if (staffNeeded < 1) continue;
+    const regulars = [...people.get(key)!.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([userId]) => userId)
+      .slice(0, staffNeeded);
+    requirements.push({
+      weekdays: [slot.weekday],
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      staffNeeded,
+      teamId: slot.teamId,
+      note: null,
+      preferred: regulars,
+    });
+  }
+  return requirements.sort(
+    (a, b) =>
+      order(a.weekdays[0]!) - order(b.weekdays[0]!) || a.startTime.localeCompare(b.startTime),
+  );
+}
+
+/**
+ * A rostered period as requirements for another, day for day (the roster agent's "use something
+ * saved"): each shift lands on the same day of the new period, offered first to the person who
+ * had it. A shorter source repeats to fill a longer target, and a longer one is cut off, as
+ * copying a roster does on the roster page.
+ */
+export function requirementsCopyingPeriod(
+  shifts: PatternShift[],
+  source: { startsOn: string; days: number },
+  targetDates: string[],
+): ShiftRequirement[] {
+  const dayIndex = (date: string) =>
+    Math.round(
+      (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${source.startsOn}T00:00:00Z`)) / 86_400_000,
+    );
+  return shifts.flatMap((shift) => {
+    const first = dayIndex(shift.date);
+    if (first < 0 || first >= source.days) return [];
+    const dates: string[] = [];
+    for (let day = first; day < targetDates.length; day += source.days) {
+      const date = targetDates[day];
+      if (date) dates.push(date);
+    }
+    return dates.map((date) => ({
+      weekdays: [weekdayOf(date)],
+      dates: [date],
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      staffNeeded: 1,
+      teamId: shift.teamId,
+      note: null,
+      preferred: [shift.userId],
+    }));
+  });
 }

@@ -3,13 +3,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
-import { MeroOrb } from '@/components/motion/mero-orb';
 import { PageHeader } from '@/components/data/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { addDaysToDate, daysBetweenDates, mondayOf, zonedToday } from '@/lib/dates';
-import { MeroAIRosterCard } from '@/modules/ai/components/meroai-roster';
-import { rosterStrategyOptions } from '@/modules/ai/roster-planner';
+import { RosterAgent } from '@/modules/ai/components/roster-agent';
+import { RosterAgentButton, RosterAgentLayout } from '@/modules/ai/components/roster-agent-layout';
+import { rosterAgentSetup } from '@/modules/ai/roster-agent';
+import { demandByDate } from '@/modules/ai/roster-coverage';
 import { listActiveMembers } from '@/modules/members/queries';
 import { CreateRosterCard } from '@/modules/roster/components/create-roster-card';
 import { RosterBoard } from '@/modules/roster/components/roster-board';
@@ -26,6 +27,7 @@ import {
   listRosterTeams,
 } from '@/modules/roster/queries';
 import { rosterPageParamsSchema } from '@/modules/roster/schemas';
+import { getTradingHours } from '@/modules/trading-hours/queries';
 import { isAiConfigured } from '@/server/ai';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
@@ -61,7 +63,10 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
   if (roster) {
     const wholeRoster = canSeeWholeRoster(ctx);
     const editable = canManage && !roster.authorisedAt;
-    const [shifts, everyone, teams, rules, rates, leave, removed, meroAIOptions] =
+    // General staff get a roster of one: themselves.
+    const people = <T extends { userId: string }>(everyone: T[]) =>
+      wholeRoster ? everyone : everyone.filter((person) => person.userId === ctx.userId);
+    const [shifts, everyone, teams, rules, rates, leave, removed, agentSetup, tradingDays] =
       await Promise.all([
         listRosterShifts(ctx, roster.id),
         listActiveMembers(ctx),
@@ -70,12 +75,36 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
         listRosterRates(ctx),
         listRosterLeave(ctx, roster.startsOn, roster.endsOn),
         editable ? listRemovedShifts(ctx, roster.id) : [],
-        meroAI && editable ? rosterStrategyOptions(ctx, roster.startsOn) : null,
+        meroAI && editable ? rosterAgentSetup(ctx, roster.startsOn) : null,
+        canManage ? getTradingHours(ctx) : [],
       ]);
-    // General staff get a roster of one: themselves.
-    const people = wholeRoster
-      ? everyone
-      : everyone.filter((person) => person.userId === ctx.userId);
+    const days = daysBetweenDates(roster.startsOn, roster.endsOn) + 1;
+    const demand = tradingDays.some((day) => day.opensAt !== null)
+      ? demandByDate(
+          tradingDays,
+          Array.from({ length: days }, (_, index) => addDaysToDate(roster.startsOn, index)),
+        )
+      : null;
+    const storageKey = `meroai-roster-agent:${ctx.tenantId}:${roster.startsOn}`;
+    const board = (
+      <RosterBoard
+        roster={roster}
+        shifts={shifts}
+        removed={removed}
+        people={people(everyone)}
+        teams={teams}
+        leave={leave}
+        rules={rules}
+        rates={rates}
+        currency={ctx.tenant.currency}
+        canManage={editable}
+        wholeRoster={wholeRoster}
+        today={today}
+        demand={demand}
+        toolbarExtra={agentSetup ? <RosterAgentButton key="roster-agent" /> : null}
+      />
+    );
+
     return (
       <div className="flex w-full flex-col gap-5">
         {header}
@@ -119,56 +148,38 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
             </p>
           )
         )}
-        {meroAIOptions && (
-          <details className="group meroai-edge meroai-surface rounded-xl">
-            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
-              <MeroOrb size={24} />
-              <span>
-                Fill this roster with <span className="meroai-text">MeroAI</span>
-              </span>
-              <span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">
-                Copy last week, lowest wage cost, most productive or even hours
-              </span>
-            </summary>
-            <div className="border-t p-4">
-              <MeroAIRosterCard
-                defaultStart={roster.startsOn}
-                fixed={{
-                  startsOn: roster.startsOn,
-                  span:
-                    daysBetweenDates(roster.startsOn, roster.endsOn) + 1 > 7 ? 'fortnight' : 'week',
-                }}
-                options={meroAIOptions.options}
-                tradingHoursSet={meroAIOptions.tradingHoursSet}
+        {agentSetup ? (
+          <RosterAgentLayout
+            storageKey={storageKey}
+            panel={
+              <RosterAgent
+                variant="panel"
+                storageKey={storageKey}
+                startsOn={roster.startsOn}
+                span={days > 7 ? 'fortnight' : 'week'}
+                rosterId={roster.id}
+                existingShifts={shifts.length}
+                setup={agentSetup}
+                teamColors={Object.fromEntries(teams.map((team) => [team.id, team.color]))}
+                canChat={isAiConfigured()}
                 canEditSettings={canEditSettings}
-                canReadNotes={isAiConfigured()}
-                className="border-0 p-0 shadow-none"
               />
-            </div>
-          </details>
+            }
+          >
+            {board}
+          </RosterAgentLayout>
+        ) : (
+          board
         )}
-        <RosterBoard
-          roster={roster}
-          shifts={shifts}
-          removed={removed}
-          people={people}
-          teams={teams}
-          leave={leave}
-          rules={rules}
-          rates={rates}
-          currency={ctx.tenant.currency}
-          canManage={editable}
-          wholeRoster={wholeRoster}
-          today={today}
-        />
       </div>
     );
   }
 
   const weekStart = mondayOf(date);
-  const [canCopy, meroAIOptions] = await Promise.all([
+  const [canCopy, agentSetup, teams] = await Promise.all([
     canManage ? hasEarlierRoster(ctx, weekStart) : false,
-    meroAI ? rosterStrategyOptions(ctx, weekStart) : null,
+    meroAI ? rosterAgentSetup(ctx, weekStart) : null,
+    meroAI ? listRosterTeams(ctx) : [],
   ]);
 
   return (
@@ -197,17 +208,24 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
 
       {canManage ? (
         // Keyed so the forms' defaults follow the week being looked at.
-        <div className={meroAIOptions ? 'grid items-start gap-5 lg:grid-cols-2' : undefined}>
+        <div className={agentSetup ? 'grid items-start gap-5 lg:grid-cols-2' : undefined}>
           <CreateRosterCard key={weekStart} defaultStart={weekStart} canCopy={canCopy} />
-          {meroAIOptions && (
-            <MeroAIRosterCard
-              key={`meroai-${weekStart}`}
-              defaultStart={weekStart}
-              options={meroAIOptions.options}
-              tradingHoursSet={meroAIOptions.tradingHoursSet}
-              canEditSettings={canEditSettings}
-              canReadNotes={isAiConfigured()}
-            />
+          {agentSetup && (
+            <div className="flex max-h-[44rem] min-h-[30rem] flex-col">
+              <RosterAgent
+                key={`agent-${weekStart}`}
+                variant="card"
+                storageKey={`meroai-roster-agent:${ctx.tenantId}:${weekStart}`}
+                startsOn={weekStart}
+                span="week"
+                rosterId={null}
+                existingShifts={0}
+                setup={agentSetup}
+                teamColors={Object.fromEntries(teams.map((team) => [team.id, team.color]))}
+                canChat={isAiConfigured()}
+                canEditSettings={canEditSettings}
+              />
+            </div>
           )}
         </div>
       ) : (

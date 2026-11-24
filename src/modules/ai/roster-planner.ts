@@ -7,10 +7,11 @@ import { listActiveMembers } from '@/modules/members/queries';
 import { getProductivity } from '@/modules/productivity/queries';
 import { costOfShift } from '@/modules/roster/insights';
 import {
-  getRosterForDate,
   getRosterRules,
+  listContractedMinutes,
   listRosterLeave,
   listRosterRates,
+  listRostersBetween,
   listRosterShifts,
   listRosterTeams,
 } from '@/modules/roster/queries';
@@ -18,9 +19,12 @@ import type { RosterRates } from '@/modules/roster/types';
 import { getTradingHours } from '@/modules/trading-hours/queries';
 import { hasFeature, hasPermission, type TenantContext } from '@/server/context';
 
+import { coverageGaps, demandByDate } from './roster-coverage';
 import {
   productivityScore,
+  requirementsCopyingPeriod,
   requirementsCopyingWeek,
+  requirementsFromRecentWeeks,
   requirementsFromTradingHours,
   requirementsFromWeek,
   solveRoster,
@@ -47,6 +51,11 @@ import type { RosterPreviewArtifact, RosterStrategy } from './types';
 /** Ordinary hours: the National Employment Standards' 38 a week for full-time work. */
 const ORDINARY_MINUTES_PER_WEEK = 38 * 60;
 const PRODUCTIVITY_DAYS = 28;
+/** How many weeks back the roster agent looks for the business's usual pattern (ADR-079). */
+export const PATTERN_WEEKS = 4;
+
+/** Where a plan's shifts come from, when the caller chooses rather than the default order. */
+export type PlanSource = 'patterns' | 'trading_hours' | 'copy';
 
 export type PlanOutcome =
   | {
@@ -59,13 +68,8 @@ export type PlanOutcome =
 
 /** Shifts on any roster covering part of the days from `from` to `to`, both inclusive. */
 export async function shiftsBetween(ctx: TenantContext, from: string, to: string) {
-  const days = daysBetweenDates(from, to) + 1;
-  const rosterIds = new Set<string>();
-  for (let index = 0; index < days; index += 1) {
-    const roster = await getRosterForDate(ctx, addDaysToDate(from, index));
-    if (roster) rosterIds.add(roster.id);
-  }
-  return (await Promise.all([...rosterIds].map((id) => listRosterShifts(ctx, id))))
+  const rosters = await listRostersBetween(ctx, from, to);
+  return (await Promise.all(rosters.map((roster) => listRosterShifts(ctx, roster.id))))
     .flat()
     .filter((shift) => shift.date >= from && shift.date <= to);
 }
@@ -141,6 +145,14 @@ export async function planRoster(
     /** Days particular people cannot work, beyond their recorded leave. */
     unavailable?: { userId: string; date: string }[];
     extraWarnings?: string[];
+    /** Overrides the default order (request, trading hours, last week). */
+    source?: PlanSource;
+    /** For `source: 'copy'`: the rostered period to copy, both days inclusive. */
+    copyFrom?: { from: string; to: string };
+    /** Offer shifts to full- and part-time staff until they have their contracted hours. */
+    contractedFirst?: boolean;
+    /** The plan replaces the shifts already in the period: they neither block nor count. */
+    replacing?: boolean;
   },
 ): Promise<PlanOutcome> {
   const days = daysBetweenDates(input.startDate, input.endDate) + 1;
@@ -150,21 +162,69 @@ export async function planRoster(
     to: addDaysToDate(input.startDate, -1),
   };
 
-  const [members, teams, leave, rules, existing, lastWeek, tradingDays, rates] = await Promise.all([
-    listActiveMembers(ctx),
-    listRosterTeams(ctx),
-    listRosterLeave(ctx, input.startDate, input.endDate),
-    getRosterRules(ctx),
-    shiftsBetween(ctx, input.startDate, input.endDate),
-    shiftsBetween(ctx, weekBefore.from, weekBefore.to),
-    getTradingHours(ctx),
-    listRosterRates(ctx),
-  ]);
+  const [members, teams, leave, rules, existing, lastWeek, tradingDays, rates, contracted] =
+    await Promise.all([
+      listActiveMembers(ctx),
+      listRosterTeams(ctx),
+      listRosterLeave(ctx, input.startDate, input.endDate),
+      getRosterRules(ctx),
+      shiftsBetween(ctx, input.startDate, input.endDate),
+      shiftsBetween(ctx, weekBefore.from, weekBefore.to),
+      getTradingHours(ctx),
+      listRosterRates(ctx),
+      input.contractedFirst ? listContractedMinutes(ctx) : null,
+    ]);
+  const tradingHoursSet = tradingDays.some((day) => day.opensAt !== null);
 
   // Which shifts are needed.
   let requirements: ShiftRequirement[];
   let source: NonNullable<RosterPreviewArtifact['source']>;
-  if (input.strategy === 'copy_last_week') {
+  if (input.source === 'copy' && input.copyFrom) {
+    const copied = await shiftsBetween(ctx, input.copyFrom.from, input.copyFrom.to);
+    if (copied.length === 0)
+      return { kind: 'unavailable', message: 'That roster has no shifts to copy.' };
+    requirements = requirementsCopyingPeriod(
+      copied,
+      {
+        startsOn: input.copyFrom.from,
+        days: daysBetweenDates(input.copyFrom.from, input.copyFrom.to) + 1,
+      },
+      dates,
+    );
+    source = 'copy';
+  } else if (input.source === 'patterns') {
+    // One read for all four weeks, then split by week.
+    const earliest = addDaysToDate(input.startDate, -7 * PATTERN_WEEKS);
+    const recent = await shiftsBetween(ctx, earliest, addDaysToDate(input.startDate, -1));
+    const weeks = Array.from({ length: PATTERN_WEEKS }, (_, index) => {
+      const from = addDaysToDate(input.startDate, -7 * (index + 1));
+      const to = addDaysToDate(from, 6);
+      return recent.filter((shift) => shift.date >= from && shift.date <= to);
+    });
+    requirements = requirementsFromRecentWeeks(weeks);
+    if (requirements.length === 0) {
+      if (!tradingHoursSet) {
+        return {
+          kind: 'unavailable',
+          message:
+            'There are no rosters from the last four weeks to learn from, and no trading hours. Set your trading hours in Settings → Workspace, or copy a roster.',
+        };
+      }
+      requirements = requirementsFromTradingHours(tradingDays);
+      source = 'trading_hours';
+    } else {
+      source = 'patterns';
+    }
+  } else if (input.source === 'trading_hours') {
+    if (!tradingHoursSet) {
+      return {
+        kind: 'unavailable',
+        message: 'Set your trading hours and staff numbers in Settings → Workspace first.',
+      };
+    }
+    requirements = requirementsFromTradingHours(tradingDays);
+    source = 'trading_hours';
+  } else if (input.strategy === 'copy_last_week') {
     if (lastWeek.length === 0)
       return { kind: 'unavailable', message: 'There is no roster for the week before to copy.' };
     requirements = requirementsCopyingWeek(lastWeek);
@@ -172,7 +232,7 @@ export async function planRoster(
   } else if (input.requirements?.length) {
     requirements = input.requirements;
     source = 'request';
-  } else if (tradingDays.some((day) => day.opensAt !== null)) {
+  } else if (tradingHoursSet) {
     requirements = requirementsFromTradingHours(tradingDays);
     source = 'trading_hours';
   } else if (lastWeek.length > 0) {
@@ -240,6 +300,26 @@ export async function planRoster(
     endsOn: item.date,
   }));
 
+  // Contracted hours for the whole period: a fortnight owes two weeks of them.
+  let targets: Record<string, number> | undefined;
+  if (input.contractedFirst) {
+    if (contracted === null) {
+      warnings.push(
+        'Contracted hours need access to staff contracts, which your role does not have, so they were not used.',
+      );
+    } else if (Object.keys(contracted).length === 0) {
+      warnings.push(
+        'Nobody has contracted weekly hours on an accepted full- or part-time contract yet.',
+      );
+    } else {
+      const weeks = Math.ceil(days / 7);
+      targets = Object.fromEntries(
+        Object.entries(contracted).map(([userId, minutes]) => [userId, minutes * weeks]),
+      );
+    }
+  }
+  const kept = input.replacing ? [] : existing;
+
   const result = solveRoster({
     dates,
     requirements,
@@ -251,7 +331,8 @@ export async function planRoster(
         .map((team) => team.id),
     })),
     leave: [...leave, ...busyDays],
-    existing,
+    existing: kept,
+    targets,
     breakRules: rules.breakRules,
     rank,
     maxMinutesPerPerson: ORDINARY_MINUTES_PER_WEEK * Math.ceil(days / 7),
@@ -277,16 +358,37 @@ export async function planRoster(
   if (source === 'last_week' && input.strategy !== 'copy_last_week') {
     warnings.unshift('Trading hours are not set, so shifts repeat the week before.');
   }
-  if (existing.length > 0) {
+  if (input.replacing && existing.length > 0) {
+    warnings.push(
+      `Approving removes the ${existing.length} shift${existing.length === 1 ? '' : 's'} already rostered in this period first.`,
+    );
+  } else if (existing.length > 0) {
     warnings.push(
       `${existing.length} shift${existing.length === 1 ? ' is' : 's are'} already rostered in this period and stay as ${existing.length === 1 ? 'it is' : 'they are'}.`,
     );
+  }
+
+  let coverage: RosterPreviewArtifact['coverage'] = null;
+  if (tradingHoursSet) {
+    const demand = demandByDate(tradingDays, dates);
+    const planned = [...kept, ...result.shifts];
+    coverage = {
+      neededMinutes: Object.values(demand).reduce((sum, value) => sum + value, 0),
+      plannedMinutes: planned.reduce(
+        (sum, shift) => sum + (shift.userId ? shift.paidMinutes : 0),
+        0,
+      ),
+      gaps: coverageGaps(tradingDays, dates, planned),
+    };
   }
 
   const artifact: RosterPreviewArtifact = {
     kind: 'roster_preview',
     strategy: input.strategy,
     source,
+    coverage,
+    replaces: input.replacing ? existing.map((shift) => shift.id) : [],
+    contractedFirst: targets !== undefined,
     startsOn: input.startDate,
     endsOn: input.endDate,
     shifts: result.shifts.map((shift) => ({

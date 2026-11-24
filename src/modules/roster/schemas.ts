@@ -62,6 +62,19 @@ export const saveShiftSchema = z.object({
 
 export const shiftIdSchema = z.object({ id: z.uuid() });
 
+export const removeShiftsSchema = z.object({
+  rosterId: z.uuid(),
+  shiftIds: z.array(z.uuid()).min(1, 'Choose at least one shift').max(500),
+  /** What asked for it, for the audit log. */
+  reason: z.enum(['visible', 'agent', 'replace']).default('visible'),
+});
+
+export const reassignShiftSchema = z.object({
+  shiftId: z.uuid(),
+  /** Null leaves the shift vacant. */
+  userId: z.uuid().nullable(),
+});
+
 export const copyShiftSchema = z.object({
   id: z.uuid(),
   /** Other days of the same roster to repeat the shift on. */
@@ -130,6 +143,8 @@ export const rosterPageParamsSchema = z.object({
 export type CreateRosterInput = z.output<typeof createRosterSchema>;
 export type ShiftFormValues = z.input<typeof saveShiftSchema>;
 export type SaveShiftInput = z.output<typeof saveShiftSchema>;
+export type RemoveShiftsInput = z.output<typeof removeShiftsSchema>;
+export type ReassignShiftInput = z.output<typeof reassignShiftSchema>;
 export type CopyShiftInput = z.output<typeof copyShiftSchema>;
 export type PublishRosterInput = z.output<typeof publishRosterSchema>;
 export type SaveTeamInput = z.output<typeof saveTeamSchema>;

@@ -11,10 +11,11 @@ import {
   Send,
   UserRoundPlus,
   Wallet,
+  Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useState, useTransition, type ReactNode } from 'react';
 
 import { NativeSelect } from '@/components/forms/native-select';
 import {
@@ -32,13 +33,19 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { addDaysToDate, daysBetweenDates } from '@/lib/dates';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { deleteRosterAction, unpublishRosterAction } from '@/modules/roster/actions';
+import { instantBuildAction } from '@/modules/ai/actions';
+import {
+  deleteRosterAction,
+  removeShiftsAction,
+  unpublishRosterAction,
+} from '@/modules/roster/actions';
 import { PublishSheet } from '@/modules/roster/components/publish-sheet';
 import { RulesSheet } from '@/modules/roster/components/rules-sheet';
 import { ShiftCard } from '@/modules/roster/components/shift-card';
@@ -59,7 +66,7 @@ import type {
 } from '@/modules/roster/types';
 
 type View = 'day' | 'person';
-type Panel = 'publish' | 'teams' | 'rules' | 'delete' | null;
+type Panel = 'publish' | 'teams' | 'rules' | 'delete' | 'remove-visible' | null;
 
 /** Name column, then seven day columns that never get too narrow to read. */
 const PERSON_GRID =
@@ -107,6 +114,8 @@ export function RosterBoard({
   canManage,
   wholeRoster,
   today,
+  demand,
+  toolbarExtra,
 }: {
   roster: RosterSummary;
   shifts: RosterShift[];
@@ -124,6 +133,10 @@ export function RosterBoard({
   wholeRoster: boolean;
   /** Today's calendar date in the workspace timezone. */
   today: string;
+  /** Person-minutes each day needs by the trading hours' staff numbers; absent when unset. */
+  demand?: Record<string, number> | null;
+  /** Shown beside Actions, such as the roster agent's button. */
+  toolbarExtra?: ReactNode;
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>(wholeRoster ? 'day' : 'person');
@@ -322,13 +335,43 @@ export function RosterBoard({
 
         {canManage && (
           <div className="ml-auto flex items-center gap-2">
+            {toolbarExtra}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline">
                   <MoreHorizontal aria-hidden /> Actions
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  Build shifts
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  disabled={isPending}
+                  onSelect={() =>
+                    startTransition(async () => {
+                      setError(null);
+                      setNotice('Instant build is working…');
+                      const result = await instantBuildAction({ rosterId: roster.id });
+                      if (!result.ok) {
+                        setNotice(null);
+                        setError(result.error.message);
+                        return;
+                      }
+                      setNotice(result.data.message);
+                      router.refresh();
+                    })
+                  }
+                  className="flex-col items-start gap-0"
+                >
+                  <span className="flex items-center gap-2">
+                    <Zap aria-hidden /> Instant build
+                  </span>
+                  <span className="pl-6 text-xs text-muted-foreground">
+                    Fill vacant shifts, or build an empty roster, from your patterns and who is free
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setPanel('teams')}>Teams</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setPanel('rules')}>
                   Pay loadings and breaks
@@ -342,6 +385,13 @@ export function RosterBoard({
                     Back to draft
                   </DropdownMenuItem>
                 )}
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={visible.length === 0}
+                  onSelect={() => setPanel('remove-visible')}
+                >
+                  Remove visible shifts
+                </DropdownMenuItem>
                 <DropdownMenuItem variant="destructive" onSelect={() => setPanel('delete')}>
                   Delete roster
                 </DropdownMenuItem>
@@ -437,6 +487,12 @@ export function RosterBoard({
                 </span>
                 <span className="block text-muted-foreground tabular-nums">
                   {formatHours(figures.minutes.day.get(day.date) ?? 0)}
+                  {demand && (demand[day.date] ?? 0) > 0 && (
+                    <span title="Rostered hours / hours your staff numbers need">
+                      {' '}
+                      / {formatHours(demand[day.date] ?? 0)}
+                    </span>
+                  )}
                   {rates && (
                     <span data-sensitive> · {money(figures.money.day.get(day.date) ?? 0)}</span>
                   )}
@@ -605,6 +661,44 @@ export function RosterBoard({
         <TeamsSheet teams={teams} people={people} onClose={() => setPanel(null)} />
       )}
       {panel === 'rules' && <RulesSheet rules={rules} onClose={() => setPanel(null)} />}
+
+      <AlertDialog
+        open={panel === 'remove-visible'}
+        onOpenChange={(open) => !open && setPanel(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {visible.length} {visible.length === 1 ? 'shift' : 'shifts'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {teamFilter
+                ? 'Every shift in the team you are looking at is removed from this roster.'
+                : 'Every shift on this roster is removed.'}{' '}
+              Staff who were shown them are told when you next publish.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep them</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={isPending}
+              onClick={() => {
+                setPanel(null);
+                run(() =>
+                  removeShiftsAction({
+                    rosterId: roster.id,
+                    shiftIds: visible.map((shift) => shift.id),
+                    reason: 'visible',
+                  }),
+                );
+              }}
+            >
+              Remove shifts
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={panel === 'delete'} onOpenChange={(open) => !open && setPanel(null)}>
         <AlertDialogContent>
