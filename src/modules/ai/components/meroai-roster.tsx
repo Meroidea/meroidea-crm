@@ -1,10 +1,10 @@
 'use client';
 
-import { Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
+import { MeroOrb } from '@/components/motion/mero-orb';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -80,16 +80,24 @@ export function MeroAIRosterCard({
   return (
     <div
       className={cn(
-        'flex w-full flex-col gap-5 rounded-xl border border-primary/30 bg-card p-6 shadow-sm',
+        'meroai-edge meroai-surface flex w-full flex-col gap-5 rounded-xl p-6 shadow-sm',
         className,
       )}
     >
       <div className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Sparkles aria-hidden className="size-5" />
-        </span>
+        <MeroOrb size={44} state={pending ? 'thinking' : 'idle'} className="-m-0.5" />
         <div>
-          <h2 className="font-medium">{fixed ? 'Fill this roster with MeroAI' : 'Ask MeroAI'}</h2>
+          <h2 className="font-medium">
+            {fixed ? (
+              <>
+                Fill this roster with <span className="meroai-text">MeroAI</span>
+              </>
+            ) : (
+              <>
+                Ask <span className="meroai-text">MeroAI</span>
+              </>
+            )}
+          </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {tradingHoursSet
               ? 'MeroAI covers your trading hours, keeps people off their leave and never double-books. You approve before anything is added.'
@@ -214,8 +222,12 @@ export function MeroAIRosterCard({
           {error}
         </p>
       )}
-      <Button size="lg" onClick={build} disabled={pending || !strategy || !startsOn}>
-        <Sparkles aria-hidden />
+      <Button
+        size="lg"
+        onClick={build}
+        disabled={pending || !strategy || !startsOn}
+        className="meroai-button"
+      >
         {pending ? 'MeroAI is building your roster…' : 'Build with MeroAI'}
       </Button>
 

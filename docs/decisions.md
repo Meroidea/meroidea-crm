@@ -2174,3 +2174,69 @@ kept up to date by the business's admin.
 - Staff arriving before opening or leaving after closing, split shifts and per-hour staffing
   levels are not modelled yet.
 - "Most productive" is only as good as the timesheets and tasks the business records.
+
+## ADR-077 — Ask MeroAI on the invoices page: draft from a sentence, chase what is overdue
+
+**Context.** After rosters (ADR-076), the owner asked for MeroAI on the invoices page, beside the
+manual "New invoice". The two jobs worth automating there are writing an invoice and chasing
+money that is owed.
+
+**Decision.**
+1. *Where.* A collapsible "Ask MeroAI" panel under the invoices page header, open by default
+   while anything is overdue. Needs `ai.use` and `invoices.manage`.
+2. *Draft an invoice from a sentence.* The fast model only reads the sentence into customer,
+   lines, due date and notes (structured output, Zod-checked). Everything after is the chat's
+   `create_draft_invoice` tool: the customer matched to one contact through the scoped contacts
+   queries (several matches are named back, never guessed between), exact totals and tax, and the
+   invoice form's own schema. The preview is approved with `approveInvoiceDraft`, which saves a
+   draft; sending stays a separate step. A sentence with nothing to charge is refused rather than
+   priced by the model.
+3. *Chase overdue.* `listOverdueInvoices` (invoices module; sent, past due, money owed, the list's
+   own Overdue rule) feeds `writeReminder` (invoice-reminders.ts), which writes each reminder in
+   code from the invoice's figures: friendly under 14 days, firm from 14, a final notice from 45.
+   No model is used, so no amount, date or number can be wrong and no customer data leaves the
+   system. Each reminder can be edited, copied, opened in the person's email app, or followed by
+   "Resend invoice" (`sendInvoice`, on the person's click).
+4. *Audit.* `ai_assist` rows with `surface: 'invoices'` and `action: 'draft' | 'chase'`; counts and
+   ids only, never names or amounts.
+
+**Consequences.**
+- Reminders are sent from the person's own email app; Meroidea itself only re-sends the invoice.
+- Chasing covers the 50 most overdue invoices at a time.
+
+## ADR-078 — MeroAI's look: a living orb in the brand palette
+
+**Status.** Accepted (2026-11-24).
+
+**Context.** MeroAI showed up as a generic sparkle icon, the same mark every product uses for
+AI. The owner asked for a premium, creative look that is clearly Meroidea's own, with motion that
+says MeroAI is working.
+
+**Decision.**
+- MeroAI has one mark, the orb (`src/components/motion/mero-orb.tsx`): a sphere of particles
+  over a deep indigo core, with three ribbons that flow around it. It is drawn on a plain 2D
+  canvas with no library (the stack does not change). The maths is in `mero-orb-math.ts` and is
+  unit tested.
+- The orb's colours come from the theme tokens at run time: `--primary` (which a business can
+  override) for the core and halo, and `--chart-2`…`--chart-5` for the shell and ribbons. So it
+  matches each business's brand, and it never hardcodes a hex value in a component.
+- It has two states. When idle, it turns slowly and breathes. When thinking (a request is
+  running), it eases up to a faster spin and the ribbons surge. The same orb is the drawer's
+  trigger, header, empty state and progress indicator, and it heads Ask MeroAI on the Roster
+  and Invoices pages.
+- There are four supporting classes in `globals.css`:
+  - `.meroai-text`: the wordmark gradient.
+  - `.meroai-button`: MeroAI's own actions, with a slowly moving gradient.
+  - `.meroai-surface`: a faint aurora behind MeroAI's panels.
+  - `.meroai-edge`: a gradient border.
+  Use them only for MeroAI, so the look keeps meaning "this is MeroAI".
+- **Cost and access.**
+  - The orb is decorative (`aria-hidden`); the words around it carry the meaning.
+  - It stops drawing when it is off screen (IntersectionObserver) or in a background tab.
+  - The device pixel ratio is capped at 2, and particle counts are capped by size (70–1,100).
+  - With `prefers-reduced-motion`, the orb draws one still frame, and the gradients stop moving.
+
+**Consequences.**
+- New MeroAI surfaces use `MeroOrb` and these classes, not a sparkle icon.
+- Dark mode is not in the MVP. The orb sits on its own dark core, so it already reads on either
+  background.

@@ -14,7 +14,9 @@ import { cn } from '@/lib/utils';
 import { getInvoiceTotals, listInvoices } from '@/modules/invoices/queries';
 import { invoiceParamsSchema, type InvoiceFilter } from '@/modules/invoices/schemas';
 import { invoiceNumber, type InvoiceRow } from '@/modules/invoices/types';
-import { requirePermission, requireTenantContext } from '@/server/context';
+import { MeroAIInvoicesPanel } from '@/modules/ai/components/meroai-invoices';
+import { isAiConfigured } from '@/server/ai';
+import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
 export const metadata: Metadata = { title: 'Invoices' };
 
@@ -78,6 +80,14 @@ export default async function InvoicesPage({ searchParams }: PageProps<'/invoice
           </>
         }
       />
+      {/* MeroAI beside the manual way, once the platform owner has switched it on (ADR-077). */}
+      {hasPermission(ctx, 'ai.use') && (
+        <MeroAIInvoicesPanel
+          overdueTotal={totals.overdue}
+          currency={ctx.tenant.currency}
+          canReadRequests={isAiConfigured()}
+        />
+      )}
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {(
           [

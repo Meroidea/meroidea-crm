@@ -63,3 +63,19 @@ Checked against WCAG AA (4.5:1 for normal text on white):
   (`--dot`), faded towards the screen edges (`src/components/layout/dot-background.tsx`). Not
   used inside the signed-in app, where it would compete with tables and forms.
 - Dark mode: not in MVP; tokens make it a later addition.
+
+## MeroAI (ADR-078)
+
+- **Mark.** `MeroOrb` from `src/components/motion/mero-orb.tsx`. Never use a sparkle icon for
+  MeroAI. Use `state="thinking"` while a MeroAI request runs and `idle` otherwise.
+- **Sizes.** 24 in a summary or row, 26–34 in a button or header, 44 on a card, 120–140 for an
+  empty state.
+- **Colours.** These come from tokens only: `--primary` for the core and halo, `--chart-2`…`--chart-5`
+  for the particles. The orb follows a business's own primary colour.
+- **Classes.** These are for MeroAI only:
+  - `.meroai-text`: the "MeroAI" wordmark.
+  - `.meroai-button`: the one primary action of a MeroAI surface, on a shadcn `Button`.
+  - `.meroai-surface`: the panel background.
+  - `.meroai-edge`: the panel border. It combines with `.meroai-surface`.
+- **Motion.** The orb pauses off screen and in background tabs. With reduced motion, the orb is
+  still and the gradients don't move. The orb is `aria-hidden`; always pair it with words.

@@ -312,3 +312,117 @@
     }
   }
 }
+
+/* ---------------------------------------------------------------------------------------------
+   MeroAI (ADR-078): its orb (src/components/motion/mero-orb.tsx) and the few touches around it.
+   All from the theme tokens, so a business's own primary colour carries through.
+   --------------------------------------------------------------------------------------------- */
+@keyframes meroai-flow {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+@layer components {
+  /* The MeroAI wordmark: the brand palette running through the letters. */
+  .meroai-text {
+    background: linear-gradient(
+      90deg,
+      var(--primary),
+      var(--chart-4),
+      color-mix(in srgb, var(--chart-5) 60%, var(--primary)),
+      var(--primary)
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: meroai-flow 8s linear infinite;
+  }
+
+  /* MeroAI's own actions: the same palette, slowly moving, so they stand apart from the rest. */
+  .meroai-button[data-slot='button'] {
+    background: linear-gradient(
+      90deg,
+      var(--primary),
+      var(--chart-4),
+      var(--chart-5),
+      var(--chart-4),
+      var(--primary)
+    );
+    background-size: 200% 100%;
+    color: var(--primary-foreground);
+    animation: meroai-flow 6s linear infinite;
+  }
+  .meroai-button[data-slot='button']:not(:disabled):hover {
+    box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--chart-4) 70%, transparent);
+  }
+  .meroai-button[data-slot='button']:disabled {
+    animation: none;
+  }
+
+  /* A faint aurora behind MeroAI's surfaces: present, never in the way of reading. */
+  .meroai-surface {
+    background:
+      radial-gradient(
+        120% 60% at 0% 0%,
+        color-mix(in srgb, var(--chart-2) 16%, transparent),
+        transparent 60%
+      ),
+      radial-gradient(
+        90% 50% at 100% 0%,
+        color-mix(in srgb, var(--chart-5) 10%, transparent),
+        transparent 55%
+      ),
+      var(--card);
+  }
+
+  /* The edge of a MeroAI card: a soft gradient line instead of a plain border. */
+  .meroai-edge {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      linear-gradient(
+          120deg,
+          color-mix(in srgb, var(--primary) 55%, transparent),
+          color-mix(in srgb, var(--chart-4) 45%, transparent),
+          color-mix(in srgb, var(--chart-5) 40%, transparent)
+        )
+        border-box;
+  }
+
+  /* Both together: the aurora inside, the gradient line around it. */
+  .meroai-edge.meroai-surface {
+    background:
+      radial-gradient(
+          120% 60% at 0% 0%,
+          color-mix(in srgb, var(--chart-2) 16%, transparent),
+          transparent 60%
+        )
+        padding-box,
+      radial-gradient(
+          90% 50% at 100% 0%,
+          color-mix(in srgb, var(--chart-5) 10%, transparent),
+          transparent 55%
+        )
+        padding-box,
+      linear-gradient(var(--card), var(--card)) padding-box,
+      linear-gradient(
+          120deg,
+          color-mix(in srgb, var(--primary) 55%, transparent),
+          color-mix(in srgb, var(--chart-4) 45%, transparent),
+          color-mix(in srgb, var(--chart-5) 40%, transparent)
+        )
+        border-box;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .meroai-text,
+    .meroai-button[data-slot='button'] {
+      animation: none;
+    }
+  }
+}

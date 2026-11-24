@@ -168,3 +168,36 @@ export async function listOutstandingInvoices(ctx: TenantContext): Promise<Outst
       limit 500`),
   )) as unknown as OutstandingInvoice[];
 }
+
+export type OverdueInvoice = {
+  id: string;
+  number: number;
+  customerName: string;
+  customerEmail: string | null;
+  dueDate: string;
+  balance: string;
+  currency: string;
+};
+
+/**
+ * Sent invoices past their due date with money still owed, longest overdue first: what to chase
+ * (Ask MeroAI on the invoices page, ADR-077). The same rule as the list's Overdue filter.
+ */
+export async function listOverdueInvoices(
+  ctx: TenantContext,
+  limit = 50,
+): Promise<OverdueInvoice[]> {
+  requirePermission(ctx, 'invoices.manage');
+  const today = zonedToday(ctx.tenant.timezone);
+  return (await withRls(ctx, (tx) =>
+    tx.execute(sql`
+      select id, number, customer_name as "customerName", customer_email as "customerEmail",
+             due_date::text as "dueDate", app.invoice_balance(tenant_id, id)::text as balance,
+             currency
+      from invoices
+      where tenant_id = ${ctx.tenantId} and status = 'sent' and due_date < ${today}::date
+        and app.invoice_balance(tenant_id, id) > 0
+      order by due_date, number
+      limit ${limit}`),
+  )) as unknown as OverdueInvoice[];
+}

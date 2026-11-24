@@ -1,8 +1,9 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
+import { MeroOrb } from '@/components/motion/mero-orb';
 import { PageHeader } from '@/components/data/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -119,10 +120,12 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
           )
         )}
         {meroAIOptions && (
-          <details className="group rounded-xl border border-primary/30 bg-card">
+          <details className="group meroai-edge meroai-surface rounded-xl">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
-              <Sparkles aria-hidden className="size-4 text-primary" />
-              Fill this roster with MeroAI
+              <MeroOrb size={24} />
+              <span>
+                Fill this roster with <span className="meroai-text">MeroAI</span>
+              </span>
               <span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">
                 Copy last week, lowest wage cost, most productive or even hours
               </span>
