@@ -1931,8 +1931,6 @@ a business wants chats from its customers joined to their records.
 - Not built: attachments from visitors, typing indicators, offline email of replies to visitors,
   per-agent names in the widget (replies show the widget's name), office hours.
 
-<<<<<<< HEAD
-
 ## ADR-073 — Marketing in three areas: Social inbox, Email and campaigns; one inbox layout with each channel's own feel
 
 **Context.** The owner asked, on 23 November 2026, for three sub-modules under Marketing: a Social
@@ -1999,8 +1997,6 @@ decisions:
   scale. A stored folder column would be the next step if lists grow large.
 - Not built here: Marketing campaigns (email and WhatsApp, under the Spam Act 2003: consent,
   sender identification, unsubscribe within five working days), and Gmail or Outlook sync.
-
->>>>>>> origin/main
 
 ## ADR-074 — AI assistant: Gemini drafts, people approve
 
@@ -2098,7 +2094,6 @@ Every read must stay within the person's business and permissions, and every act
 - Not built: streaming replies, saved conversations, documents over 4 MB (would need upload to
   storage and Gemini's Files API), editing an invoice's lines inside the card (it is edited on the
   invoice after approval), an evaluation suite for the model's answers.
-=======
 
 ## ADR-075 — Production migrations run in CI, after every check passes
 
