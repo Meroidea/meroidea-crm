@@ -2442,3 +2442,40 @@ managers see everyone's complete authorised timesheet and export it from there.
 - Between a deploy and its migration (ADR-075) a roster paid from the roster records no entries
   (the check refuses the new source value, and the savepoint skips it); the migration's backfill
   then records them.
+
+## ADR-084 — MeroAI authorises timesheets from the roster and runs payroll, with the manager in between
+
+**Status.** Accepted (2026-11-25).
+
+**Context.** The owner wants MeroAI to take the work out of pay without taking the manager out of
+it: MeroAI authorises the roster's timesheets from clock-ins (or the roster); the manager checks
+them in Timesheets, unauthorises and corrects any shift, and authorises it again; then, satisfied,
+asks MeroAI to run payroll from the authorised timesheets, which pays, releases the payslips and
+emails them to staff for that pay period.
+
+**Decision.**
+1. *Step 1, on the roster.* "Authorise timesheets with MeroAI" on a published roster that has
+   started and is not paid (`ai.use` and `timesheets.manage`). It runs ADR-082's planner for the
+   roster's period and authorises every row that is ready, through `saveDayEntry`, in one click.
+   Nothing is locked and no payslip is made; the result links to Timesheets.
+2. *The manager's review.* Timesheets now says what the owner says: approving a timesheet is
+   **authorising** it, reopening it is **unauthorising** it, and a period payroll has run for is
+   **Paid**. Database values do not change (`approved` stays `approved`).
+3. *Step 2, on the pay period view.* "Run payroll with MeroAI" (`ai.use`, `payroll.manage`,
+   `timesheets.manage`) shows what it will pay (people, authorised hours, estimated wages, shifts
+   with no time) and anything in the way (time still waiting, someone clocked in, shifts not worked
+   yet, nothing authorised); it cannot run while anything is in the way. On the manager's
+   confirmation, with the payment date (period end + 3 days) and super rate (the last pay run's,
+   else 12%) they can change: `authoriseRoster` with `hoursFrom: 'timesheets'`, then
+   `releasePayslips`, then `emailReleasedPayslips`. Each is the Payroll screen's own service.
+4. *A safety stop.* If any payslip's tax could not be worked out (no tax file number
+   declaration, or no access to it), MeroAI stops after drafting and before releasing, and sends
+   the manager to the Payroll screen to enter it: no one is released a payslip with tax left at $0.
+5. *The email.* `payslipEmail` (`src/modules/payroll/notify.ts`) tells each person their payslip
+   for the period is ready and links to it in Meroidea; the amounts stay behind the sign-in. It is
+   sent after the release is saved, so a mail failure never undoes it; without email set up,
+   staff find it under My payslips.
+
+**Consequences.**
+- The Payroll screen still works on its own, for paying rostered hours or entering tax by hand.
+- Payroll runs per roster: a pay period with no published roster cannot be paid this way.

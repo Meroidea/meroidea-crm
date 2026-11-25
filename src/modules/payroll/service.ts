@@ -29,11 +29,14 @@ import type { RosterRules } from '@/modules/roster/types';
 import { employerSnapshot } from '@/modules/settings/business';
 import { recordPaidRosterTime } from '@/modules/timesheets/hooks';
 import { audit } from '@/server/audit';
+import { isEmailConfigured, sendEmail } from '@/server/email';
+import { serverEnv } from '@/server/env';
 import { hasFeature, hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
 
 import type { AuthoriseRosterInput } from './schemas';
 import { payslipLinesFor, type WorkedShift } from './lines';
+import { payslipEmail } from './notify';
 import { withholdingFor, type Withholding } from './payg';
 import type { PayslipShift, SkippedPerson } from './types';
 
@@ -514,4 +517,64 @@ export async function releasePayslips(
     });
     return { released: released.length };
   });
+}
+
+/**
+ * Emails everyone with a released payslip from this roster that it is ready, with a link to it
+ * (ADR-084). Sent after the release is saved, so a mail failure never undoes it; returns how many
+ * went, and whether email is set up at all.
+ */
+export async function emailReleasedPayslips(
+  ctx: TenantContext,
+  rosterId: string,
+): Promise<{ emailed: number; emailConfigured: boolean }> {
+  requirePermission(ctx, 'payroll.manage');
+  const recipients = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: payslips.id,
+        periodStart: payslips.periodStart,
+        periodEnd: payslips.periodEnd,
+        paymentDate: payslips.paymentDate,
+        email: users.email,
+        fullName: users.fullName,
+      })
+      .from(payslips)
+      .innerJoin(users, eq(users.id, payslips.userId))
+      .where(
+        and(
+          eq(payslips.tenantId, ctx.tenantId),
+          eq(payslips.rosterId, rosterId),
+          eq(payslips.status, 'released'),
+        ),
+      ),
+  );
+  if (!isEmailConfigured()) return { emailed: 0, emailConfigured: false };
+  const base = serverEnv().APP_URL.replace(/\/$/, '');
+  const sent = await Promise.all(
+    recipients.map((row) =>
+      sendEmail({
+        to: row.email,
+        ...payslipEmail({
+          workspace: ctx.tenant.name,
+          fullName: row.fullName,
+          periodStart: row.periodStart,
+          periodEnd: row.periodEnd,
+          paymentDate: row.paymentDate,
+          url: `${base}/payslips/${row.id}`,
+          color: ctx.tenant.primaryColor,
+        }),
+      }),
+    ),
+  );
+  const emailed = sent.filter((outcome) => outcome.sent).length;
+  await withRls(ctx, (tx) =>
+    audit(tx, ctx, {
+      action: 'update',
+      entityType: 'roster',
+      entityId: rosterId,
+      context: { payslipsEmailed: emailed, recipients: recipients.length },
+    }),
+  );
+  return { emailed, emailConfigured: true };
 }

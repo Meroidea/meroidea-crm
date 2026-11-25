@@ -8,6 +8,7 @@ import { authedAction } from '@/server/action';
 import { runAssistant } from './agent';
 import { chaseOverdueInvoices, draftInvoiceWithMeroAI } from './meroai-invoices';
 import { buildRosterWithMeroAI } from './meroai-roster';
+import { authoriseRosterTimesheets, runPayrollWithMeroAI } from './meroai-payroll';
 import { authoriseTimesheets, prepareTimesheetAuthorisation } from './meroai-timesheets';
 import {
   applyVacantFill,
@@ -27,6 +28,7 @@ import {
   rosterChatSchema,
   rosterFeedbackSchema,
   rosterIdInputSchema,
+  runPayrollSchema,
   timesheetAuthoriseSchema,
   timesheetPrepareSchema,
   vacantFillSchema,
@@ -129,4 +131,24 @@ export const prepareTimesheetAuthorisationAction = authedAction(
 export const authoriseTimesheetsAction = authedAction(
   { permission: 'timesheets.manage', input: timesheetAuthoriseSchema, revalidate: ['/timesheets'] },
   (ctx, input) => authoriseTimesheets(ctx, input),
+);
+
+/** From the roster: MeroAI authorises the period's timesheets; nothing is locked or paid (ADR-084). */
+export const authoriseRosterTimesheetsAction = authedAction(
+  {
+    permission: 'timesheets.manage',
+    input: rosterIdInputSchema,
+    revalidate: ['/timesheets', '/roster'],
+  },
+  (ctx, input) => authoriseRosterTimesheets(ctx, input.rosterId),
+);
+
+/** From the pay period view, on the manager's confirmation: pay, release and email. */
+export const runPayrollAction = authedAction(
+  {
+    permission: 'payroll.manage',
+    input: runPayrollSchema,
+    revalidate: ['/timesheets', '/payroll', '/roster', '/payslips'],
+  },
+  (ctx, input) => runPayrollWithMeroAI(ctx, input),
 );

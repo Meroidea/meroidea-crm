@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { addDaysToDate, daysBetweenDates, mondayOf, zonedToday } from '@/lib/dates';
 import { RosterAgent } from '@/modules/ai/components/roster-agent';
+import { MeroAIRosterTimesheets } from '@/modules/ai/components/meroai-roster-timesheets';
 import { RosterAgentButton, RosterAgentLayout } from '@/modules/ai/components/roster-agent-layout';
 import { rosterAgentSetup } from '@/modules/ai/roster-agent';
 import { demandByDate } from '@/modules/ai/roster-coverage';
@@ -148,6 +149,14 @@ export default async function RosterPage({ searchParams }: PageProps<'/roster'>)
             </p>
           )
         )}
+        {/* Once staff have worked to it: MeroAI authorises the timesheets (ADR-084). */}
+        {roster.status === 'published' &&
+          !roster.authorisedAt &&
+          roster.startsOn <= today &&
+          hasPermission(ctx, 'ai.use') &&
+          hasPermission(ctx, 'timesheets.manage') && (
+            <MeroAIRosterTimesheets rosterId={roster.id} startsOn={roster.startsOn} />
+          )}
         {agentSetup ? (
           <RosterAgentLayout
             storageKey={storageKey}

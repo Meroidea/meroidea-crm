@@ -334,9 +334,9 @@ function DayRow({
               className="w-full"
               disabled={isPending}
               onClick={() => save(false)}
-              title="Click to reopen it"
+              title="Click to unauthorise it and change it"
             >
-              <CircleCheck aria-hidden /> Approved
+              <CircleCheck aria-hidden /> Authorised
             </Button>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -345,10 +345,10 @@ function DayRow({
                 variant="outline"
                 className="w-full"
                 disabled={isPending || running || !complete || !row.canApprove}
-                title={row.canApprove ? undefined : 'Someone else has to approve your own time'}
+                title={row.canApprove ? undefined : 'Someone else has to authorise your own time'}
                 onClick={() => save(true)}
               >
-                <Check aria-hidden /> Approve
+                <Check aria-hidden /> Authorise
               </Button>
               {dirty && entry && complete && !running && (
                 <Button
@@ -367,7 +367,7 @@ function DayRow({
         ) : (
           entry?.status === 'approved' && (
             <p className="flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
-              <CircleCheck aria-hidden className="size-4" /> Authorised
+              <CircleCheck aria-hidden className="size-4" /> Paid
             </p>
           )
         )}
@@ -379,7 +379,8 @@ function DayRow({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={`Reopen ${row.fullName}’s time`}
+            aria-label={`Unauthorise ${row.fullName}’s time`}
+            title="Unauthorise"
             disabled={isPending}
             onClick={() => save(false)}
           >
@@ -444,7 +445,7 @@ export function ApproveAll({ ids }: { ids: string[] }) {
         disabled={isPending || ids.length === 0}
         onClick={() => run(() => decideEntriesAction({ ids, decision: 'approved' }))}
       >
-        <Check aria-hidden /> Approve all{ids.length > 0 ? ` (${ids.length})` : ''}
+        <Check aria-hidden /> Authorise all{ids.length > 0 ? ` (${ids.length})` : ''}
       </Button>
       {error && (
         <p role="alert" className="text-sm text-destructive-text">
@@ -468,7 +469,7 @@ export function ExportPeriod({ date, disabled }: { date: string; disabled: boole
     link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
-    setNote(`Exported ${rows} approved ${rows === 1 ? 'entry' : 'entries'}.`);
+    setNote(`Exported ${rows} authorised ${rows === 1 ? 'entry' : 'entries'}.`);
   };
   const workbook = () =>
     startTransition(async () => {

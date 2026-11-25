@@ -12,6 +12,7 @@ import { ApprovalViews, TimesheetViewNav } from '@/modules/timesheets/components
 import { ExportPeriod } from '@/modules/timesheets/components/timesheet-day';
 import { TimesheetSheet } from '@/modules/timesheets/components/timesheet-sheet';
 import { ClockCard, EntryButton } from '@/modules/timesheets/components/timesheet-tools';
+import { payrollPreview } from '@/modules/ai/meroai-payroll';
 import { getTimesheetPeriod, previousPeriodCosts } from '@/modules/timesheets/period';
 import { getOpenEntry } from '@/modules/timesheets/queries';
 import { timesheetParamsSchema } from '@/modules/timesheets/schemas';
@@ -36,6 +37,13 @@ export default async function TimesheetsPage({ searchParams }: PageProps<'/times
         period={period}
         previousCosts={
           params.view === 'period' ? await previousPeriodCosts(ctx, period.from) : null
+        }
+        payroll={
+          params.view === 'period' &&
+          hasPermission(ctx, 'ai.use') &&
+          hasPermission(ctx, 'payroll.manage')
+            ? await payrollPreview(ctx, period.from)
+            : null
         }
         currency={ctx.tenant.currency}
         today={today}

@@ -13,8 +13,8 @@ const STATUS: Record<
   SheetStatus,
   { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }
 > = {
-  authorised: { label: 'Authorised', variant: 'default' },
-  approved: { label: 'Approved', variant: 'secondary' },
+  authorised: { label: 'Paid', variant: 'default' },
+  approved: { label: 'Authorised', variant: 'secondary' },
   recorded: { label: 'Waiting', variant: 'outline' },
   clocked_in: { label: 'Clocked in', variant: 'outline' },
   rejected: { label: 'Rejected', variant: 'destructive' },
@@ -72,11 +72,11 @@ export function TimesheetSheet({
         <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3">
           <BadgeCheck aria-hidden className="size-5 text-primary" />
           <div className="min-w-0 flex-1 text-sm">
-            <p className="font-medium">Authorised for pay</p>
+            <p className="font-medium">Paid</p>
             <p className="text-muted-foreground">
               {sheet.everyone
-                ? `These are the authorised timesheets for this pay period: ${formatHours(total)} in all.`
-                : `These are your authorised hours for this pay period: ${formatHours(total)}.`}
+                ? `Payroll has been run for this pay period from these authorised timesheets: ${formatHours(total)} in all.`
+                : `These are your paid hours for this pay period: ${formatHours(total)}.`}
             </p>
           </div>
           {sheet.everyone && exportButton}
@@ -86,8 +86,8 @@ export function TimesheetSheet({
         total > 0 && (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3">
             <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-              Not authorised for pay yet. {formatHours(total)} approved so far; times show what was
-              clocked until the period is authorised.
+              Not paid yet. {formatHours(total)} authorised so far; you can still unauthorise and
+              change any shift until payroll is run.
             </p>
             {exportButton}
           </div>
@@ -111,8 +111,8 @@ export function TimesheetSheet({
               </h2>
               <p className="text-sm text-muted-foreground tabular-nums">
                 {sheet.locked
-                  ? `${formatHours(person.approvedMinutes)} authorised`
-                  : `${formatHours(person.approvedMinutes)} approved`}
+                  ? `${formatHours(person.approvedMinutes)} paid`
+                  : `${formatHours(person.approvedMinutes)} authorised`}
               </p>
             </header>
             <div className="overflow-x-auto">
@@ -126,7 +126,7 @@ export function TimesheetSheet({
                       Rostered
                     </th>
                     <th scope="col" className="px-4 py-2 font-medium">
-                      {sheet.locked ? 'Authorised' : 'Clock-in and clock-out'}
+                      {sheet.locked ? 'Paid times' : 'Clock-in and clock-out'}
                     </th>
                     <th scope="col" className="px-4 py-2 text-right font-medium">
                       Break
