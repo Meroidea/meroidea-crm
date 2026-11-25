@@ -13,6 +13,7 @@ from manim import (
     RIGHT,
     UP,
     UL,
+    UR,
     FadeOut,
     Circle,
     Dot,
@@ -25,6 +26,8 @@ from manim import (
     config,
     smooth,
     interpolate_color,
+    ORIGIN,
+    rate_functions,
     ManimColor,
 )
 
@@ -254,16 +257,46 @@ class Sync:
 
 class PitchScene(MovingCameraScene):
     SID = ""
-    TAIL = 0.6  # seconds of picture after the last word
+    TAIL = 0.35  # seconds of picture after the last word
+    PUSH = 0.06  # slow camera push-in across the scene (fraction of frame)
+    AMBIENT = True
 
     def setup(self):
         super().setup()
         self.camera.background_color = BG
         self.sync = Sync(self.SID)
         from manim import ImageMobject
-        self.bg = ImageMobject(str(background_plate())).set(height=config.frame_height)
+        # Plate is 1.3x the frame (same 20 px dot pitch) so pans and pushes never show its edge.
+        self.bg = ImageMobject(str(background_plate(2496, 1404))).set(height=config.frame_height * 1.3)
         self.bg.z_index = -100
         self.add(self.bg)
+        # Constant life: drifting brand particles and a slow push-in, so no frame is ever still.
+        if self.AMBIENT:
+            self.particles = ambient_particles()
+            self.add(self.particles)
+        # Camera rig: zoom and focus trackers layered on the slow push. Scenes animate
+        # self.zoom / self.focus (punch-ins, pans, shakes) instead of the frame itself.
+        from manim import ValueTracker
+        frame = self.camera.frame
+        w0 = frame.width
+        total = self.sync.duration + self.TAIL
+        push = self.PUSH
+        self.zoom = ValueTracker(1.0)
+        self.focus = Dot(radius=0.001, fill_opacity=0, stroke_width=0)
+        self.add(self.zoom, self.focus)
+        frame.add_updater(lambda m: m.set(width=w0 * self.zoom.get_value()
+                                          * (1 - push * min(1.0, self.renderer.time / max(total, 1))))
+                          .move_to(self.focus.get_center()))
+
+    def shake(self, amp: float = 0.08, n: int = 6, run_time: float = 0.45):
+        """A short camera shake (impact)."""
+        from manim import Succession
+        rng = np.random.default_rng(int(self.renderer.time * 1000) % 2**31)
+        c = self.focus.get_center()
+        steps = [self.focus.animate(run_time=run_time / (n + 1)).move_to(c + np.array([*rng.uniform(-amp, amp, 2), 0]))
+                 for _ in range(n)]
+        steps.append(self.focus.animate(run_time=run_time / (n + 1)).move_to(c))
+        self.play(Succession(*steps))
 
     @property
     def now(self) -> float:
@@ -288,13 +321,157 @@ class PitchScene(MovingCameraScene):
         self.cue(word, lead)
         self.play(*anims, run_time=run_time, **kw)
 
-    def outro(self, fade: float = 0.55):
-        """Fade everything out so the scene ends exactly at voice length + tail."""
+    def outro(self, fade: float = 0.4, whip: bool = True):
+        """Whip everything off to the left so the scene ends exactly at voice length + tail;
+        the next scene's content arrives from the right, which reads as one camera move."""
         self.wait_until(self.end - fade)
-        mobs = [m for m in self.mobjects if m is not self.bg]
+        keep = {id(self.bg), id(getattr(self, "particles", None)), id(self.zoom), id(self.focus)}
+        mobs = [m for m in self.mobjects if id(m) not in keep]
         if mobs:
-            self.play(*[FadeOut(m) for m in mobs], run_time=fade, rate_func=smooth)
+            shift = LEFT * 3.5 if whip else ORIGIN
+            self.play(*[FadeOut(m, shift=shift) for m in mobs], run_time=fade, rate_func=rate_functions.ease_in_cubic)
         self.wait_until(self.end)
+
+
+# ---- Cinematic helpers ------------------------------------------------------------------------
+
+def ambient_particles(n: int = 46, seed: int = 21):
+    """Soft brand-coloured motes drifting upward and sideways, wrapping at the frame edge."""
+    rng = np.random.default_rng(seed)
+    cols = [BRAND, INFO, SKY, SKY2]
+    g = VGroup()
+    W, H = config.frame_width + 1, config.frame_height + 1
+    for i in range(n):
+        r = rng.uniform(0.025, 0.07)
+        d = Dot(radius=r, color=cols[i % 4], fill_opacity=rng.uniform(0.12, 0.35))
+        d.move_to([rng.uniform(-W / 2, W / 2), rng.uniform(-H / 2, H / 2), 0])
+        d.vel = np.array([rng.uniform(-0.12, 0.12), rng.uniform(0.08, 0.3), 0])
+        d.phase = rng.uniform(0, 6.28)
+        g.add(d)
+
+    def drift(group, dt):
+        for d in group:
+            d.phase += dt
+            d.shift((d.vel + np.array([0.06 * np.sin(d.phase * 0.7), 0, 0])) * dt)
+            x, y, _ = d.get_center()
+            if y > H / 2:
+                d.move_to([x, -H / 2, 0])
+            if x > W / 2:
+                d.move_to([-W / 2, y, 0])
+            if x < -W / 2:
+                d.move_to([W / 2, y, 0])
+
+    g.add_updater(drift)
+    g.z_index = -50
+    return g
+
+
+def shadow_card(width: float, height: float, color: str = EDGE, fill: str = PANEL, radius: float = 0.18,
+                stroke_width: float = 1.4, depth: float = 0.07):
+    """A white card with a soft drop shadow (like the site's cards). Index 0 shadow, 1 card."""
+    shadow = VGroup(*[RoundedRectangle(width=width + 0.06 * i, height=height + 0.06 * i, corner_radius=radius + 0.03 * i,
+                                       stroke_width=0).set_fill("#1F2937", opacity=0.022)
+                      for i in range(5)])
+    shadow.shift(DOWN * depth)
+    c = card(width, height, color=color, fill=fill, radius=radius, stroke_width=stroke_width)
+    return VGroup(shadow, c)
+
+
+def ripple(point, color: str = BRAND, radius: float = 1.2):
+    """An expanding ring that fades: the 'click' accent."""
+    from manim import Circle as _C, AnimationGroup, GrowFromCenter
+    ring = _C(radius=radius, stroke_color=color, stroke_width=4).move_to(point)
+    return ring
+
+
+def phone(width: float = 2.6, height: float = 5.2):
+    """A minimal phone frame; index 0 body, 1 screen, 2 notch."""
+    body = RoundedRectangle(width=width, height=height, corner_radius=0.38, stroke_color="#1F2937", stroke_width=3)
+    body.set_fill("#FFFFFF", 1)
+    screen = RoundedRectangle(width=width - 0.22, height=height - 0.22, corner_radius=0.3, stroke_width=0).set_fill(BG, 1)
+    notch = RoundedRectangle(width=width * 0.32, height=0.14, corner_radius=0.07, stroke_width=0).set_fill("#1F2937", 1)
+    notch.move_to(body.get_top() + DOWN * 0.22)
+    return VGroup(body, screen, notch)
+
+
+def laptop(width: float = 9.0, height: float = 5.4):
+    """A browser-window frame like the site's product shots; index 0 window, 1 top bar, 2 dots."""
+    win = shadow_card(width, height, radius=0.2)
+    bar = RoundedRectangle(width=width, height=0.42, corner_radius=0.2, stroke_width=0).set_fill(MUTED_BG, 1)
+    bar.align_to(win[1], UP)
+    dots = VGroup(*[Dot(radius=0.055, color=c) for c in (CORAL, GOLD, SKY)]).arrange(RIGHT, buff=0.12)
+    dots.move_to(bar).align_to(bar, LEFT).shift(RIGHT * 0.25)
+    return VGroup(win, bar, dots)
+
+
+def icon(kind: str, color: str = BRAND, s: float = 0.5):
+    """Simple line icons in the spirit of Lucide (the site's icon set), built from shapes."""
+    from manim import Arc, Line as L, Polygon, Rectangle as R
+    sw = 3.2
+    g = VGroup()
+    if kind == "customers":
+        g.add(Circle(radius=0.16 * s / 0.5, stroke_color=color, stroke_width=sw).shift(LEFT * 0.12 * s / 0.5 + UP * 0.1 * s / 0.5),
+              Arc(radius=0.26 * s / 0.5, start_angle=0.15, angle=2.84, stroke_color=color, stroke_width=sw).shift(LEFT * 0.12 * s / 0.5 + DOWN * 0.3 * s / 0.5),
+              Circle(radius=0.12 * s / 0.5, stroke_color=color, stroke_width=sw).shift(RIGHT * 0.22 * s / 0.5 + UP * 0.14 * s / 0.5))
+    elif kind == "sales":
+        for i, h in enumerate([0.3, 0.55, 0.8]):
+            g.add(R(width=0.16 * s / 0.5, height=h * s / 0.5, stroke_color=color, stroke_width=sw)
+                  .move_to(RIGHT * (i - 1) * 0.26 * s / 0.5, aligned_edge=DOWN).shift(DOWN * 0.4 * s / 0.5))
+    elif kind == "staff":
+        g.add(Circle(radius=0.17 * s / 0.5, stroke_color=color, stroke_width=sw).shift(UP * 0.15 * s / 0.5),
+              Arc(radius=0.3 * s / 0.5, start_angle=0.2, angle=2.74, stroke_color=color, stroke_width=sw).shift(DOWN * 0.38 * s / 0.5))
+    elif kind == "roster":
+        box = R(width=0.8 * s / 0.5, height=0.7 * s / 0.5, stroke_color=color, stroke_width=sw)
+        g.add(box, L(box.get_left() + UP * 0.15 * s / 0.5, box.get_right() + UP * 0.15 * s / 0.5, stroke_color=color, stroke_width=sw))
+        for i in range(3):
+            g.add(Dot(radius=0.04 * s / 0.5, color=color).move_to(box.get_center() + RIGHT * (i - 1) * 0.22 * s / 0.5 + DOWN * 0.12 * s / 0.5))
+    elif kind == "payroll":
+        g.add(Text("$", font=FONT, font_size=44 * s / 0.5, color=color, weight="BOLD"))
+    elif kind == "invoice":
+        doc = R(width=0.6 * s / 0.5, height=0.8 * s / 0.5, stroke_color=color, stroke_width=sw)
+        g.add(doc, *[L(LEFT * 0.17 * s / 0.5, RIGHT * 0.17 * s / 0.5, stroke_color=color, stroke_width=sw - 0.8)
+                     .shift(UP * (0.18 - 0.17 * i) * s / 0.5) for i in range(3)])
+    elif kind == "books":
+        g.add(Polygon(LEFT * 0.42, LEFT * 0.42 + UP * 0.5, ORIGIN + UP * 0.38, ORIGIN, stroke_color=color, stroke_width=sw).scale(s / 0.5),
+              Polygon(RIGHT * 0.42, RIGHT * 0.42 + UP * 0.5, ORIGIN + UP * 0.38, ORIGIN, stroke_color=color, stroke_width=sw).scale(s / 0.5))
+        g.shift(DOWN * 0.15 * s / 0.5)
+    elif kind == "inbox":
+        env = R(width=0.86 * s / 0.5, height=0.6 * s / 0.5, stroke_color=color, stroke_width=sw)
+        g.add(env, L(env.get_corner(UL), env.get_center() + DOWN * 0.05 * s / 0.5, stroke_color=color, stroke_width=sw),
+              L(env.get_corner(UR), env.get_center() + DOWN * 0.05 * s / 0.5, stroke_color=color, stroke_width=sw))
+    elif kind == "bell":
+        g.add(Arc(radius=0.28 * s / 0.5, start_angle=0, angle=3.1416, stroke_color=color, stroke_width=sw).shift(UP * 0.05 * s / 0.5),
+              L(LEFT * 0.34 * s / 0.5 + DOWN * 0.2 * s / 0.5, RIGHT * 0.34 * s / 0.5 + DOWN * 0.2 * s / 0.5, stroke_color=color, stroke_width=sw),
+              L(LEFT * 0.28 * s / 0.5 + UP * 0.05 * s / 0.5, LEFT * 0.3 * s / 0.5 + DOWN * 0.2 * s / 0.5, stroke_color=color, stroke_width=sw),
+              L(RIGHT * 0.28 * s / 0.5 + UP * 0.05 * s / 0.5, RIGHT * 0.3 * s / 0.5 + DOWN * 0.2 * s / 0.5, stroke_color=color, stroke_width=sw),
+              Dot(radius=0.06 * s / 0.5, color=color).shift(DOWN * 0.32 * s / 0.5))
+    elif kind == "check":
+        from manim import VMobject
+        m = VMobject(stroke_color=color, stroke_width=sw + 1)
+        m.set_points_as_corners([LEFT * 0.3 + UP * 0.02, LEFT * 0.08 + DOWN * 0.22, RIGHT * 0.32 + UP * 0.26])
+        g.add(m.scale(s / 0.5))
+    elif kind == "clock":
+        c = Circle(radius=0.36 * s / 0.5, stroke_color=color, stroke_width=sw)
+        g.add(c, L(ORIGIN, UP * 0.22 * s / 0.5, stroke_color=color, stroke_width=sw),
+              L(ORIGIN, RIGHT * 0.16 * s / 0.5, stroke_color=color, stroke_width=sw))
+    return g
+
+
+def tile(kind: str, label: str, color: str = BRAND, w: float = 1.9, h: float = 1.55):
+    """App-launcher tile: shadow card, tinted icon chip, label."""
+    sc = shadow_card(w, h, radius=0.2)
+    chip = RoundedRectangle(width=0.78, height=0.78, corner_radius=0.2, stroke_width=0)
+    chip.set_fill(interpolate_color(ManimColor(PANEL), ManimColor(color), 0.14), 1)
+    ic = icon(kind, ink(color), 0.3).move_to(chip)
+    lab = T(label, 19, TEXT, weight="SEMIBOLD")
+    VGroup(VGroup(chip, ic), lab).arrange(DOWN, buff=0.18).move_to(sc[1])
+    return VGroup(sc, VGroup(chip, ic), lab)
+
+
+def badge_count(n: int, color: str = CORAL):
+    c = Circle(radius=0.26, stroke_width=0).set_fill(color, 1)
+    t = Text(str(n), font=FONT, font_size=22, color="#FFFFFF", weight="BOLD").move_to(c)
+    return VGroup(c, t)
 
 
 def ring_points(n: int, radius: float, phase: float = 0.0):

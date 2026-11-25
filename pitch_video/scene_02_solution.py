@@ -3,13 +3,8 @@ from manim import *
 from common import *
 
 
-def hexagon(radius: float, color: str):
-    return RegularPolygon(6, radius=radius, stroke_color=color, stroke_width=3).set_fill(color, opacity=0.12)
-
-
 def core_mark(radius: float = 1.0):
-    """The Meroidea core: the website's logo tile (public icon.svg) with a soft brand halo and the
-    'Meroidea' wordmark beneath. Index 1 is the tile, index 3 the wordmark."""
+    """Logo tile with a soft halo and the wordmark. Index 1 tile, 3 wordmark (used by the close)."""
     size = radius * 1.55
     halo = VGroup(*[RoundedRectangle(width=size * (1 + 0.16 * i), height=size * (1 + 0.16 * i),
                                      corner_radius=size * 0.25, stroke_width=0).set_fill(INFO, opacity=0.05)
@@ -20,94 +15,83 @@ def core_mark(radius: float = 1.0):
     return VGroup(halo, mark[0], VGroup(mark[1], mark[2]), word)
 
 
-def lock(color: str = MINT, s: float = 1.0):
-    body = RoundedRectangle(width=0.34 * s, height=0.26 * s, corner_radius=0.05 * s,
-                            stroke_color=color, stroke_width=2).set_fill(color, opacity=0.25)
-    shackle = Arc(radius=0.11 * s, start_angle=0, angle=PI, stroke_color=color, stroke_width=2.4)
-    shackle.next_to(body, UP, buff=0)
-    return VGroup(shackle, body)
-
-
 class Solution(PitchScene):
     SID = "s02"
 
     def construct(self):
-        rng = np.random.default_rng(3)
-        k = kicker("02 · THE SOLUTION")
+        rng = np.random.default_rng(8)
 
-        # Echo of the tangle from scene 1.
-        pts = ring_points(6, 3.2, phase=PI / 6)
-        pts = [p * np.array([1.35, 0.85, 1]) for p in pts]
-        dots = VGroup(*[glow_dot(c, 0.09) .move_to(p) for p, c in zip(pts, [SKY, SKY2, GLOW, GOLD, MINT, CORAL])])
-        tangle = VGroup()
-        for i in range(6):
-            for j in range(i + 1, 6):
-                a, b = pts[i], pts[j]
-                o = rng.uniform(-2.4, 2.4, 4)
-                tangle.add(CubicBezier(a, a + [o[0], o[1], 0], b + [o[2], o[3], 0], b,
-                                       stroke_color=CORAL, stroke_width=2, stroke_opacity=0.5))
-        self.add(k, tangle, dots)
+        # The pile, still swirling from the cold open.
+        pile = VGroup()
+        for i in range(22):
+            kind = i % 3
+            if kind == 0:
+                m = RoundedRectangle(width=1.5, height=0.42, corner_radius=0.2, stroke_width=0).set_fill(
+                    interpolate_color(ManimColor(PANEL), ManimColor([SKY2, INFO, CORAL][i % 3]), 0.4), 1)
+            elif kind == 1:
+                m = Square(0.5, stroke_width=0).set_fill(GOLD, 1)
+            else:
+                m = shadow_card(0.9, 1.1, radius=0.08)
+            m.move_to([rng.uniform(-6, 6), rng.uniform(-3.2, 3.2), 0]).rotate(rng.uniform(-0.6, 0.6))
+            pile.add(m)
+        self.add(pile)
+        pile.add_updater(lambda g, dt: g.rotate(0.12 * dt, about_point=ORIGIN))
 
-        core = core_mark(1.0)
-        flows = VGroup(*[Line(p, ORIGIN, stroke_color=SKY, stroke_width=2.4, stroke_opacity=0.7) for p in pts])
-        straight = VGroup(*[flows[i % 6].copy() for i in range(len(tangle))])
+        logo = core_mark(1.0)
+        self.cue("meroidea", lead=0.25)
+        self.play(FadeIn(logo, scale=0.3), run_time=0.4, rate_func=rate_functions.ease_out_back)
+        pile.clear_updaters()
+        self.play(*[m.animate.move_to(ORIGIN).scale(0.05).rotate(rng.uniform(2, 5)) for m in pile],
+                  logo.animate.scale(1.12), run_time=0.75, rate_func=rate_functions.ease_in_cubic)
+        self.remove(pile)
+        rings = VGroup(*[Circle(radius=0.9, stroke_color=c, stroke_width=5).move_to(logo[1]) for c in (BRAND, INFO, SKY)])
+        self.play(LaggedStart(*[r.animate.scale(5).set_stroke(opacity=0) for r in rings], lag_ratio=0.15),
+                  logo.animate.scale(1 / 1.12), run_time=0.7)
+        self.remove(rings)
 
-        self.cue("meroidea", lead=0.2)
-        self.play(ReplacementTransform(tangle, straight), run_time=1.3, rate_func=smooth)
-        self.play(FadeIn(core, scale=0.6), *[d.animate.scale(0.8) for d in dots], run_time=0.9)
-        self.remove(straight)
-        self.add(flows, core, dots)
-        packets = VGroup(*[glow_dot(SKY, 0.05, 3).move_to(p) for p in pts])
-        self.play(LaggedStart(*[MoveAlongPath(pk, f) for pk, f in zip(packets, flows)], lag_ratio=0.1),
-                  run_time=1.2, rate_func=smooth)
-        self.remove(*packets)
+        # One workspace: a window opens out of the logo.
+        self.cue("workspace", lead=0.3)
+        win = laptop(11.6, 6.3).move_to(DOWN * 0.25)
+        brand = wordmark(0.32).move_to(win[1]).align_to(win[1], LEFT).shift(RIGHT * 0.95)
+        brand.z_index = 5
+        self.play(ReplacementTransform(logo, brand), FadeIn(win, scale=0.6), run_time=0.55, rate_func=smooth)
+        self.bring_to_front(brand)
 
-        # Three promises, stacked on the right.
-        self.play(FadeOut(flows), FadeOut(dots), core.animate.scale(0.85).move_to(LEFT * 4.6 + UP * 0.25), run_time=0.8)
-        promises = VGroup(
-            pill("One login", GLOW, 26),
-            pill("One record · every customer, every staff member", SKY, 26),
-            pill("One database · hosted in Sydney (ap-southeast-2)", MINT, 26),
-        ).arrange(DOWN, aligned_edge=LEFT, buff=0.42).move_to(RIGHT * 1.75)
-        for word, p in zip(["login", "record", "database"], promises):
-            self.play_cue(word, FadeIn(p, shift=LEFT * 0.3), run_time=0.6, lead=0.25)
+        specs = [("customers", "Customers", SKY), ("sales", "Sales", BRAND), ("staff", "Staff", INFO),
+                 ("roster", "Rosters", SKY), ("payroll", "Payroll", BRAND), ("invoice", "Invoices", INFO),
+                 ("books", "Books", SKY), ("inbox", "Inbox", CORAL)]
+        tiles = VGroup(*[tile(k, l, c, w=2.5, h=2.15) for k, l, c in specs])
+        tiles.arrange_in_grid(2, 4, buff=(0.3, 0.35)).move_to(win[0][1]).shift(DOWN * 0.22)
+        slots = [t.get_center().copy() for t in tiles]
+        words = ["customers", "sales", "staff", "rosters", "payroll", "invoices", "books"]
+        for w, t in zip(words, tiles):
+            self.cue(w, lead=0.15)
+            self.play(FadeIn(t, scale=0.5, shift=UP * 0.2), run_time=0.28, rate_func=rate_functions.ease_out_back)
 
-        # Sealed workspaces, each with its own feature switches.
-        self.cue("each", lead=0.3)
-        self.play(FadeOut(promises, shift=RIGHT * 0.3), core.animate.scale(0.57).move_to(UP * 2.35), run_time=0.9)
+        # All connected: wires light between tiles with packets racing along them.
+        self.cue("connected", lead=0.35)
+        self.play(FadeIn(tiles[7], scale=0.5), run_time=0.25, rate_func=rate_functions.ease_out_back)
+        pairs = [(0, 1), (1, 2), (2, 3), (4, 5), (5, 6), (6, 7), (0, 4), (1, 5), (2, 6), (3, 7), (0, 5), (2, 7)]
+        wires = VGroup(*[Line(tiles[a][0][1].get_center(), tiles[b][0][1].get_center(), stroke_color=BRAND,
+                              stroke_width=2.5, stroke_opacity=0.45) for a, b in pairs])
+        wires.z_index = -1
+        for t in tiles:
+            t.z_index = 1
+        self.play(LaggedStart(*[Create(wi) for wi in wires], lag_ratio=0.05), run_time=0.6)
+        packets = VGroup(*[Dot(radius=0.07, color=INFO).move_to(wi.get_start()) for wi in wires])
+        packets.z_index = 2
+        self.play(LaggedStart(*[MoveAlongPath(p, wi) for p, wi in zip(packets, wires)], lag_ratio=0.04), run_time=0.8)
+        self.remove(packets)
 
-        tenants = [("Restaurant", GOLD), ("Migration agency", SKY), ("Retail shop", CORAL)]
-        cells = VGroup()
-        rng2 = np.random.default_rng(11)
-        grids = VGroup()
-        for i, (name, col) in enumerate(tenants):
-            box = card(3.9, 2.85, color=col, stroke_width=3)
-            box.set_fill(interpolate_color(ManimColor(PANEL), ManimColor(col), 0.06), opacity=1)
-            title = T(name, 24, TEXT, weight="SEMIBOLD").next_to(box.get_top(), DOWN, buff=0.28).align_to(box, LEFT).shift(RIGHT * 0.3)
-            lk = lock(col).next_to(box.get_corner(UR), DL, buff=0.25)
-            on = rng2.random(26) < [0.45, 0.6, 0.5][i]
-            grid = VGroup(*[Circle(radius=0.085, stroke_color=col, stroke_width=1.5).set_fill(col, opacity=0.0)
-                            for _ in range(26)]).arrange_in_grid(rows=2, cols=13, buff=0.075)
-            grid.move_to(box).shift(DOWN * 0.45)
-            for c, flag in zip(grid, on):
-                c.lit = bool(flag)
-            cells.add(VGroup(box, title, lk))
-            grids.add(grid)
-        cells.arrange(RIGHT, buff=0.45).move_to(DOWN * 1.05)
-        for cell, grid in zip(cells, grids):
-            grid.move_to(cell[0]).shift(DOWN * 0.45)
-        links = VGroup(*[Line(core[3].get_bottom() + DOWN * 0.08, c[0].get_top(), stroke_color=GLOW, stroke_width=2, stroke_opacity=0.6)
-                         for c in cells])
-        self.play_cue("sealed", LaggedStart(*[Create(l) for l in links], lag_ratio=0.15),
-                      LaggedStart(*[FadeIn(c, shift=UP * 0.2) for c in cells], lag_ratio=0.15), run_time=1.1, lead=0.4)
+        # One login.
+        self.cue("login", lead=0.25)
+        av = VGroup(Circle(radius=0.15, stroke_width=0).set_fill(BRAND, 1), T("One login", 16, BRAND, weight="SEMIBOLD"))
+        av.arrange(RIGHT, buff=0.15).move_to(win[1]).align_to(win[1], RIGHT).shift(LEFT * 0.35)
+        self.play(FadeIn(av, shift=LEFT * 0.2), Indicate(brand, color=BRAND, scale_factor=1.06), run_time=0.4)
 
-        self.cue("features", lead=0.3)
-        self.play(LaggedStart(*[FadeIn(g) for g in grids], lag_ratio=0.1), run_time=0.6)
-        self.play(*[c.animate.set_fill(c.get_stroke_color(), opacity=0.9) for g in grids for c in g if c.lit],
-                  run_time=0.9, rate_func=smooth)
-
-        badge = VGroup(T("26", 54, GLOW, weight="BOLD", font=MONO), T("switchable features", 24, TEXT))
-        badge.arrange(RIGHT, buff=0.25)
-        badge.next_to(cells, DOWN, buff=0.38)
-        self.play_cue("twentysix", FadeIn(badge, shift=UP * 0.2), run_time=0.7, lead=0.3)
+        # Shaped around how your business works: tiles reshuffle into a new layout.
+        self.cue("shaped", lead=0.2)
+        order = [3, 6, 0, 7, 1, 4, 2, 5]
+        self.play(FadeOut(wires), *[tiles[i].animate.move_to(slots[j]) for j, i in enumerate(order)],
+                  self.zoom.animate.set_value(0.94), run_time=0.9, rate_func=smooth)
         self.outro()

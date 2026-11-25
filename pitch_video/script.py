@@ -1,11 +1,16 @@
 """The narration, scene by scene: the single source of truth for voice and animation cues.
 
-Numbers are written as words so the narrator reads them naturally. Every claim is backed by
-SYSTEM_AUDIT.md (repository counts) or the ABS figure cited there.
+v2: problem → outcome. Every feature named here exists in the codebase (see SYSTEM_AUDIT.md):
+one inbox for Facebook/Instagram/WhatsApp/email/live chat (ADR-064–073), sender-to-contact
+matching and lead routing (ADR-051, ADR-068), pipeline + weighted forecast + MeroAI next actions
+(ADR-074), My Day, one-click Instant build rosters over trading hours (ADR-076, ADR-079), award
+costing (ADR-043), timesheets → payslips (ADR-044/046), invoices drafted from a sentence and
+overdue chasing (ADR-077), ledger posted from invoices and payroll with GST/P&L/Balance Sheet
+(ADR-060), Own/Team/All scopes and the audit trail, per-business features and labels (ADR-029).
 """
 
 VOICE = "en-AU-WilliamNeural"
-RATE = "+0%"
+RATE = "+16%"  # brisker delivery than the edge-tts default
 
 SCENES = [
     {
@@ -13,10 +18,9 @@ SCENES = [
         "module": "scene_01_problem",
         "cls": "Problem",
         "text": (
-            "Every small business runs on a tangle. Leads in a spreadsheet. Customers in a shared "
-            "inbox. The roster on a whiteboard, timesheets on paper, invoices in a template, and "
-            "the real story in someone's WhatsApp. Every hand-off between them loses context, and "
-            "every lost context costs money."
+            "Monday. Nine a.m. Three missed calls. Forty unread messages. A roster that doesn't add "
+            "up, and an invoice nobody sent. Sound familiar? Most small businesses still run on "
+            "spreadsheets, sticky notes and memory."
         ),
     },
     {
@@ -24,92 +28,86 @@ SCENES = [
         "module": "scene_02_solution",
         "cls": "Solution",
         "text": (
-            "Meroidea pulls it into one place. One login. One record of every customer and every "
-            "staff member. One database, hosted in Sydney. Each business gets its own sealed "
-            "workspace, and the platform switches on only the features that business needs. "
-            "There are twenty-six of them today."
+            "Meroidea replaces the pile with one workspace. Customers, sales, staff, rosters, "
+            "payroll, invoices and the books. All connected. One login. Shaped around how your "
+            "business already works."
         ),
     },
     {
         "id": "s03",
-        "module": "scene_03_architecture",
-        "cls": "Architecture",
+        "module": "scene_03_inbox",
+        "cls": "Inbox",
         "text": (
-            "Isolation isn't a promise in our code; the database enforces it. Every table carries "
-            "a tenant ID behind row-level security, so Postgres itself refuses another business's "
-            "rows. Every change passes the same eight gates: authenticate, resolve the tenant, "
-            "check permission and scope, validate, apply business rules, commit, audit, and "
-            "refresh. Nothing writes around it."
+            "Never miss a customer again. Facebook, Instagram, WhatsApp, email and website chat all "
+            "land in one inbox. Each message is matched to the right customer, new leads go to the "
+            "right person, and a reply is drafted, ready to send."
         ),
     },
     {
         "id": "s04",
-        "module": "scene_04_crm",
-        "cls": "Crm",
+        "module": "scene_04_sales",
+        "cls": "Sales",
         "text": (
-            "Sales starts with capture: web forms, imports, referrals and social channels. Imports "
-            "flag duplicates by email and phone, and let you skip, merge or create each one. "
-            "Routing rules hand leads out round robin, or to the least-loaded rep. On the board, "
-            "every stage carries a win probability, so the weighted forecast is simple arithmetic: "
-            "each deal's value times its stage probability, summed. And MeroAI suggests the next "
-            "best action, which a person approves before anything changes."
+            "Your pipeline shows every deal, and exactly where it's stuck. Drag a deal forward, and "
+            "the forecast updates instantly. Meroidea even tells you who to call next, and why."
         ),
     },
     {
         "id": "s05",
-        "module": "scene_05_people",
-        "cls": "People",
+        "module": "scene_05_myday",
+        "cls": "MyDay",
         "text": (
-            "People are where most CRMs stop. Meroidea keeps going. Admins, managers and staff "
-            "each see exactly their scope: their own records, their team's, or everything. Rosters "
-            "cost themselves live against the award, with weekend and public-holiday loadings. "
-            "Approved timesheets flow into payslips. And one rule is built in: nobody signs off "
-            "their own pay."
+            "Follow-ups, reminders and overdue tasks arrive on one screen, called My Day. Nothing "
+            "slips through the cracks."
         ),
     },
     {
         "id": "s06",
-        "module": "scene_06_finance",
-        "cls": "Finance",
+        "module": "scene_06_team",
+        "cls": "Team",
         "text": (
-            "Work runs from My Day: overdue, due today, upcoming. Documents live in a private "
-            "library, with versions and in-browser editing. Money is kept honest by a double-entry "
-            "ledger that only the database can write, so every entry balances to the cent. And "
-            "above it all, an executive dashboard: open pipeline, weighted forecast, win rate, and "
-            "a live audit trail of who changed what."
+            "Next week's roster? One click. Shifts fit your trading hours, every cost is checked "
+            "against the award, and staff get their shifts on their phones. Clock-ins become "
+            "approved timesheets, and timesheets become payslips."
         ),
     },
     {
         "id": "s07",
-        "module": "scene_07_inbox",
-        "cls": "Inbox",
+        "module": "scene_07_money",
+        "cls": "Money",
         "text": (
-            "Customers reach a business everywhere, so the inbox meets them there. Facebook, "
-            "Instagram, WhatsApp, TikTok, email and live chat arrive in one conversation list, "
-            "matched to the right contact. AI drafts the reply. A person sends it."
+            "Type, invoice Acme for forty catering boxes, and the invoice drafts itself. Overdue? "
+            "The reminder is written for you. And every payment flows straight into your books, "
+            "with GST, profit and loss, and the balance sheet always up to date."
         ),
     },
     {
         "id": "s08",
-        "module": "scene_08_moat",
-        "cls": "Moat",
+        "module": "scene_08_control",
+        "cls": "Control",
         "text": (
-            "Our moat is configuration over customisation. The same core becomes a migration "
-            "agency's case board or a restaurant's catering pipeline, just by changing labels, "
-            "stages and fields. No developer quote required. Underneath: one hundred and twelve "
-            "tables, one hundred and ninety-six security policies, eighty-five permissions and one "
-            "hundred and thirteen test files. All Australian-hosted, and exportable on request."
+            "Everyone sees exactly what they should. Staff, their own work. Managers, their team. "
+            "Owners, everything. And every change is recorded, so you always know who did what."
         ),
     },
     {
         "id": "s09",
-        "module": "scene_09_vision",
-        "cls": "Vision",
+        "module": "scene_09_anybusiness",
+        "cls": "AnyBusiness",
         "text": (
-            "Australia has more than two point seven million actively trading businesses, and "
-            "nearly a million of them employ staff. Most still run on that tangle. Meroidea is the "
-            "one platform they can grow into. Built in Sydney. Ready to scale. Let's build it "
-            "together."
+            "A restaurant. A migration agency. A retail shop. Meroidea shapes itself to each one, "
+            "with its own stages, fields and words. Switch on what you need today, and grow into "
+            "the rest."
+        ),
+    },
+    {
+        "id": "s10",
+        "module": "scene_10_close",
+        "cls": "Close",
+        "text": (
+            "Australia has more than two point seven million businesses, and most are still buried "
+            "in the pile. Meroidea gives them one workspace to run their business. Built in Sydney. "
+            "Ready to scale."
         ),
     },
 ]

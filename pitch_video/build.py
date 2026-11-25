@@ -76,13 +76,13 @@ def render_all(quality: str, jobs: int) -> None:
 # ---- Procedural ambient pad -----------------------------------------------------------------------
 
 def make_pad(seconds: float, path: Path, sr: int = 44100) -> None:
-    """A slow Am–F–C–G pad with detuned partials, a soft heartbeat pulse and a convolution reverb."""
+    """Am–F–C–G at 100 bpm: detuned pad, plucked eighth-note arpeggio, soft kick, convolution reverb."""
     rng = np.random.default_rng(1)
     n = int(seconds * sr)
     t = np.arange(n) / sr
     hz = lambda midi: 440.0 * 2 ** ((midi - 69) / 12)  # noqa: E731
     chords = [[45, 57, 60, 64], [41, 57, 60, 65], [48, 55, 60, 64], [43, 55, 59, 62]]  # Am F C G
-    bar = 8.0  # seconds per chord
+    bar = 60 / 100 * 8  # two bars of 4/4 at 100 bpm per chord (4.8 s)
     left, right = np.zeros(n), np.zeros(n)
     for ci in range(int(np.ceil(seconds / bar)) + 1):
         chord = chords[ci % 4]
@@ -102,16 +102,40 @@ def make_pad(seconds: float, path: Path, sr: int = 44100) -> None:
                 left[s0:s1] += tone * w * (1 - pan) * 2
                 right[s0:s1] += tone * w * pan * 2
     lfo = 0.82 + 0.18 * np.sin(2 * np.pi * 0.07 * t)
-    # Heartbeat: a soft sub thump on the root, ~66 bpm, quietly under the pad.
-    beat = np.zeros(n)
-    period = 60 / 66
-    for k in range(int(seconds / period)):
-        i0 = int(k * period * sr)
-        m = min(n - i0, int(0.45 * sr))
+    # Drive: 100 bpm plucked arpeggio over the chord tones, plus a soft four-on-the-floor kick.
+    bpm = 100
+    eighth = 60 / bpm / 2
+    pl_l, pl_r = np.zeros(n), np.zeros(n)
+    arp_order = [0, 2, 3, 1, 2, 3, 1, 2]
+    for k in range(int(seconds / eighth)):
+        t0 = k * eighth
+        chord = chords[int(t0 // bar) % 4]
+        note = chord[1:][arp_order[k % 8] % 3] + (12 if (k // 8) % 2 else 0)
+        i0 = int(t0 * sr)
+        m = min(n - i0, int(0.5 * sr))
+        if m <= 0:
+            break
         tt = np.arange(m) / sr
-        beat[i0:i0 + m] += np.sin(2 * np.pi * 55 * tt) * np.exp(-tt * 9) * (0.55 if k % 2 == 0 else 0.3)
+        f = hz(note)
+        tone = (np.sin(2 * np.pi * f * tt) + 0.35 * np.sin(2 * np.pi * 2 * f * tt) + 0.12 * np.sin(2 * np.pi * 3 * f * tt))
+        env = np.exp(-tt * 7.5) * (1 - np.exp(-tt * 400))
+        amp = 0.22 if k % 2 == 0 else 0.15
+        pan = 0.35 if k % 2 == 0 else 0.65
+        pl_l[i0:i0 + m] += tone * env * amp * (1 - pan) * 2
+        pl_r[i0:i0 + m] += tone * env * amp * pan * 2
+    kick = np.zeros(n)
+    for k in range(int(seconds / (60 / bpm))):
+        i0 = int(k * 60 / bpm * sr)
+        m = min(n - i0, int(0.3 * sr))
+        tt = np.arange(m) / sr
+        f_sweep = 48 + 70 * np.exp(-tt * 30)
+        kick[i0:i0 + m] += np.sin(2 * np.pi * np.cumsum(f_sweep) / sr) * np.exp(-tt * 14) * 0.7
+    # Intro swell: the drive fades in over the first 4 s.
+    swell = np.clip(t / 4.0, 0, 1)
     sos = butter(4, 1800, "low", fs=sr, output="sos")
-    left, right = sosfilt(sos, left * lfo) + beat, sosfilt(sos, right * lfo) + beat
+    sos_pl = butter(2, 3200, "low", fs=sr, output="sos")
+    left = sosfilt(sos, left * lfo) * 0.7 + (sosfilt(sos_pl, pl_l) + kick) * swell
+    right = sosfilt(sos, right * lfo) * 0.7 + (sosfilt(sos_pl, pl_r) + kick) * swell
     ir_len = int(3.2 * sr)
     ir_t = np.arange(ir_len) / sr
     for ch_i, ch in enumerate((left, right)):
@@ -172,7 +196,7 @@ def assemble(quality: str) -> None:
     fade_out = max(total - 3.0, 0)
     voice_lufs = measure_lufs(voice)
     music_lufs = measure_lufs(bgm)
-    music_gain = (voice_lufs - 20.0) - music_lufs
+    music_gain = (voice_lufs - 18.0) - music_lufs
     master_gain = -16.0 - voice_lufs
     print(f"  voice {voice_lufs:.1f} LUFS · music {music_lufs:.1f} LUFS → music gain {music_gain:+.1f} dB, "
           f"master {master_gain:+.1f} dB")
