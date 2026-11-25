@@ -64,15 +64,16 @@ Checked against WCAG AA (4.5:1 for normal text on white):
   used inside the signed-in app, where it would compete with tables and forms.
 - Dark mode: not in MVP; tokens make it a later addition.
 
-## MeroAI (ADR-078, ADR-080)
+## MeroAI (ADR-078, ADR-080, ADR-085)
 
 - **Mark.** `MeroOrb` from `src/components/motion/mero-orb.tsx`. Never use a sparkle icon for
   MeroAI. Use `state="thinking"` while a MeroAI request runs and `idle` otherwise.
-- **Sizes.** 24 in a summary or row, 26–34 in a button or header, 44 on a card, 120–140 for an
-  empt- **Look.** A sphere of evenly spaced black dots (`--meroai-ink`) on a transparent ground, so it
-  sits on the page's background; the same in every business (ADR-080). From 64 pixels up, the dots regularly leave the sphere and write "meroAI", then
-  return; smaller orbs stay a sphere. `morph={false}` keeps a large orb a sphere.
- colour.
+- **Sizes.** 24 in a summary or row, 26–34 in a button or header, 40–44 on a card, 120–140 for an
+  empty state.
+- **Look.** The word "meroAI" written in black dots (`--meroai-ink`) on a transparent ground, so it
+  sits on the page's background; the same in every business, at every size (ADR-085). The word is
+  always there and always moving: the dots fizz, a glint runs along the letters, and every few
+  seconds the dots rework the word (scatter, wave, shuffle, vortex) and settle back into it.
 - **Classes.** These are for MeroAI only:
   - `.meroai-text`: the "MeroAI" wordmark, ink with a passing glint.
   - `.meroai-button`: the one primary action of a MeroAI surface, on a shadcn `Button`: ink, a
@@ -80,5 +81,5 @@ Checked against WCAG AA (4.5:1 for normal text on white):
   - `.meroai-surface`: the panel background, a faint field of dots fading down the card.
   - `.meroai-edge`: the panel border, ink fading to the border colour. It combines with
     `.meroai-surface`.
-- **Motion.** The orb pauses off screen and in background tabs. With reduced motion, the orb is
-  a still sphere and the glints don't move. The orb is `aria-hidden`; always pair it with words.
+- **Motion.** The mark pauses off screen and in background tabs. With reduced motion, it is the
+  word, still, and the glints don't move. The orb is `aria-hidden`; always pair it with words.
