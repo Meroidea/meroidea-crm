@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import {
   dotProgress,
   easeInOutCubic,
+  markWidth,
   outAndBack,
   parseRgb,
   rgba,
@@ -52,7 +53,7 @@ function wordPoints(size: number, fontFamily: string): Point2[] {
   const context = scratch.getContext('2d', { willReadFrequently: true });
   if (!context) return [];
   // Heavier letters on a small mark, where a regular stroke is under a pixel wide.
-  const weight = size < 48 ? 800 : 700;
+  const weight = size < 96 ? 800 : 700;
   let fontSize = height * 0.8;
   context.font = `${weight} ${fontSize}px ${fontFamily}`;
   fontSize *= Math.min(1, (width * 0.94) / context.measureText(WORD).width);
@@ -84,6 +85,7 @@ export function MeroOrb({
   state = 'idle',
   className,
 }: {
+  /** The mark's height in pixels; below 64 it is as wide as the word (`markWidth`). */
   size?: number;
   state?: MeroOrbState;
   className?: string;
@@ -101,15 +103,19 @@ export function MeroOrb({
     if (!canvas || !context) return;
 
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(size * ratio);
+    const width = markWidth(size);
+    canvas.width = Math.round(width * ratio);
     canvas.height = Math.round(size * ratio);
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
     const DOT = inkColour(canvas);
-    const center = size / 2;
-    const writing = size * 0.47;
-    const cloudRadius = size * 0.46;
-    const dot = Math.max(0.5, size / 140);
+    const cx0 = width / 2;
+    const cy0 = size / 2;
+    const writing = width * 0.47;
+    // The scatter cloud fills the mark's own shape: a wide oval on a wide mark, never a ball.
+    const cloudX = width * 0.46;
+    const cloudY = size * 0.42;
+    const dot = Math.max(0.55, width / 140);
 
     // The word is sampled once the page's font has loaded, so the letters are the brand's own.
     let word: Point2[] = [];
@@ -141,7 +147,7 @@ export function MeroOrb({
     };
 
     const draw = (still = false) => {
-      context.clearRect(0, 0, size, size);
+      context.clearRect(0, 0, width, size);
       if (word.length === 0) return;
       const phase = still ? { cycle: 0, effect: 'scatter', progress: 0 } : wordPhase(wordClock);
       if (!still && phase.cycle !== seenCycle) enterCycle(phase.cycle, phase.effect);
@@ -151,8 +157,8 @@ export function MeroOrb({
 
       for (let index = 0; index < word.length; index += 1) {
         const home = word[slot[index] ?? index]!;
-        const hx = center + home.x * writing;
-        const hy = center + home.y * writing;
+        const hx = cx0 + home.x * writing;
+        const hy = cy0 + home.y * writing;
         const place = (home.x + 1) / 2;
         const t = dotProgress(phase.progress, place);
         let x = hx;
@@ -162,20 +168,20 @@ export function MeroOrb({
         if (t > 0) {
           if (phase.effect === 'scatter') {
             const far = cloud[index] ?? { x: 0, y: 0 };
-            const cx = center + far.x * cloudRadius;
-            const cy = center + far.y * cloudRadius;
+            const cx = cx0 + far.x * cloudX;
+            const cy = cy0 + far.y * cloudY;
             flight = outAndBack(t);
             const swirl = (index % 2 === 0 ? 1 : -1) * Math.sin(Math.PI * t) * 0.3;
             x = hx + (cx - hx) * flight - (cy - hy) * swirl;
             y = hy + (cy - hy) * flight + (cx - hx) * swirl;
           } else if (phase.effect === 'wave') {
             flight = Math.sin(Math.PI * t);
-            y = hy - flight * size * 0.13;
-            x = hx + flight * Math.sin(index) * size * 0.015;
+            y = hy - flight * size * 0.16;
+            x = hx + flight * Math.sin(index) * width * 0.015;
           } else if (phase.effect === 'shuffle') {
             const target = word[next[index] ?? index]!;
-            const tx = center + target.x * writing;
-            const ty = center + target.y * writing;
+            const tx = cx0 + target.x * writing;
+            const ty = cy0 + target.y * writing;
             const travel = easeInOutCubic(t);
             flight = Math.sin(Math.PI * t);
             const swirl = (index % 2 === 0 ? 1 : -1) * flight * 0.25;
@@ -185,10 +191,10 @@ export function MeroOrb({
             flight = outAndBack(t);
             const angle = flight * 2.6;
             const shrink = 1 - flight * 0.8;
-            const ox = hx - center;
-            const oy = hy - center;
-            x = center + (ox * Math.cos(angle) - oy * Math.sin(angle)) * shrink;
-            y = center + (ox * Math.sin(angle) + oy * Math.cos(angle)) * shrink;
+            const ox = hx - cx0;
+            const oy = hy - cy0;
+            x = cx0 + (ox * Math.cos(angle) - oy * Math.sin(angle)) * shrink;
+            y = cy0 + (ox * Math.sin(angle) + oy * Math.cos(angle)) * shrink;
           }
         }
 
@@ -240,7 +246,7 @@ export function MeroOrb({
 
     void document.fonts.ready.then(() => {
       if (cancelled) return;
-      word = wordPoints(size, getComputedStyle(canvas).fontFamily || 'sans-serif');
+      word = wordPoints(width, getComputedStyle(canvas).fontFamily || 'sans-serif');
       slot = word.map((_, index) => index);
       draw(reduced.matches);
       observer.observe(canvas);
@@ -263,7 +269,7 @@ export function MeroOrb({
       ref={canvasRef}
       aria-hidden
       className={cn('shrink-0', className)}
-      style={{ width: size, height: size }}
+      style={{ width: markWidth(size), height: size }}
     />
   );
 }

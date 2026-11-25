@@ -208,12 +208,11 @@ export function AssistantDrawer({
       <SheetTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
           aria-label="MeroAI"
           title="MeroAI"
-          className="rounded-full"
+          className="h-9 rounded-full px-2"
         >
-          <MeroOrb size={26} state={pending ? 'thinking' : 'idle'} />
+          <MeroOrb size={32} state={pending ? 'thinking' : 'idle'} />
         </Button>
       </SheetTrigger>
       <SheetContent
@@ -222,8 +221,9 @@ export function AssistantDrawer({
       >
         <SheetHeader className="border-b pr-12">
           <SheetTitle className="flex items-center gap-2.5 text-lg">
-            <MeroOrb size={34} state={pending ? 'thinking' : 'idle'} />
-            <span className="meroai-text font-semibold tracking-tight">MeroAI</span>
+            {/* The mark is the name, written in dots; the words are for screen readers. */}
+            <MeroOrb size={40} state={pending ? 'thinking' : 'idle'} />
+            <span className="sr-only">MeroAI</span>
           </SheetTitle>
           <SheetDescription>
             Drafts and previews only. Nothing is saved or sent until you approve it.

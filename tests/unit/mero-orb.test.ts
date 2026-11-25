@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   dotProgress,
   easeInOutCubic,
+  markWidth,
   mix,
   outAndBack,
   parseRgb,
@@ -25,6 +26,13 @@ describe('the dots in motion', () => {
   it('wobble stays within -1 and 1', () => {
     for (let a = 0; a < 20; a += 0.37)
       for (let b = 0; b < 20; b += 0.53) expect(Math.abs(wobble(a, b))).toBeLessThanOrEqual(1);
+  });
+
+  it('makes a small mark as wide as the word, and a large one square', () => {
+    expect(markWidth(32)).toBe(83);
+    expect(markWidth(20)).toBe(52);
+    expect(markWidth(64)).toBe(64);
+    expect(markWidth(132)).toBe(132);
   });
 
   it('spaces dots for the size: dotted letters when large, tighter when small, within limits', () => {

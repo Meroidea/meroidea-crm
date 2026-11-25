@@ -68,8 +68,9 @@ Checked against WCAG AA (4.5:1 for normal text on white):
 
 - **Mark.** `MeroOrb` from `src/components/motion/mero-orb.tsx`. Never use a sparkle icon for
   MeroAI. Use `state="thinking"` while a MeroAI request runs and `idle` otherwise.
-- **Sizes.** 24 in a summary or row, 26–34 in a button or header, 40–44 on a card, 120–140 for an
-  empty state.
+- **Sizes.** `size` is the height. 20–24 in a summary or row, 32 in the header button, 32–40 on a
+  card, 120–140 for an empty state. Below 64 the mark is as wide as the word (2.6 times its
+  height), so leave room for it in the row.
 - **Look.** The word "meroAI" written in black dots (`--meroai-ink`) on a transparent ground, so it
   sits on the page's background; the same in every business, at every size (ADR-085). The word is
   always there and always moving: the dots fizz, a glint runs along the letters, and every few

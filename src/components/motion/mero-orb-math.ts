@@ -88,6 +88,17 @@ export function sampleMask(
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
+/** From this height up the mark is square, with room for the word across it. */
+const SQUARE_FROM = 64;
+
+/**
+ * How wide the mark is for its height. A small mark is as wide as the word, so the letters get
+ * the whole height instead of a sliver of a square.
+ */
+export function markWidth(size: number): number {
+  return size >= SQUARE_FROM ? size : Math.round(size * 2.6);
+}
+
 /**
  * How many dots write the word, from the letters' inked area in CSS pixels: spaced so the letters
  * stay dotted on a large mark, and packed tighter on a small one, where they would break up.

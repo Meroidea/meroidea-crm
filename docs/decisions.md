@@ -2509,6 +2509,12 @@ logo should be the word "meroAI", its dots constantly transforming to form it.
   unit tested. Still no library. The mark still pauses off screen and in background tabs; with
   reduced motion it is the word, still.
 
+- Below 64 pixels tall the mark is as wide as the word (`markWidth`, 2.6 times its height), so
+  the letters get the whole height instead of a sliver of a square. The scatter cloud fills the
+  mark's own shape, a wide oval, so no moment looks like the old sphere. The header button holds
+  a 32-pixel mark (about 83 wide); the drawer's title is the mark itself, 40 tall, with the name
+  for screen readers.
+
 **Consequences.**
-- At 20–26 pixels the word is small; it reads as the name rather than as letters to study. The
-  slot stays square, so no layout changes.
+- Small marks take more width in their rows; every place they sit is a flex row that allows it.
+- From 64 pixels up the mark stays square, with room for the word across it.
