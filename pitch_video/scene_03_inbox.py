@@ -20,6 +20,7 @@ class Inbox(PitchScene):
     def construct(self):
         head = T("Never miss a customer again.", 50, TEXT, weight="BOLD").to_edge(UP, buff=0.55)
         self.cue("never", lead=0.1)
+        self.sfx("swish", -7)
         self.play(FadeIn(head, shift=UP * 0.3, scale=1.1), run_time=0.4, rate_func=rate_functions.ease_out_back)
 
         positions = [LEFT * 5.3 + UP * 1.3, LEFT * 3.4 + UP * 1.9, LEFT * 5.6 + DOWN * 0.4, LEFT * 3.6 + DOWN * 0.1,
@@ -29,6 +30,7 @@ class Inbox(PitchScene):
             o = orb(label, col).move_to(pos)
             orbs.add(o)
             self.cue(word, lead=0.15)
+            self.sfx("pop", -5)
             self.play(GrowFromCenter(o), run_time=0.25, rate_func=rate_functions.ease_out_back)
         for i, o in enumerate(orbs):
             o.base = o.get_center().copy()
@@ -52,6 +54,7 @@ class Inbox(PitchScene):
             rows.add(VGroup(bg, bar, body))
         rows.arrange(DOWN, buff=0.12).next_to(ptitle, DOWN, buff=0.25).align_to(ptitle, LEFT)
         self.cue("land", lead=0.35)
+        self.sfx("swish", -8)
         self.play(FadeIn(panel, shift=LEFT * 0.5), FadeIn(ptitle), run_time=0.35)
         flights = []
         for row, (_, _, ch) in zip(rows, msgs):
@@ -59,6 +62,8 @@ class Inbox(PitchScene):
             path = ArcBetweenPoints(orbs[ch][1].get_center(), row.get_left() + RIGHT * 0.2, angle=-0.9)
             flights.append(Succession(MoveAlongPath(dot, path, run_time=0.45, rate_func=rate_functions.ease_in_out_sine),
                                       AnimationGroup(FadeOut(dot, run_time=0.1), FadeIn(row, shift=LEFT * 0.4, run_time=0.25))))
+        self.sfx_seq("swish", 5, 0.29, -12)
+        self.sfx_seq("pop", 5, 0.29, -9, 0.45)
         self.play(LaggedStart(*flights, lag_ratio=0.22), run_time=1.6)
 
         # Matched to the right customer: punch in, a contact card slides out of the row.
@@ -78,8 +83,10 @@ class Inbox(PitchScene):
                            color=BRAND, stroke_width=3)
         tick = VGroup(icon("check", MINT, 0.22), T("matched", 16, MINT, weight="SEMIBOLD")).arrange(RIGHT, buff=0.08)
         tick.next_to(contact[1], DOWN, buff=0.15).align_to(contact[1], RIGHT)
+        self.sfx("swish", -8)
         self.play(rows[0][0].animate.set_fill(ACCENT_BG, 1), Create(link),
                   FadeIn(VGroup(contact, cav, cinit, info), shift=LEFT * 0.4), run_time=0.5)
+        self.sfx("chime", -5)
         self.play(FadeIn(tick, scale=1.4), run_time=0.25)
 
         # New leads go to the right person.
@@ -91,9 +98,11 @@ class Inbox(PitchScene):
         self.play(FadeIn(repg, scale=0.6), run_time=0.25)
         lead_chip = pill("New lead · Chloe", CORAL, 16).move_to(rows[2].get_left() + RIGHT * 1.2)
         self.play(FadeIn(lead_chip, scale=1.2), run_time=0.2)
+        self.sfx("swish", -8)
         self.play(lead_chip.animate.move_to(rep.get_center()).scale(0.4).set_opacity(0), run_time=0.45,
                   rate_func=rate_functions.ease_in_cubic)
         ring = Circle(radius=0.4, stroke_color=BRAND, stroke_width=4).move_to(rep)
+        self.sfx("pop", -5)
         self.play(ring.animate.scale(2.4).set_stroke(opacity=0), run_time=0.35)
 
         # A reply is drafted, ready to send.
@@ -105,8 +114,12 @@ class Inbox(PitchScene):
         text = T("Yes, 7pm is free. Book it?", 17, TEXT).next_to(tag, RIGHT, buff=0.18)
         send = pill("Send", BRAND, 17, fill_opacity=1, text_color="#FFFFFF").move_to(box).align_to(box, RIGHT).shift(LEFT * 0.15)
         self.play(rows[4].animate.set_opacity(0), FadeIn(box), FadeIn(tag), run_time=0.25)
+        self.sfx("sparkle", -10)
+        self.sfx("typing", -9)
         self.play(AddTextLetterByLetter(text, time_per_char=0.03), run_time=1.2)
         self.play_cue("send", FadeIn(send, scale=1.3), run_time=0.25, lead=0.25)
         r2 = Circle(radius=0.3, stroke_color=BRAND, stroke_width=4).move_to(send)
+        self.sfx("click", -3)
+        self.sfx("whoosh", -11)
         self.play(r2.animate.scale(3).set_stroke(opacity=0), send.animate.scale(0.92), run_time=0.3)
         self.outro()

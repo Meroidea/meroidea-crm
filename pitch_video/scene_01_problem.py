@@ -21,6 +21,7 @@ class Problem(PitchScene):
         # MONDAY slams in.
         mon = T("MONDAY", 120, TEXT, weight="BOLD")
         self.cue("monday", lead=0.12)
+        self.sfx("swish", -8)
         self.play(FadeIn(mon, scale=1.6), run_time=0.35, rate_func=rate_functions.ease_out_back)
         self.shake(0.07, 5, 0.3)
 
@@ -33,6 +34,8 @@ class Problem(PitchScene):
         self.cue("nine", lead=0.15)
         group = VGroup(clock, nine).arrange(RIGHT, buff=0.5)
         self.play(mon.animate.scale(0.45).next_to(group, UP, buff=0.35), FadeIn(group, shift=UP * 0.2), run_time=0.4)
+        self.sfx("swish", -9)
+        self.sfx("tick", -6, 0.65)
         self.play(Rotate(minute, -TAU * 2, about_point=face.get_center()),
                   Rotate(hour, -PI / 2 * 1.0, about_point=face.get_center()), run_time=0.7, rate_func=smooth)
         header = VGroup(mon, clock, nine)
@@ -45,10 +48,13 @@ class Problem(PitchScene):
         calls.move_to(ph[1]).shift(UP * 0.9)
         b3 = badge_count(3).move_to(ph[0].get_corner(UR) + LEFT * 0.08 + DOWN * 0.08)
         self.cue("three", lead=0.2)
+        self.sfx("swish", -8)
         self.play(FadeIn(ph, shift=RIGHT * 0.6), run_time=0.3)
+        self.sfx_seq("pop", 3, 0.14, -7)
         self.play(LaggedStart(*[FadeIn(c, shift=DOWN * 0.15) for c in calls], lag_ratio=0.25),
                   GrowFromCenter(b3), run_time=0.55)
         ring = Circle(radius=0.3, stroke_color=CORAL, stroke_width=4).move_to(b3)
+        self.sfx("ping", -5)
         self.play(ring.animate.scale(3).set_stroke(opacity=0), run_time=0.35)
         self.remove(ring)
 
@@ -68,6 +74,8 @@ class Problem(PitchScene):
             bb.move_to(target + UP * 5).rotate(rng.uniform(-0.12, 0.12))
             bubbles.add(bb)
             anims.append(bb.animate.move_to(target))
+        self.sfx_seq("pop", 12, 0.105, -12)
+        self.sfx("ping", -7, 1.2)
         self.play(LaggedStart(*anims, lag_ratio=0.12, rate_func=rate_functions.ease_out_bounce),
                   n_msgs.animate.set_value(40), run_time=1.5)
 
@@ -78,9 +86,11 @@ class Problem(PitchScene):
                          for _ in range(24)]).arrange_in_grid(4, 6, buff=0)
         cells.move_to(sheet[1]).shift(DOWN * 0.12)
         stitle = T("roster_FINAL_v7.xlsx", 15, MUTED, font=MONO).next_to(cells, UP, buff=0.12).align_to(cells, LEFT)
+        self.sfx("swish", -9)
         self.play(FadeIn(VGroup(sheet, cells, stitle), shift=UP * 0.4), run_time=0.35)
         bad = [cells[i] for i in (3, 8, 14, 21)]
         errs = VGroup(*[T("#REF!", 12, CORAL, font=MONO, weight="BOLD").move_to(c) for c in bad])
+        self.sfx_seq("tick", 4, 0.06, -6)
         self.play(*[c.animate.set_fill(interpolate_color(ManimColor(PANEL), ManimColor(CORAL), 0.35), 1) for c in bad],
                   FadeIn(errs, scale=1.4), run_time=0.35)
 
@@ -90,10 +100,12 @@ class Problem(PitchScene):
         lines = VGroup(*[Line(LEFT * 0.7, RIGHT * (0.7 - 0.25 * (i % 2)), stroke_color=EDGE, stroke_width=5)
                          for i in range(5)]).arrange(DOWN, buff=0.24, aligned_edge=LEFT).move_to(inv[1]).rotate(0.05)
         ititle = T("INVOICE", 18, TEXT, weight="BOLD").move_to(inv[1].get_top() + DOWN * 0.3).rotate(0.05)
+        self.sfx("swish", -9)
         self.play(FadeIn(VGroup(inv, lines, ititle), shift=DOWN * 0.4), run_time=0.3)
         stamp = VGroup(RoundedRectangle(width=2.0, height=0.6, corner_radius=0.08, stroke_color=CORAL, stroke_width=5),
                        T("NOT SENT", 26, CORAL, weight="BOLD")).rotate(-0.25).move_to(inv[1])
         self.cue("nobody", lead=0.0)
+        self.sfx("stamp", -1, 0.16)
         self.play(FadeIn(stamp, scale=2.4), run_time=0.22, rate_func=rate_functions.ease_in_quad)
         self.shake(0.06, 4, 0.25)
 
@@ -103,6 +115,7 @@ class Problem(PitchScene):
         q = T("Sound familiar?", 64, TEXT, weight="BOLD")
         qbg = BackgroundRectangle(q, color=BG, fill_opacity=0.92, buff=0.35)
         veil = Rectangle(width=30, height=20, stroke_width=0).set_fill(BG, 0.72)
+        self.sfx("whoosh", -9)
         self.play(FadeIn(veil), FadeOut(counter), self.zoom.animate.set_value(0.9),
                   FadeIn(qbg), FadeIn(q, scale=1.3), run_time=0.45)
 
@@ -116,6 +129,7 @@ class Problem(PitchScene):
             t = T(w, 64, col, weight="BOLD")
             t.move_to(UP * (1.45 - 1.45 * i))
             bgp = BackgroundRectangle(t, color=BG, fill_opacity=0.9, buff=0.2)
+            self.sfx("impact", -9)
             self.play(FadeIn(bgp), FadeIn(t, scale=1.5), run_time=0.25, rate_func=rate_functions.ease_out_back)
             shown.add(bgp, t)
             if w == "sticky notes":
@@ -124,6 +138,7 @@ class Problem(PitchScene):
                     nte = Square(0.55, stroke_width=0).set_fill(GOLD if j % 2 else "#FFE7A6", 1).rotate(rng.uniform(-0.5, 0.5))
                     nte.move_to([rng.uniform(-6.2, 6.2), 4.6, 0])
                     notes.add(nte)
+                self.sfx_seq("swish", 3, 0.25, -12)
                 self.play(LaggedStart(*[n.animate(rate_func=rate_functions.ease_in_quad).shift(DOWN * rng.uniform(5.5, 9)).rotate(rng.uniform(-1, 1))
                                         for n in notes], lag_ratio=0.06), run_time=0.9)
         self.outro()

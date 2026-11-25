@@ -25,12 +25,15 @@ class Close(PitchScene):
 
         self.cue("australia", lead=0.1)
         self.add(big, src)
+        self.sfx("sparkle", -8)
+        self.sfx("riser", -14, 0.2)
         self.play(LaggedStart(*[FadeIn(d, scale=0.2) for d in dots], lag_ratio=0.0008), count.animate.set_value(TRADING),
                   FadeIn(cap), run_time=1.8, rate_func=smooth)
 
         # Buried in the pile: the field turns coral and collapses into a heap.
         self.cue("buried", lead=0.3)
         heap = [np.array([rng.normal(0, 1.6), -3.0 + abs(rng.normal(0, 0.5)) + rng.uniform(0, 0.9), 0]) for _ in range(n)]
+        self.sfx("whoosh", -6)
         self.play(*[d.animate.move_to(p).set_color(CORAL) for d, p in zip(dots, heap)], run_time=0.8,
                   rate_func=rate_functions.ease_in_quad)
         self.shake(0.06, 4, 0.25)
@@ -38,12 +41,16 @@ class Close(PitchScene):
         # Meroidea: the heap streams up into the logo.
         self.cue("meroidea", lead=0.3)
         core = core_mark(0.8).move_to(UP * 1.95)
+        self.sfx("riser", -5, -0.5)
         self.play(FadeOut(VGroup(big, cap, src)),
                   *[d.animate.move_to(core[1].get_center() + rng.normal(0, 0.15, 3) * [1, 1, 0]).set_color(BRAND).set_opacity(0)
                     for d in dots], run_time=0.8, rate_func=rate_functions.ease_in_cubic)
         self.remove(dots)
+        self.sfx("impact", 0)
         self.play(FadeIn(core, scale=0.5), run_time=0.35, rate_func=rate_functions.ease_out_back)
         burst = VGroup(*[Circle(radius=0.8, stroke_color=c, stroke_width=4).move_to(core[1]) for c in (BRAND, INFO, SKY2)])
+        self.sfx("sparkle", -4)
+        self.sfx("chime", -6)
         self.play(LaggedStart(*[r.animate.scale(4).set_stroke(opacity=0) for r in burst], lag_ratio=0.12), run_time=0.6)
         self.remove(burst)
 
@@ -62,14 +69,19 @@ class Close(PitchScene):
         self.add(wclock)
         self.bring_to_back(wv)
         self.bring_to_back(self.bg)
+        self.sfx("swish", -9)
         self.play(FadeIn(wv), FadeIn(l1, shift=UP * 0.2), run_time=0.35)
         self.play(FadeIn(l2, shift=UP * 0.2), run_time=0.35)
+        self.sfx("swish", -11)
         self.play(Create(under), run_time=0.45)
 
         chips = VGroup(pill("Built in Sydney", BRAND, 22), pill("Ready to scale", INFO, 22)).arrange(RIGHT, buff=0.3)
         chips.next_to(tagline, DOWN, buff=0.45)
+        self.sfx("pop", -5, max(0.0, self.sync.words[[w for w, _ in self.sync.words].index("sydney")][1] - 0.3 - self.now))
         self.play_cue("sydney", FadeIn(chips[0], shift=UP * 0.2, scale=0.9), run_time=0.3, lead=0.3)
+        self.sfx("pop", -5, max(0.0, self.sync.words[[w for w, _ in self.sync.words].index("scale")][1] - 0.3 - self.now))
         self.play_cue("scale", FadeIn(chips[1], shift=UP * 0.2, scale=0.9), run_time=0.3, lead=0.3)
         url = T("crm.meroidea.com", 26, BRAND, weight="SEMIBOLD", font=MONO).next_to(chips, DOWN, buff=0.4)
+        self.sfx("chime", -4)
         self.play(FadeIn(url, shift=UP * 0.15), run_time=0.4)
         self.outro(fade=0.9, whip=False)

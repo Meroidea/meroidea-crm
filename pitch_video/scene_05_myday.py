@@ -28,6 +28,7 @@ class MyDay(PitchScene):
         rows.next_to(sub, DOWN, buff=0.3).align_to(sub, LEFT)
 
         self.cue("followups", lead=0.2)
+        self.sfx("swish", -7)
         self.play(FadeIn(ph, shift=UP * 0.6), run_time=0.3)
         # Notifications fly in from both sides and slot into the list.
         anims = []
@@ -36,11 +37,15 @@ class MyDay(PitchScene):
             start = r.copy().scale(1.25).move_to(side * 5.5 + UP * (1.5 - i * 0.55))
             anims.append(Succession(FadeIn(start, run_time=0.05), ReplacementTransform(start, r, run_time=0.45,
                                                                                        rate_func=rate_functions.ease_out_cubic)))
+        self.sfx_seq("swish", 6, 0.2, -13)
+        self.sfx_seq("pop", 6, 0.2, -9, 0.4)
         self.play(LaggedStart(*anims, lag_ratio=0.18), run_time=1.6)
         bell = icon("bell", CORAL, 0.35).next_to(ph[0], RIGHT, buff=0.4).shift(UP * 2.2)
+        self.sfx("ping", -3, max(0.0, self.sync.words[[w for w, _ in self.sync.words].index("overdue")][1] - 0.2 - self.now))
         self.play_cue("overdue", FadeIn(bell, scale=1.4), Wiggle(bell, rotation_angle=0.12 * TAU), run_time=0.5, lead=0.2)
 
         self.cue("my", lead=0.25)
+        self.sfx("pop", -6)
         self.play(FadeIn(title, shift=DOWN * 0.15), FadeIn(sub), FadeOut(bell), run_time=0.3)
 
         # Nothing slips: tasks tick off one after another.
@@ -51,7 +56,9 @@ class MyDay(PitchScene):
             strike = Line(r[2].get_left(), r[2].get_right(), stroke_color=MUTED, stroke_width=2)
             ticks.append(AnimationGroup(r[1].animate.set_fill(MINT, 0.15).set_stroke(MINT), Create(ck), Create(strike),
                                         r[2].animate.set_opacity(0.5)))
+        self.sfx_seq("tick", 5, 0.235, -4)
         self.play(LaggedStart(*ticks, lag_ratio=0.3), run_time=1.3)
         done = pill("All caught up", MINT, 22).next_to(ph[0], RIGHT, buff=0.45)
+        self.sfx("chime", -3)
         self.play(FadeIn(done, scale=1.3), run_time=0.25, rate_func=rate_functions.ease_out_back)
         self.outro()

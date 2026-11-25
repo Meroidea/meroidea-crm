@@ -1,73 +1,98 @@
-"""Voiceover first: synthesise one MP3 per scene and record its exact length and word timings.
+"""Voice first: synthesise one WAV per scene with Kokoro (open-weight neural TTS, runs locally)
+and record its exact length and per-word timings.
 
-Writes build/audio/<id>.mp3 and build/audio/<id>.json:
+Run with the TTS environment (Python 3.12):  ../.venv-tts/bin/python tts.py
+Writes build/audio/<id>.wav and build/audio/<id>.json:
     {"duration": seconds, "words": [[normalised_word, start_seconds], ...]}
-Scenes read the JSON so each animation cue lands on the word that motivates it.
+
+Naturalness: each sentence is synthesised on its own and joined with human-length pauses
+(longer after a question or a short hook line), instead of one breathless take.
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
-import os
 import re
-import ssl
 import sys
 from pathlib import Path
 
-import edge_tts
-import edge_tts.communicate as communicate
-from mutagen.mp3 import MP3
+import numpy as np
+import soundfile as sf
 
-from script import RATE, SCENES, VOICE
+from script import SCENES, SPEED, VOICE
 
 ROOT = Path(__file__).parent
 AUDIO = ROOT / "build" / "audio"
-
-# edge-tts pins certifi's CA store. Behind a TLS-inspecting proxy, honour SSL_CERT_FILE instead.
-if os.environ.get("SSL_CERT_FILE"):
-    communicate._SSL_CTX = ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])
+SR = 24000
+LEAD_IN = 0.12
 
 
 def norm(word: str) -> str:
     return re.sub(r"[^a-z0-9]", "", word.lower())
 
 
-async def synth(scene: dict) -> None:
-    mp3 = AUDIO / f"{scene['id']}.mp3"
+def pause_after(sentence: str) -> float:
+    s = sentence.strip()
+    words = len(s.split())
+    if s.endswith("?"):
+        return 0.42
+    if words <= 3:          # punchy hook lines ("Monday.", "One login.") get room to land
+        return 0.3
+    return 0.22
+
+
+def split_sentences(text: str) -> list[str]:
+    parts = re.split(r"(?<=[.?!])\s+(?=[A-Z])", text.strip())
+    return [p for p in parts if p]
+
+
+def synth_scene(pipe, scene: dict) -> None:
+    wav = AUDIO / f"{scene['id']}.wav"
     meta = AUDIO / f"{scene['id']}.json"
-    digest = hashlib.sha1(f"{VOICE}|{RATE}|{scene['text']}".encode()).hexdigest()
-    if mp3.exists() and meta.exists() and json.loads(meta.read_text()).get("hash") == digest:
+    digest = hashlib.sha1(f"kokoro-v3|{VOICE}|{SPEED}|{scene['text']}".encode()).hexdigest()
+    if wav.exists() and meta.exists() and json.loads(meta.read_text()).get("hash") == digest:
         print(f"  {scene['id']}: cached")
         return
+    chunks = [np.zeros(int(LEAD_IN * SR), dtype=np.float32)]
     words: list[list] = []
-    for attempt in range(4):
-        try:
-            words = []
-            com = edge_tts.Communicate(scene["text"], VOICE, rate=RATE, boundary="WordBoundary")
-            with open(mp3, "wb") as fh:
-                async for chunk in com.stream():
-                    if chunk["type"] == "audio":
-                        fh.write(chunk["data"])
-                    elif chunk["type"] == "WordBoundary":
-                        words.append([norm(chunk["text"]), chunk["offset"] / 1e7])
-            break
-        except Exception as exc:  # network hiccup: back off and retry
-            print(f"  {scene['id']}: attempt {attempt + 1} failed: {exc}", file=sys.stderr)
-            await asyncio.sleep(2**attempt)
-    else:
-        raise SystemExit(f"TTS failed for {scene['id']}")
-    duration = MP3(mp3).info.length
+    offset = LEAD_IN
+    for sentence in split_sentences(scene["text"]):
+        for result in pipe(sentence, voice=VOICE, speed=SPEED):
+            audio = result.audio.numpy().astype(np.float32)
+            # Kokoro pads each chunk with silence; keep only the speech plus a 40 ms margin.
+            loud = np.flatnonzero(np.abs(audio) > 0.02 * (np.max(np.abs(audio)) or 1))
+            head = max(0, loud[0] - int(0.04 * SR)) if len(loud) else 0
+            tail = min(len(audio), loud[-1] + int(0.06 * SR)) if len(loud) else len(audio)
+            audio = audio[head:tail]
+            shift = head / SR
+            for tok in result.tokens or []:
+                if tok.start_ts is not None and norm(tok.text):
+                    words.append([norm(tok.text), round(offset + max(0.0, tok.start_ts - shift), 3)])
+            chunks.append(audio)
+            offset += len(audio) / SR
+        gap = pause_after(sentence)
+        chunks.append(np.zeros(int(gap * SR), dtype=np.float32))
+        offset += gap
+    audio = np.concatenate(chunks)
+    # Trim the final pause to 0.1 s so scenes do not end on dead air.
+    end = len(audio) - int((pause_after(split_sentences(scene["text"])[-1]) - 0.1) * SR)
+    audio = audio[:end]
+    peak = float(np.max(np.abs(audio))) or 1.0
+    sf.write(wav, audio / peak * 0.89, SR, subtype="PCM_16")
+    duration = len(audio) / SR
     meta.write_text(json.dumps({"hash": digest, "duration": duration, "words": words}))
     print(f"  {scene['id']}: {duration:6.2f}s  {len(words)} words")
 
 
-async def main() -> None:
+def main() -> None:
+    from kokoro import KPipeline
+
     AUDIO.mkdir(parents=True, exist_ok=True)
+    pipe = KPipeline(lang_code="a" if VOICE[0] == "a" else "b")
     for scene in SCENES:
-        await synth(scene)
+        synth_scene(pipe, scene)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(main())

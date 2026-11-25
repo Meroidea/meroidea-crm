@@ -42,10 +42,12 @@ class Sales(PitchScene):
             cards.append(stack)
 
         self.cue("pipeline", lead=0.2)
+        self.sfx("swish", -7)
         self.play(FadeIn(win, scale=0.92), FadeIn(title), LaggedStart(*[FadeIn(c, shift=UP * 0.3) for c in cols], lag_ratio=0.08),
                   run_time=0.5)
         self.add(fc)
         flat = [c for s_ in cards for c in s_]
+        self.sfx_seq("pop", 7, 0.12, -11)
         self.play(LaggedStart(*[FadeIn(c, shift=DOWN * 0.4) for c in flat], lag_ratio=0.08,
                               rate_func=rate_functions.ease_out_back), run_time=1.0)
 
@@ -53,7 +55,9 @@ class Sales(PitchScene):
         stuck = cards[1][0]
         self.cue("stuck", lead=0.3)
         age = pill("12 days", CORAL, 14).next_to(stuck[0][1].get_corner(UR), DL, buff=0.08).shift(UP * 0.28)
+        self.sfx("tick", -5)
         self.play(stuck[0][1].animate.set_stroke(CORAL, width=3), FadeIn(age, scale=1.4), run_time=0.3)
+        self.sfx_seq("tick", 3, 0.13, -9)
         self.play(Wiggle(stuck, scale_value=1.05, rotation_angle=0.03 * TAU), run_time=0.5)
 
         # Drag a deal forward: lift, arc across, drop, ripple; forecast counts up.
@@ -63,17 +67,21 @@ class Sales(PitchScene):
                          stroke_color="#FFFFFF", stroke_width=2).set_fill(TEXT, 1).scale(0.9)
         cursor.move_to(stuck.get_center() + RIGHT * 0.5 + DOWN * 0.1, aligned_edge=UL)
         self.play(FadeIn(cursor, shift=UP * 0.2), run_time=0.15)
+        self.sfx("click", -3)
         self.play(stuck.animate.scale(1.08).shift(UP * 0.12), FadeOut(age), cursor.animate.shift(UP * 0.12), run_time=0.15)
         target = cols[2][1].get_bottom() + DOWN * (0.22 + 2 * 1.05 + 0.46)
         target = np.array([cols[2][0].get_left()[0] + 0.15 + stuck.width / 2 / 1.08, target[1], 0])
         path = ArcBetweenPoints(stuck.get_center(), target, angle=-0.6)
+        self.sfx("swish", -6)
         self.play(MoveAlongPath(stuck, path), cursor.animate.move_to(target + RIGHT * 0.5 + DOWN * 0.1, aligned_edge=UL),
                   run_time=0.55, rate_func=rate_functions.ease_in_out_cubic)
+        self.sfx("pop", -4)
         self.play(stuck.animate.scale(1 / 1.08), stuck[0][1].animate.set_stroke(EDGE, width=1.4), FadeOut(cursor),
                   cards[1][1].animate.shift(UP * 1.05), run_time=0.2)
         ring = RoundedRectangle(width=stuck.width, height=stuck.height, corner_radius=0.14, stroke_color=BRAND,
                                 stroke_width=4).move_to(stuck)
         self.cue("forecast", lead=0.3)
+        self.sfx("coin", -5, 0.3)
         self.play(ring.animate.scale(1.4).set_stroke(opacity=0), fc_val.animate.set_value(34080),
                   self.zoom.animate.set_value(0.95), self.focus.animate.move_to(ORIGIN), run_time=0.8)
         up = VGroup(Triangle(stroke_width=0).set_fill(MINT, 1).scale(0.1), T("+$2,880", 16, MINT, weight="BOLD")).arrange(RIGHT, buff=0.1)
@@ -91,6 +99,8 @@ class Sales(PitchScene):
         hl = T("MeroAI · next best action", 15, INFO, weight="SEMIBOLD")
         txt = VGroup(hl, h1, h2).arrange(DOWN, aligned_edge=LEFT, buff=0.08)
         VGroup(sparkle, txt).arrange(RIGHT, buff=0.3, aligned_edge=UP).move_to(ai[1])
+        self.sfx("swish", -7)
+        self.sfx("sparkle", -4, 0.2)
         self.play(FadeIn(veil), FadeIn(VGroup(ai, sparkle, txt), shift=LEFT * 1.0), run_time=0.4,
                   rate_func=rate_functions.ease_out_back)
         self.play(Rotate(sparkle, PI / 2), run_time=0.5)

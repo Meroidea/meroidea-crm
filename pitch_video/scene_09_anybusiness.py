@@ -44,22 +44,27 @@ class AnyBusiness(PitchScene):
         cards.arrange(RIGHT, buff=0.5).move_to(UP * 0.2)
         for c, (_, _, _, word) in zip(cards, kinds):
             self.cue(word, lead=0.15)
+            self.sfx("pop", -4)
             self.play(FadeIn(c, shift=UP * 0.6, scale=0.85), run_time=0.3, rate_func=rate_functions.ease_out_back)
 
         # One board reshapes itself for each business.
         self.cue("meroidea", lead=0.25)
         b = board(THEMES[0]).scale(1.25).move_to(DOWN * 0.55)
         biz_lab = pill(THEMES[0][0], THEMES[0][4], 18).next_to(b, UP, buff=0.25).align_to(b, RIGHT)
+        self.sfx("swish", -8)
         self.play(cards.animate.scale(0.38).arrange(RIGHT, buff=0.3).to_edge(UP, buff=0.45), run_time=0.4)
+        self.sfx("whoosh", -9)
         self.play(FadeIn(b, shift=UP * 0.3), FadeIn(biz_lab), Circumscribe(cards[0], color=ink(GOLD), buff=0.06), run_time=0.4)
 
         for i, word in ((1, "stages"), (2, "fields")):
             self.cue(word, lead=0.25)
             nb = board(THEMES[i]).scale(1.25).move_to(b)
             nl = pill(THEMES[i][0], THEMES[i][4], 18).move_to(biz_lab).align_to(biz_lab, RIGHT)
+            self.sfx("swish", -6)
             self.play(Transform(b, nb), Transform(biz_lab, nl), Circumscribe(cards[i], color=ink(THEMES[i][4]), buff=0.06),
                       run_time=0.45, rate_func=smooth)
         self.cue("words", lead=0.2)
+        self.sfx("tick", -5)
         self.play(Indicate(b[0], color=BRAND, scale_factor=1.12), run_time=0.35)
 
         # Switch on what you need; grow into the rest.
@@ -77,6 +82,7 @@ class AnyBusiness(PitchScene):
             row.move_to(bgc[1]).align_to(bgc[1], LEFT).shift(RIGHT * 0.22)
             toggles.add(VGroup(bgc, row))
         toggles.arrange_in_grid(3, 4, buff=(0.24, 0.28)).move_to(DOWN * 0.1)
+        self.sfx("whoosh", -10)
         self.play(LaggedStart(*[FadeIn(t, scale=0.8) for t in toggles], lag_ratio=0.03), run_time=0.45)
 
         def flip(t):
@@ -84,8 +90,11 @@ class AnyBusiness(PitchScene):
             return AnimationGroup(track.animate.set_fill(BRAND, 1), knob.animate.shift(RIGHT * 0.32))
 
         today = [0, 1, 2, 6]
+        self.sfx_seq("click", 4, 0.14, -4)
         self.play(LaggedStart(*[flip(toggles[i]) for i in today], lag_ratio=0.2), run_time=0.7)
         self.cue("grow", lead=0.2)
         rest = [i for i in range(12) if i not in today]
+        self.sfx_seq("click", 8, 0.095, -6)
+        self.sfx("chime", -6, 0.9)
         self.play(LaggedStart(*[flip(toggles[i]) for i in rest], lag_ratio=0.1), self.zoom.animate.set_value(0.97), run_time=1.0)
         self.outro()

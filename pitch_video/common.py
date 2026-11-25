@@ -281,6 +281,7 @@ class PitchScene(MovingCameraScene):
         w0 = frame.width
         total = self.sync.duration + self.TAIL
         push = self.PUSH
+        self._sfx: list[tuple[float, str, float]] = []
         self.zoom = ValueTracker(1.0)
         self.focus = Dot(radius=0.001, fill_opacity=0, stroke_width=0)
         self.add(self.zoom, self.focus)
@@ -288,8 +289,23 @@ class PitchScene(MovingCameraScene):
                                           * (1 - push * min(1.0, self.renderer.time / max(total, 1))))
                           .move_to(self.focus.get_center()))
 
-    def shake(self, amp: float = 0.08, n: int = 6, run_time: float = 0.45):
-        """A short camera shake (impact)."""
+    def sfx(self, name: str, gain: float = 0.0, offset: float = 0.0):
+        """Log a sound effect at the current animation time (+offset). Placed by build.py."""
+        self._sfx.append((round(self.now + offset, 3), name, gain))
+
+    def sfx_seq(self, name: str, count: int, step: float, gain: float = 0.0, offset: float = 0.0):
+        for i in range(count):
+            self.sfx(name, gain, offset + i * step)
+
+    def tear_down(self):
+        super().tear_down()
+        out = ROOT / "build" / "sfx"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"{self.SID}.json").write_text(json.dumps(self._sfx))
+
+    def shake(self, amp: float = 0.08, n: int = 6, run_time: float = 0.45, gain: float = -3.0):
+        """A short camera shake, with its impact sound."""
+        self.sfx("impact", gain)
         from manim import Succession
         rng = np.random.default_rng(int(self.renderer.time * 1000) % 2**31)
         c = self.focus.get_center()
@@ -328,6 +344,8 @@ class PitchScene(MovingCameraScene):
         keep = {id(self.bg), id(getattr(self, "particles", None)), id(self.zoom), id(self.focus)}
         mobs = [m for m in self.mobjects if id(m) not in keep]
         if mobs:
+            if whip:
+                self.sfx("whoosh", -7)
             shift = LEFT * 3.5 if whip else ORIGIN
             self.play(*[FadeOut(m, shift=shift) for m in mobs], run_time=fade, rate_func=rate_functions.ease_in_cubic)
         self.wait_until(self.end)

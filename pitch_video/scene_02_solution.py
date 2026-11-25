@@ -39,12 +39,16 @@ class Solution(PitchScene):
 
         logo = core_mark(1.0)
         self.cue("meroidea", lead=0.25)
+        self.sfx("impact", -2)
+        self.sfx("sparkle", -8)
         self.play(FadeIn(logo, scale=0.3), run_time=0.4, rate_func=rate_functions.ease_out_back)
         pile.clear_updaters()
+        self.sfx("whoosh", -5)
         self.play(*[m.animate.move_to(ORIGIN).scale(0.05).rotate(rng.uniform(2, 5)) for m in pile],
                   logo.animate.scale(1.12), run_time=0.75, rate_func=rate_functions.ease_in_cubic)
         self.remove(pile)
         rings = VGroup(*[Circle(radius=0.9, stroke_color=c, stroke_width=5).move_to(logo[1]) for c in (BRAND, INFO, SKY)])
+        self.sfx("chime", -6)
         self.play(LaggedStart(*[r.animate.scale(5).set_stroke(opacity=0) for r in rings], lag_ratio=0.15),
                   logo.animate.scale(1 / 1.12), run_time=0.7)
         self.remove(rings)
@@ -54,6 +58,7 @@ class Solution(PitchScene):
         win = laptop(11.6, 6.3).move_to(DOWN * 0.25)
         brand = wordmark(0.32).move_to(win[1]).align_to(win[1], LEFT).shift(RIGHT * 0.95)
         brand.z_index = 5
+        self.sfx("swish", -5)
         self.play(ReplacementTransform(logo, brand), FadeIn(win, scale=0.6), run_time=0.55, rate_func=smooth)
         self.bring_to_front(brand)
 
@@ -66,10 +71,12 @@ class Solution(PitchScene):
         words = ["customers", "sales", "staff", "rosters", "payroll", "invoices", "books"]
         for w, t in zip(words, tiles):
             self.cue(w, lead=0.15)
+            self.sfx("pop", -6)
             self.play(FadeIn(t, scale=0.5, shift=UP * 0.2), run_time=0.28, rate_func=rate_functions.ease_out_back)
 
         # All connected: wires light between tiles with packets racing along them.
         self.cue("connected", lead=0.35)
+        self.sfx("pop", -6)
         self.play(FadeIn(tiles[7], scale=0.5), run_time=0.25, rate_func=rate_functions.ease_out_back)
         pairs = [(0, 1), (1, 2), (2, 3), (4, 5), (5, 6), (6, 7), (0, 4), (1, 5), (2, 6), (3, 7), (0, 5), (2, 7)]
         wires = VGroup(*[Line(tiles[a][0][1].get_center(), tiles[b][0][1].get_center(), stroke_color=BRAND,
@@ -77,9 +84,11 @@ class Solution(PitchScene):
         wires.z_index = -1
         for t in tiles:
             t.z_index = 1
+        self.sfx("sparkle", -8)
         self.play(LaggedStart(*[Create(wi) for wi in wires], lag_ratio=0.05), run_time=0.6)
         packets = VGroup(*[Dot(radius=0.07, color=INFO).move_to(wi.get_start()) for wi in wires])
         packets.z_index = 2
+        self.sfx("swish", -12)
         self.play(LaggedStart(*[MoveAlongPath(p, wi) for p, wi in zip(packets, wires)], lag_ratio=0.04), run_time=0.8)
         self.remove(packets)
 
@@ -87,11 +96,13 @@ class Solution(PitchScene):
         self.cue("login", lead=0.25)
         av = VGroup(Circle(radius=0.15, stroke_width=0).set_fill(BRAND, 1), T("One login", 16, BRAND, weight="SEMIBOLD"))
         av.arrange(RIGHT, buff=0.15).move_to(win[1]).align_to(win[1], RIGHT).shift(LEFT * 0.35)
+        self.sfx("ping", -6)
         self.play(FadeIn(av, shift=LEFT * 0.2), Indicate(brand, color=BRAND, scale_factor=1.06), run_time=0.4)
 
         # Shaped around how your business works: tiles reshuffle into a new layout.
         self.cue("shaped", lead=0.2)
         order = [3, 6, 0, 7, 1, 4, 2, 5]
+        self.sfx("whoosh", -7)
         self.play(FadeOut(wires), *[tiles[i].animate.move_to(slots[j]) for j, i in enumerate(order)],
                   self.zoom.animate.set_value(0.94), run_time=0.9, rate_func=smooth)
         self.outro()

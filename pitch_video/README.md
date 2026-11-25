@@ -16,15 +16,34 @@ synthesised by edge-tts and an ambient pad is generated in code.
 ## Build
 
 ```bash
+# Video environment (Python 3.13): Manim + mixing. Linux also needs libpango1.0-dev and ffmpeg.
 python3 -m venv .venv-video
-.venv-video/bin/pip install manim edge-tts mutagen numpy scipy   # Linux also needs libpango1.0-dev and ffmpeg
+.venv-video/bin/pip install manim mutagen numpy scipy pillow
+
+# Voice environment (Python 3.12, which Kokoro needs): CPU-only torch + Kokoro-82M.
+uv venv -p python3.12 .venv-tts
+uv pip install -p .venv-tts/bin/python torch --index-url https://download.pytorch.org/whl/cpu
+uv pip install -p .venv-tts/bin/python "kokoro>=0.9" soundfile \
+  https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
 cd pitch_video
-../.venv-video/bin/python build.py                 # 1080p60 → meroidea_investor_pitch.mp4
+../.venv-video/bin/python build.py                 # voice → 1080p60 render → music + SFX → master
 ../.venv-video/bin/python build.py --quality l     # fast 480p preview
 ../.venv-video/bin/python build.py --skip-render   # re-mix audio only
 ```
 
-Behind a TLS-inspecting proxy, set `SSL_CERT_FILE` to its CA bundle. `tts.py` then uses it for edge-tts.
+## Audio
+
+- **Voice:** Kokoro-82M (open-weight neural TTS, Apache-2.0, runs locally), voice `af_heart`. Each sentence is
+  synthesised separately and joined with natural pauses. Change `VOICE` in `script.py` (for example `am_michael`
+  for a male narrator). For a fully human read, record it and replace `build/audio/<id>.wav`; the cue sheet
+  will need re-timing.
+- **Voice post:** high-pass, gentle compression, presence EQ and a faint room ambience.
+- **Music:** generated Am–F–C–G at 100 bpm (pad, arpeggio, kick, hi-hats), about 11 LU under the voice, ducked
+  under speech. Drop a track at `assets/bgm.mp3` to use your own.
+- **Sound design (`sfx.py`):** whooshes, pops, clicks, impacts, a riser, chimes, pings, typing, sparkles,
+  stamps and coins, all synthesised. Scenes log each cue with `self.sfx(name, gain)` at the exact animation frame.
+- **Master:** two-pass, a static gain to −16 LUFS plus a limiter (about −1 dBTP).
 
 ## How the sync works
 

@@ -9,8 +9,10 @@ overdue chasing (ADR-077), ledger posted from invoices and payroll with GST/P&L/
 (ADR-060), Own/Team/All scopes and the audit trail, per-business features and labels (ADR-029).
 """
 
-VOICE = "en-AU-WilliamNeural"
-RATE = "+16%"  # brisker delivery than the edge-tts default
+# Kokoro-82M voice. af_heart is the model's highest-graded voice (A); for a male narrator use
+# am_michael or am_fenrir (graded C+), or bm_george for British English.
+VOICE = "af_heart"
+SPEED = 1.1
 
 SCENES = [
     {

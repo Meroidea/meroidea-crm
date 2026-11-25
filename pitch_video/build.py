@@ -22,7 +22,7 @@ import numpy as np
 from scipy.io import wavfile
 from scipy.signal import butter, fftconvolve, sosfilt
 
-import tts
+import sfx
 from script import SCENES
 
 ROOT = Path(__file__).parent
@@ -31,6 +31,7 @@ MEDIA = BUILD / "media"
 QUALITY_DIR = {"h": "1080p60", "l": "480p15", "m": "720p30", "k": "2160p60"}
 OUT = ROOT / "meroidea_investor_pitch.mp4"
 MANIM = Path(sys.executable).with_name("manim")
+TTS_PYTHON = ROOT.parent / ".venv-tts" / "bin" / "python"  # Kokoro needs Python 3.12
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -110,7 +111,7 @@ def make_pad(seconds: float, path: Path, sr: int = 44100) -> None:
     for k in range(int(seconds / eighth)):
         t0 = k * eighth
         chord = chords[int(t0 // bar) % 4]
-        note = chord[1:][arp_order[k % 8] % 3] + (12 if (k // 8) % 2 else 0)
+        note = chord[1:][arp_order[k % 8] % 3] + 12 + (12 if (k // 8) % 2 else 0)  # up an octave: mid-range
         i0 = int(t0 * sr)
         m = min(n - i0, int(0.5 * sr))
         if m <= 0:
@@ -132,10 +133,21 @@ def make_pad(seconds: float, path: Path, sr: int = 44100) -> None:
         kick[i0:i0 + m] += np.sin(2 * np.pi * np.cumsum(f_sweep) / sr) * np.exp(-tt * 14) * 0.7
     # Intro swell: the drive fades in over the first 4 s.
     swell = np.clip(t / 4.0, 0, 1)
-    sos = butter(4, 1800, "low", fs=sr, output="sos")
-    sos_pl = butter(2, 3200, "low", fs=sr, output="sos")
-    left = sosfilt(sos, left * lfo) * 0.7 + (sosfilt(sos_pl, pl_l) + kick) * swell
-    right = sosfilt(sos, right * lfo) * 0.7 + (sosfilt(sos_pl, pl_r) + kick) * swell
+    # Off-beat hi-hats: high-frequency presence so the groove carries on laptop and phone speakers.
+    hats = np.zeros(n)
+    hp = butter(4, 7000, "high", fs=sr, output="sos")
+    for k in range(int(seconds / eighth)):
+        if k % 2 == 1:
+            i0 = int(k * eighth * sr)
+            m = min(n - i0, int(0.06 * sr))
+            if m > 0:
+                hats[i0:i0 + m] += rng.standard_normal(m) * np.exp(-np.arange(m) / sr * 70) * 0.35
+    hats = sosfilt(hp, hats)
+    sos = butter(4, 5000, "low", fs=sr, output="sos")
+    sos_pl = butter(2, 8000, "low", fs=sr, output="sos")
+    kick *= 0.55  # less sub: small speakers can't play it and it only muddies the voice
+    left = sosfilt(sos, left * lfo) * 0.8 + (sosfilt(sos_pl, pl_l) * 1.4 + kick + hats) * swell
+    right = sosfilt(sos, right * lfo) * 0.8 + (sosfilt(sos_pl, pl_r) * 1.4 + kick + hats * 0.9) * swell
     ir_len = int(3.2 * sr)
     ir_t = np.arange(ir_len) / sr
     for ch_i, ch in enumerate((left, right)):
@@ -181,8 +193,8 @@ def assemble(quality: str) -> None:
     # 2. Voice: each scene's clip placed at the start of its scene.
     inputs, filters = [], []
     for i, s in enumerate(SCENES):
-        inputs += ["-i", str(BUILD / "audio" / f"{s['id']}.mp3")]
-        ms = int(round((offsets[i] + 0.05) * 1000))
+        inputs += ["-i", str(BUILD / "audio" / f"{s['id']}.wav")]
+        ms = int(round(offsets[i] * 1000))
         filters.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={ms}|{ms}[v{i}]")
     mix_in = "".join(f"[v{i}]" for i in range(len(SCENES)))
     filters.append(f"{mix_in}amix=inputs={len(SCENES)}:normalize=0,apad=whole_dur={total:.3f}[voice]")
@@ -190,25 +202,50 @@ def assemble(quality: str) -> None:
     run(["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[voice]",
          "-t", f"{total:.3f}", str(voice)])
 
-    # 3. Mix. The pad sits ~20 dB below the voice (relative to the voice's own level), is ducked a
+    # 3. Sound effects: each scene's logged events, shifted onto the film timeline.
+    lib = BUILD / "sfx_lib"
+    sfx.make_library(lib)
+    events = []
+    for i, s in enumerate(SCENES):
+        f = BUILD / "sfx" / f"{s['id']}.json"
+        if f.exists():
+            events += [(offsets[i] + t, name, gain) for t, name, gain in json.loads(f.read_text())]
+    sfx_wav = BUILD / "sfx.wav"
+    placed = sfx.render_track(events, total, lib, sfx_wav)
+    print(f"  {placed} sound effects placed")
+
+    # 4. Mix. The pad sits ~20 dB below the voice (relative to the voice's own level), is ducked a
     #    further few dB while anyone speaks, and fades at both ends. Loudness is then set with one
     #    static gain (measured, not a dynamic AGC) so quiet passages are never pumped up.
     fade_out = max(total - 3.0, 0)
     voice_lufs = measure_lufs(voice)
     music_lufs = measure_lufs(bgm)
-    music_gain = (voice_lufs - 18.0) - music_lufs
+    music_gain = (voice_lufs - 11.0) - music_lufs   # ~11 LU under the voice: clearly audible, never competing
     master_gain = -16.0 - voice_lufs
     print(f"  voice {voice_lufs:.1f} LUFS · music {music_lufs:.1f} LUFS → music gain {music_gain:+.1f} dB, "
           f"master {master_gain:+.1f} dB")
     graph = (
-        "[1:a]aresample=48000,aformat=channel_layouts=stereo,asplit=2[vo][key];"
+        # Voice "post": high-pass, gentle compression, presence lift and a faint small-room ambience,
+        # the treatment a recorded voiceover gets; a bone-dry TTS read sounds synthetic.
+        "[1:a]aresample=48000,aformat=channel_layouts=stereo,highpass=f=80,"
+        "acompressor=threshold=-22dB:ratio=2.5:attack=8:release=120:makeup=2,"
+        "equalizer=f=3200:t=q:w=1.2:g=2.5,equalizer=f=250:t=q:w=1.0:g=-1.5,"
+        "aecho=0.9:0.6:28|47:0.07|0.04,asplit=2[vo][key];"
         f"[2:a]aresample=48000,aformat=channel_layouts=stereo,volume={music_gain:.2f}dB,atrim=0:{total:.3f},"
         f"afade=t=in:st=0:d=2,afade=t=out:st={fade_out:.3f}:d=3[mus];"
-        "[mus][key]sidechaincompress=threshold=0.03:ratio=6:attack=40:release=600:makeup=1[duck];"
-        f"[vo][duck]amix=inputs=2:normalize=0,volume={master_gain:.2f}dB,alimiter=limit=0.89:level=false[a]"
+        "[mus][key]sidechaincompress=threshold=0.05:ratio=3:attack=60:release=450:makeup=1[duck];"
+        "[3:a]aresample=48000,aformat=channel_layouts=stereo,volume=-9dB[fx];"
+        f"[vo][duck][fx]amix=inputs=3:normalize=0,volume={master_gain:.2f}dB,alimiter=limit=0.89:level=false[a]"
     )
+    # Pass 1: mix the audio. Pass 2: measure it and master to exactly -16 LUFS (static gain + limiter).
+    mix = BUILD / "mix.wav"
     run(["ffmpeg", "-v", "error", "-y", "-i", str(picture), "-i", str(voice), "-stream_loop", "-1", "-i", str(bgm),
-         "-filter_complex", graph, "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+         "-i", str(sfx_wav), "-filter_complex", graph, "-map", "[a]", "-ar", "48000", "-t", f"{total:.3f}", str(mix)])
+    trim = -16.0 - measure_lufs(mix)
+    print(f"  master trim {trim:+.1f} dB")
+    run(["ffmpeg", "-v", "error", "-y", "-i", str(picture), "-i", str(mix),
+         "-filter_complex", f"[1:a]volume={trim:.2f}dB,alimiter=limit=0.89:level=false[a]",
+         "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-preset", "slow", "-crf", "18",
          "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart",
          "-t", f"{total:.3f}", str(OUT)])
     print(f"  wrote {OUT.relative_to(ROOT.parent)}  ({OUT.stat().st_size / 1e6:.1f} MB)")
@@ -221,8 +258,10 @@ def main() -> None:
     ap.add_argument("--skip-render", action="store_true")
     args = ap.parse_args()
 
-    print("1/3 voiceover")
-    asyncio.run(tts.main())
+    print("1/3 voiceover (Kokoro)")
+    if not TTS_PYTHON.exists():
+        raise SystemExit("missing .venv-tts: see README (Kokoro needs Python 3.12)")
+    run([str(TTS_PYTHON), "tts.py"], cwd=ROOT)
     if not args.skip_render:
         print(f"2/3 render ({QUALITY_DIR[args.quality]})")
         render_all(args.quality, args.jobs)
