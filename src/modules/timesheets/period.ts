@@ -52,6 +52,14 @@ export type PersonSummary = {
   upcoming: number;
   costCents: number | null;
   ready: boolean;
+  /** Employee ID, for whoever manages employee records; null otherwise. */
+  employeeId: string | null;
+  /** Approved time paid at an overtime rate under the award. */
+  overtimeMinutes: number;
+  /** Clocked shifts started no more than 5 minutes after the rostered start, of those clocked. */
+  onTime: { onTime: number; clocked: number };
+  /** Time entries carrying a note. */
+  comments: number;
 };
 
 export type TimesheetPeriod = {
@@ -289,6 +297,28 @@ export async function getTimesheetPeriod(
   const recordedShiftIds = new Set(paired.map((pair) => pair.shift.id));
   const shiftOfEntry = new Map(paired.map((pair) => [pair.entry.id, pair.shift]));
   const noteOf = new Map(data.entries.map((row) => [row.id, row.note]));
+  const numberOf = hasPermission(ctx, 'employees.manage')
+    ? new Map(
+        (
+          await withRls(ctx, (tx) =>
+            tx
+              .select({ userId: employees.userId, employeeNumber: employees.employeeNumber })
+              .from(employees)
+              .where(
+                and(
+                  eq(employees.tenantId, ctx.tenantId),
+                  isNull(employees.deletedAt),
+                  isNotNull(employees.userId),
+                ),
+              ),
+          )
+        ).flatMap((row) => (row.userId ? [[row.userId, String(row.employeeNumber)] as const] : [])),
+      )
+    : new Map<string, string>();
+  const clockMinutes = (time: string) => {
+    const [hour = 0, minute = 0] = time.split(':').map(Number);
+    return hour * 60 + minute;
+  };
   const summary: PersonSummary[] = [...nameOf.entries()]
     .map(([userId, fullName]) => {
       const own = entries.filter((entry) => entry.userId === userId);
@@ -317,6 +347,28 @@ export async function getTimesheetPeriod(
             ? cents.reduce<number>((sum, value) => sum + (value ?? 0), 0)
             : null,
         ready: waiting === 0 && running === 0 && missing === 0 && upcoming === 0,
+        employeeId: numberOf.get(userId) ?? null,
+        overtimeMinutes: approved.reduce(
+          (sum, entry) =>
+            sum +
+            (workedCost?.get(entry.id)?.lines ?? [])
+              .filter((line) => line.kind === 'overtime')
+              .reduce((lines, line) => lines + (line.minutes ?? 0), 0),
+          0,
+        ),
+        onTime: (() => {
+          const clocked = paired.filter(
+            (pair) => pair.entry.userId === userId && pair.entry.source === 'clock',
+          );
+          return {
+            clocked: clocked.length,
+            onTime: clocked.filter(
+              (pair) =>
+                clockMinutes(pair.entry.startTime) <= clockMinutes(pair.shift.startTime) + 5,
+            ).length,
+          };
+        })(),
+        comments: own.filter((entry) => noteOf.get(entry.id)).length,
       };
     })
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
@@ -354,6 +406,19 @@ export async function getTimesheetPeriod(
       note: noteOf.get(entry.id) ?? null,
     })),
   };
+}
+
+/**
+ * What each person's approved time cost in the pay period before the one containing `date`, to
+ * compare with on the pay period screen. Null without pay access.
+ */
+export async function previousPeriodCosts(
+  ctx: TenantContext,
+  from: string,
+): Promise<Record<string, number | null> | null> {
+  const previous = await getTimesheetPeriod(ctx, addDaysToDate(from, -1));
+  if (!previous.showCost) return null;
+  return Object.fromEntries(previous.summary.map((person) => [person.userId, person.costCents]));
 }
 
 /**

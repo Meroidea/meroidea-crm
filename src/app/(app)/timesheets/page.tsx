@@ -12,7 +12,7 @@ import { ApprovalViews, TimesheetViewNav } from '@/modules/timesheets/components
 import { ExportPeriod } from '@/modules/timesheets/components/timesheet-day';
 import { TimesheetSheet } from '@/modules/timesheets/components/timesheet-sheet';
 import { ClockCard, EntryButton } from '@/modules/timesheets/components/timesheet-tools';
-import { getTimesheetPeriod } from '@/modules/timesheets/period';
+import { getTimesheetPeriod, previousPeriodCosts } from '@/modules/timesheets/period';
 import { getOpenEntry } from '@/modules/timesheets/queries';
 import { timesheetParamsSchema } from '@/modules/timesheets/schemas';
 import { getTimesheet } from '@/modules/timesheets/sheet';
@@ -28,11 +28,15 @@ export default async function TimesheetsPage({ searchParams }: PageProps<'/times
   const timezone = ctx.tenant.timezone;
   const today = zonedToday(timezone);
   if (canManage && (params.view === 'day' || params.view === 'period')) {
+    const period = await getTimesheetPeriod(ctx, params.date ?? today);
     return (
       <ApprovalViews
         view={params.view}
         show={params.show ?? 'all'}
-        period={await getTimesheetPeriod(ctx, params.date ?? today)}
+        period={period}
+        previousCosts={
+          params.view === 'period' ? await previousPeriodCosts(ctx, period.from) : null
+        }
         currency={ctx.tenant.currency}
         today={today}
         meroAI={hasPermission(ctx, 'ai.use')}
