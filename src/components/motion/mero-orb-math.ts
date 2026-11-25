@@ -1,42 +1,10 @@
 /**
- * The geometry and colour arithmetic behind the MeroAI orb (ADR-078). Pure, so it is tested
- * without a canvas.
+ * The geometry, timing and colour arithmetic behind MeroAI's mark (ADR-078, ADR-080, ADR-085):
+ * dots that always spell "meroAI" and keep changing how they do it. Pure, so it is tested without
+ * a canvas.
  */
 
-export type Vec3 = { x: number; y: number; z: number };
 export type Rgb = { r: number; g: number; b: number };
-
-/**
- * `count` points spread evenly over a unit sphere (the Fibonacci lattice): no clumps at the
- * poles, which a random spread would give, so the shell reads as a smooth surface.
- */
-export function fibonacciSphere(count: number): Vec3[] {
-  const points: Vec3[] = [];
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let index = 0; index < count; index += 1) {
-    const y = 1 - (index / Math.max(1, count - 1)) * 2;
-    const radius = Math.sqrt(Math.max(0, 1 - y * y));
-    const theta = golden * index;
-    points.push({ x: Math.cos(theta) * radius, y, z: Math.sin(theta) * radius });
-  }
-  return points;
-}
-
-/** Turns a point about the vertical axis, then tilts it towards the viewer. */
-export function rotate(point: Vec3, yaw: number, tilt: number): Vec3 {
-  const cosY = Math.cos(yaw);
-  const sinY = Math.sin(yaw);
-  const x = point.x * cosY + point.z * sinY;
-  const z1 = -point.x * sinY + point.z * cosY;
-  const cosX = Math.cos(tilt);
-  const sinX = Math.sin(tilt);
-  return { x, y: point.y * cosX - z1 * sinX, z: point.y * sinX + z1 * cosX };
-}
-
-/** How many particles suit an orb of `size` CSS pixels: dense enough to read, light to draw. */
-export function particleCount(size: number): number {
-  return Math.round(Math.min(1100, Math.max(70, size * size * 0.12)));
-}
 
 /** "#4b49ac" or "rgb(75, 73, 172)" (what a canvas reports back) as numbers; null otherwise. */
 export function parseRgb(value: string): Rgb | null {
@@ -118,36 +86,84 @@ export function sampleMask(
   return points.sort((a, b) => a.x - b.x || a.y - b.y);
 }
 
-export const easeInOutCubic = (t: number) => {
-  const c = Math.min(1, Math.max(0, t));
-  return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
-};
-
-/** One loop of the orb: a turning sphere, the word forming, held, then the sphere again. */
-export const MORPH_TIMELINE = { sphere: 3.2, form: 2, hold: 2.4, release: 1.6 } as const;
-export const MORPH_CYCLE =
-  MORPH_TIMELINE.sphere + MORPH_TIMELINE.form + MORPH_TIMELINE.hold + MORPH_TIMELINE.release;
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 /**
- * Where the loop is at `seconds`: how far the word has formed (0 = sphere, 1 = word), and whether
- * it is forming or coming apart, which decides the order the dots move in.
+ * How many dots write the word, from the letters' inked area in CSS pixels: spaced so the letters
+ * stay dotted on a large mark, and packed tighter on a small one, where they would break up.
  */
-export function morphState(seconds: number): { amount: number; forming: boolean } {
-  const t = ((seconds % MORPH_CYCLE) + MORPH_CYCLE) % MORPH_CYCLE;
-  const { sphere, form, hold } = MORPH_TIMELINE;
-  if (t < sphere) return { amount: 0, forming: true };
-  if (t < sphere + form) return { amount: (t - sphere) / form, forming: true };
-  if (t < sphere + form + hold) return { amount: 1, forming: true };
-  return { amount: 1 - (t - sphere - form - hold) / MORPH_TIMELINE.release, forming: false };
+export function wordDotCount(inkedArea: number, size: number): number {
+  const spacing = Math.max(1.1, size / 60);
+  return Math.round(Math.min(1400, Math.max(60, inkedArea / (spacing * spacing))));
 }
 
 /**
- * One dot's share of the loop's progress, staggered by where it lands: the word writes itself
- * from left to right, and comes apart in the same direction. `place` runs from 0 (left) to 1.
+ * The ways the dots rework the word, one after another, each starting and ending on the word:
+ * - scatter: the dots burst into a cloud and swirl back;
+ * - wave: a swell lifts the letters, travelling from left to right;
+ * - shuffle: every dot flies to another dot's place, so the letters dissolve and knit again;
+ * - vortex: the word winds into a spiral at the centre and unwinds.
  */
-export function staggered(amount: number, place: number, forming: boolean, spread = 0.45): number {
-  const delay = place * spread;
-  return forming
-    ? easeInOutCubic((amount - delay) / (1 - spread))
-    : 1 - easeInOutCubic((1 - amount - delay) / (1 - spread));
+export const WORD_EFFECTS = ['scatter', 'wave', 'shuffle', 'vortex'] as const;
+export type WordEffect = (typeof WORD_EFFECTS)[number];
+
+/** One loop: the word held (still alive, never frozen), then one change. */
+export const WORD_TIMELINE = { hold: 3.2, change: 2.4 } as const;
+export const WORD_CYCLE = WORD_TIMELINE.hold + WORD_TIMELINE.change;
+
+/** Where the loop is at `seconds`: which change, and how far through it (0 while held). */
+export function wordPhase(seconds: number): {
+  cycle: number;
+  effect: WordEffect;
+  progress: number;
+} {
+  const time = Math.max(0, seconds);
+  const cycle = Math.floor(time / WORD_CYCLE);
+  const into = time - cycle * WORD_CYCLE;
+  return {
+    cycle,
+    effect: WORD_EFFECTS[cycle % WORD_EFFECTS.length]!,
+    progress: into < WORD_TIMELINE.hold ? 0 : (into - WORD_TIMELINE.hold) / WORD_TIMELINE.change,
+  };
+}
+
+/**
+ * One dot's progress through a change, staggered by where it sits in the word so every change
+ * runs from left to right. `place` runs from 0 (left) to 1.
+ */
+export function dotProgress(progress: number, place: number, spread = 0.35): number {
+  if (progress <= 0) return 0;
+  return clamp01((progress - clamp01(place) * spread) / (1 - spread));
+}
+
+export const easeInOutCubic = (t: number) => {
+  const c = clamp01(t);
+  return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
+};
+
+/** Out and home again: 0 at the word, 1 at the far point, then 0, eased both ways. */
+export function outAndBack(t: number): number {
+  if (t <= 0 || t >= 1) return 0;
+  return t < 0.5 ? easeInOutCubic(t * 2) : easeInOutCubic((1 - t) * 2);
+}
+
+/** A repeatable shuffle of 0..count-1: the same seed always gives the same order. */
+export function seededShuffle(count: number, seed: number): number[] {
+  const random = seeded(seed * 7919 + count);
+  const order = Array.from({ length: count }, (_, index) => index);
+  for (let index = count - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1));
+    [order[index], order[swap]] = [order[swap]!, order[index]!];
+  }
+  return order;
+}
+
+/** `count` repeatable points spread evenly over the unit disc, for the scatter cloud. */
+export function seededCloud(count: number, seed: number): Point2[] {
+  const random = seeded(seed * 104_729 + count);
+  return Array.from({ length: count }, () => {
+    const angle = random() * Math.PI * 2;
+    const radius = Math.sqrt(random());
+    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+  });
 }

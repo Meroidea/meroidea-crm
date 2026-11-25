@@ -2479,3 +2479,36 @@ emails them to staff for that pay period.
 **Consequences.**
 - The Payroll screen still works on its own, for paying rostered hours or entering tax by hand.
 - Payroll runs per roster: a pay period with no published roster cannot be paid this way.
+
+## ADR-085 — MeroAI's mark is the word "meroAI" in moving dots
+
+**Status.** Accepted (2026-11-25). Replaces the sphere in ADR-080; the `.meroai-*` classes and the
+ink token from ADR-080 stand.
+
+**Context.** The owner asked that MeroAI's mark stop being a sphere most of the time. Instead, the
+logo should be the word "meroAI", its dots constantly transforming to form it.
+
+**Decision.**
+- `MeroOrb` draws the word "meroAI" in black dots on a transparent canvas, at every size. The
+  letters still come from the page's own font, drawn on a scratch canvas and sampled
+  (`sampleMask`). A small mark is drawn larger on the scratch canvas and in a heavier weight, with
+  dots packed tighter (`wordDotCount`), so its thin letters stay whole.
+- The word is never still. Each dot fizzes about its place, a glint runs along the letters, and
+  each loop (about 5.6 seconds) holds the word, then reworks it in one of four ways, in turn:
+  - **scatter:** the dots burst into a cloud and swirl back;
+  - **wave:** a swell lifts the letters from left to right;
+  - **shuffle:** every dot flies to another dot's place, so the letters dissolve and knit again;
+  - **vortex:** the word winds into a spiral at the centre and unwinds.
+
+  Every change runs left to right and ends on the word. On arrival, the word gathers out of a
+  cloud.
+- While MeroAI works, the dots fizz more, the glint runs faster and the changes come sooner. The
+  changes themselves keep their pace, so they still read.
+- The `morph` prop is gone: there is no sphere to fall back to. The sphere maths (Fibonacci
+  lattice, rotation) is removed. The timing and effect helpers are in `mero-orb-math.ts` and
+  unit tested. Still no library. The mark still pauses off screen and in background tabs; with
+  reduced motion it is the word, still.
+
+**Consequences.**
+- At 20–26 pixels the word is small; it reads as the name rather than as letters to study. The
+  slot stays square, so no layout changes.

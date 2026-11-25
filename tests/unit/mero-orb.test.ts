@@ -1,64 +1,37 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  dotProgress,
   easeInOutCubic,
-  fibonacciSphere,
   mix,
-  MORPH_CYCLE,
-  MORPH_TIMELINE,
-  morphState,
+  outAndBack,
   parseRgb,
-  particleCount,
   rgba,
-  rotate,
   sampleMask,
-  staggered,
+  seededCloud,
+  seededShuffle,
+  WORD_CYCLE,
+  WORD_EFFECTS,
+  WORD_TIMELINE,
   wobble,
+  wordDotCount,
+  wordPhase,
 } from '@/components/motion/mero-orb-math';
 
-// The MeroAI orb (ADR-078): the geometry and colour arithmetic, without a canvas.
+// MeroAI's mark (ADR-078, ADR-080, ADR-085): the geometry, timing and colour arithmetic, without a
+// canvas.
 
-describe('the orb shell', () => {
-  it('puts every particle on the unit sphere, pole to pole', () => {
-    const points = fibonacciSphere(500);
-    expect(points).toHaveLength(500);
-    for (const p of points) expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(1, 9);
-    expect(points[0]?.y).toBe(1);
-    expect(points.at(-1)?.y).toBe(-1);
-  });
-
-  it('spreads particles evenly, with no clump at the poles', () => {
-    const points = fibonacciSphere(1000);
-    const northCap = points.filter((p) => p.y > 0.8).length;
-    const equatorBand = points.filter((p) => Math.abs(p.y) < 0.1).length;
-    // Equal-area bands hold equal shares: both are a tenth of the sphere's surface.
-    expect(northCap).toBeGreaterThan(90);
-    expect(northCap).toBeLessThan(110);
-    expect(equatorBand).toBeGreaterThan(90);
-    expect(equatorBand).toBeLessThan(110);
-  });
-
-  it('handles a single particle', () => {
-    const [only] = fibonacciSphere(1);
-    expect(only?.y).toBe(1);
-    expect(Math.hypot(only?.x ?? 0, only?.y ?? 0, only?.z ?? 0)).toBeCloseTo(1, 9);
-  });
-
-  it('turning keeps a point on the sphere', () => {
-    const p = rotate({ x: 0.6, y: 0.0, z: 0.8 }, 1.2, 0.4);
-    expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(1, 9);
-    expect(rotate({ x: 1, y: 0, z: 0 }, 0, 0)).toEqual({ x: 1, y: 0, z: 0 });
-  });
-
-  it('draws more particles on a bigger orb, within limits', () => {
-    expect(particleCount(10)).toBe(70);
-    expect(particleCount(60)).toBe(432);
-    expect(particleCount(400)).toBe(1100);
-  });
-
+describe('the dots in motion', () => {
   it('wobble stays within -1 and 1', () => {
     for (let a = 0; a < 20; a += 0.37)
       for (let b = 0; b < 20; b += 0.53) expect(Math.abs(wobble(a, b))).toBeLessThanOrEqual(1);
+  });
+
+  it('spaces dots for the size: dotted letters when large, tighter when small, within limits', () => {
+    expect(wordDotCount(1400, 132)).toBe(289);
+    expect(wordDotCount(80, 32)).toBe(66);
+    expect(wordDotCount(1, 20)).toBe(60);
+    expect(wordDotCount(1_000_000, 400)).toBe(1400);
   });
 });
 
@@ -107,23 +80,46 @@ describe('the orb writing meroAI', () => {
     expect(sampleMask({ width: 2, height: 2, data: new Uint8ClampedArray(16) }, 5)).toEqual([]);
   });
 
-  it('loops: sphere, forming, held, coming apart', () => {
-    const { sphere, form, hold, release } = MORPH_TIMELINE;
-    expect(morphState(0)).toEqual({ amount: 0, forming: true });
-    expect(morphState(sphere + form / 2).amount).toBeCloseTo(0.5);
-    expect(morphState(sphere + form + hold / 2)).toEqual({ amount: 1, forming: true });
-    const apart = morphState(sphere + form + hold + release / 2);
-    expect(apart.amount).toBeCloseTo(0.5);
-    expect(apart.forming).toBe(false);
-    expect(morphState(MORPH_CYCLE + 1)).toEqual(morphState(1));
+  it('holds the word, then reworks it, one change after another', () => {
+    const { hold, change } = WORD_TIMELINE;
+    expect(wordPhase(0)).toEqual({ cycle: 0, effect: 'scatter', progress: 0 });
+    expect(wordPhase(hold + change / 2).progress).toBeCloseTo(0.5);
+    expect(WORD_EFFECTS.map((_, cycle) => wordPhase(cycle * WORD_CYCLE + 1).effect)).toEqual([
+      'scatter',
+      'wave',
+      'shuffle',
+      'vortex',
+    ]);
+    expect(wordPhase(WORD_EFFECTS.length * WORD_CYCLE + 1).effect).toBe('scatter');
+    expect(wordPhase(-5)).toEqual(wordPhase(0));
   });
 
-  it('writes from left to right: the left dots land first', () => {
-    expect(staggered(0.5, 0, true)).toBeGreaterThan(staggered(0.5, 1, true));
-    expect(staggered(1, 1, true)).toBe(1);
-    expect(staggered(0, 0, true)).toBe(0);
-    expect(staggered(0, 1, false)).toBe(0);
-    expect(staggered(1, 0, false)).toBe(1);
+  it('runs every change from left to right', () => {
+    expect(dotProgress(0.5, 0)).toBeGreaterThan(dotProgress(0.5, 1));
+    expect(dotProgress(0, 0)).toBe(0);
+    expect(dotProgress(1, 1)).toBe(1);
+    expect(dotProgress(1, 0)).toBe(1);
+  });
+
+  it('every change starts and ends on the word', () => {
+    expect(outAndBack(0)).toBe(0);
+    expect(outAndBack(0.5)).toBe(1);
+    expect(outAndBack(1)).toBe(0);
+    expect(outAndBack(0.25)).toBeCloseTo(0.5);
+  });
+
+  it('a shuffle moves every dot to a place, none left empty, the same way each time', () => {
+    const order = seededShuffle(200, 3);
+    expect([...order].sort((a, b) => a - b)).toEqual(Array.from({ length: 200 }, (_, i) => i));
+    expect(seededShuffle(200, 3)).toEqual(order);
+    expect(seededShuffle(200, 4)).not.toEqual(order);
+  });
+
+  it('scatters into a cloud inside the mark', () => {
+    const cloud = seededCloud(300, 2);
+    expect(cloud).toHaveLength(300);
+    for (const p of cloud) expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(1);
+    expect(seededCloud(300, 2)).toEqual(cloud);
   });
 
   it('eases in and out', () => {
