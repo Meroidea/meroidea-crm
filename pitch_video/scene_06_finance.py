@@ -7,7 +7,7 @@ class Finance(PitchScene):
     SID = "s06"
 
     def construct(self):
-        k = kicker("06 · WORK, MONEY & INSIGHT", GOLD)
+        k = kicker("06 · WORK, MONEY & INSIGHT")
         self.add(k)
 
         # ---- My Day ----------------------------------------------------------------------------
@@ -110,16 +110,16 @@ class Finance(PitchScene):
         mlabels = VGroup()
         for i, (m, w, f) in enumerate(zip(months, won, fc)):
             x = i + 0.75
-            b = Rectangle(width=0.36, height=ax.y_axis.unit_size * w, stroke_width=0).set_fill(SKY2, 0.85)
+            b = Rectangle(width=0.36, height=ax.y_axis.unit_size * w, stroke_width=0).set_fill(BRAND, 0.9)
             b.move_to(ax.c2p(x - 0.2, 0), aligned_edge=DOWN)
-            fb = Rectangle(width=0.36, height=ax.y_axis.unit_size * f, stroke_color=GOLD, stroke_width=2).set_fill(GOLD, 0.12)
+            fb = Rectangle(width=0.36, height=ax.y_axis.unit_size * f, stroke_color=SKY, stroke_width=2).set_fill(SKY2, 0.35)
             fb.move_to(ax.c2p(x + 0.2, 0), aligned_edge=DOWN)
             bars.add(b)
             fbars.add(fb)
             mlabels.add(T(m, 15, MUTED).next_to(ax.c2p(x, 0), DOWN, buff=0.12))
         legend = VGroup(
-            VGroup(Square(0.18, stroke_width=0).set_fill(SKY2, 0.85), T("won", 15, MUTED)).arrange(RIGHT, buff=0.1),
-            VGroup(Square(0.18, stroke_color=GOLD, stroke_width=2).set_fill(GOLD, 0.12), T("forecast", 15, MUTED)).arrange(RIGHT, buff=0.1),
+            VGroup(Square(0.18, stroke_width=0).set_fill(BRAND, 0.9), T("won", 15, MUTED)).arrange(RIGHT, buff=0.1),
+            VGroup(Square(0.18, stroke_color=SKY, stroke_width=2).set_fill(SKY2, 0.35), T("forecast", 15, MUTED)).arrange(RIGHT, buff=0.1),
         ).arrange(RIGHT, buff=0.35).next_to(ax, UP, buff=0.12).align_to(ax, LEFT)
         self.play(Create(ax), FadeIn(mlabels), FadeIn(legend),
                   LaggedStart(*[GrowFromEdge(b, DOWN) for b in bars], lag_ratio=0.08),

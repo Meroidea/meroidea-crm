@@ -7,11 +7,12 @@ class Inbox(PitchScene):
     SID = "s07"
 
     def construct(self):
-        k = kicker("07 · ONE INBOX, EVERY CHANNEL", CORAL)
+        k = kicker("07 · ONE INBOX, EVERY CHANNEL")
         self.add(k)
 
-        channels = [("Facebook", "#7DA0FA"), ("Instagram", "#F3797E"), ("WhatsApp", "#6EE7B7"),
-                    ("TikTok", "#E6EAF2"), ("Email", "#F5C46B"), ("Live chat", "#8B8AF0")]
+        # The website's --channel-* tokens (ADR-073).
+        channels = [("Facebook", "#0866FF"), ("Instagram", "#FF0069"), ("WhatsApp", "#25D366"),
+                    ("TikTok", "#111111"), ("Email", "#7DA0FA"), ("Live chat", "#7978E9")]
         centre = LEFT * 3.7 + DOWN * 0.3
         pts = ring_points(6, 2.15, phase=PI / 2)
         orbs = VGroup()
@@ -40,7 +41,7 @@ class Inbox(PitchScene):
             m = T(text, 17, MUTED)
             txt = VGroup(n, m).arrange(DOWN, aligned_edge=LEFT, buff=0.08)
             row = VGroup(bar, txt).arrange(RIGHT, buff=0.22)
-            bg = RoundedRectangle(width=5.8, height=0.8, corner_radius=0.1, stroke_width=0).set_fill("#1E2733", 1)
+            bg = RoundedRectangle(width=5.8, height=0.8, corner_radius=0.1, stroke_width=0).set_fill(BG, 1)
             row.move_to(bg).align_to(bg, LEFT).shift(RIGHT * 0.15)
             rows.add(VGroup(bg, row))
         rows.arrange(DOWN, buff=0.1).next_to(ptitle, DOWN, aligned_edge=LEFT, buff=0.25)
@@ -64,7 +65,7 @@ class Inbox(PitchScene):
         cgroup = VGroup(contact, c1, c2).move_to(centre)
         link = DashedLine(cgroup.get_right(), rows[0].get_left(), stroke_color=SKY, stroke_width=2.5, dash_length=0.12)
         self.play(FadeOut(orbs, scale=0.8), FadeOut(hub), FadeIn(cgroup, scale=0.9), run_time=0.5)
-        self.play(Create(link), rows[0][0].animate.set_fill("#26324A", 1), run_time=0.5)
+        self.play(Create(link), rows[0][0].animate.set_fill(ACCENT_BG, 1), run_time=0.5)
 
         # AI drafts, a person sends.
         self.cue("drafts", lead=0.4)

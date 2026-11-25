@@ -12,7 +12,7 @@ class Crm(PitchScene):
     SID = "s04"
 
     def construct(self):
-        k = kicker("04 · CRM & SALES PIPELINE", SKY)
+        k = kicker("04 · CRM & SALES PIPELINE")
         self.add(k)
         rng = np.random.default_rng(5)
 
@@ -125,19 +125,19 @@ class Crm(PitchScene):
         self.play(LaggedStart(*[FadeIn(c, shift=UP * 0.2) for c in columns], lag_ratio=0.1), run_time=0.9)
         self.play_cue("probability", LaggedStart(*[FadeIn(b, scale=0.7) for b in badges], lag_ratio=0.12), run_time=0.7, lead=0.3)
 
-        formula = T("weighted forecast  =  Σ  value × stage probability", 26, GOLD, weight="MEDIUM")
+        formula = T("weighted forecast  =  Σ  value × stage probability", 26, GLOW, weight="MEDIUM")
         formula.to_edge(DOWN, buff=1.1)
         self.play_cue("weighted", Write(formula), run_time=1.2, lead=0.2)
 
         self.cue("each", lead=0.2)
         total = ValueTracker(0)
-        counter = always_redraw(lambda: T(f"${total.get_value():,.0f}", 40, GOLD, weight="BOLD", font=MONO)
+        counter = always_redraw(lambda: T(f"${total.get_value():,.0f}", 40, GLOW, weight="BOLD", font=MONO)
                                 .next_to(formula, DOWN, buff=0.22))
         self.add(counter)
         flat = [c for cs in cards for c in cs]
         products = []
         for c in flat:
-            prod = T(f"× {c.p / 100:.1f} = ${c.amount * c.p / 100:,.0f}", 18, GOLD, font=MONO)
+            prod = T(f"× {c.p / 100:.1f} = ${c.amount * c.p / 100:,.0f}", 18, MUTED, font=MONO)
             prod.next_to(c, DOWN, buff=0.06)
             products.append(prod)
         self.play(LaggedStart(*[FadeIn(p, shift=UP * 0.1) for p in products], lag_ratio=0.1), run_time=1.4)

@@ -1,6 +1,6 @@
 # Meroidea investor pitch video
 
-A 3 min 23 s, 1080p60 explainer in the 3Blue1Brown style, built with Manim Community Edition. The voiceover is
+A 3 min 23 s, 1080p60 explainer in the 3Blue1Brown style, built with Manim Community Edition and styled exactly like the Meroidea website (light `#F5F7FF` ground, dot grid, Inter, `#4B49AC`, the logo tile). The voiceover is
 synthesised by edge-tts and an ambient pad is generated in code.
 
 | File | What it is |

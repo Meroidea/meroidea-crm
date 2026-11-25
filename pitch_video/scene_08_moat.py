@@ -24,7 +24,7 @@ class Moat(PitchScene):
     SID = "s08"
 
     def construct(self):
-        k = kicker("08 · THE MOAT", GLOW)
+        k = kicker("08 · THE MOAT")
         self.add(k)
 
         headline = VGroup(T("Configuration", 44, GLOW, weight="BOLD"), T("over", 44, MUTED, weight="MEDIUM"),

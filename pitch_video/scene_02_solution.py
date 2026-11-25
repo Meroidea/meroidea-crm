@@ -8,14 +8,16 @@ def hexagon(radius: float, color: str):
 
 
 def core_mark(radius: float = 1.0):
-    """The Meroidea core: nested hexagons with a soft glow and the wordmark."""
-    halo = VGroup(*[hexagon(radius * (1 + 0.18 * i), GLOW).set_stroke(opacity=0.0).set_fill(GLOW, opacity=0.05)
+    """The Meroidea core: the website's logo tile (public icon.svg) with a soft brand halo and the
+    'Meroidea' wordmark beneath. Index 1 is the tile, index 3 the wordmark."""
+    size = radius * 1.55
+    halo = VGroup(*[RoundedRectangle(width=size * (1 + 0.16 * i), height=size * (1 + 0.16 * i),
+                                     corner_radius=size * 0.25, stroke_width=0).set_fill(INFO, opacity=0.05)
                     for i in range(5, 0, -1)])
-    outer = hexagon(radius, GLOW)
-    inner = hexagon(radius * 0.62, SKY).rotate(PI / 6)
-    word = T("MEROIDEA", 26 * radius, TEXT, weight="BOLD")
-    word.move_to(outer).shift(DOWN * radius * 1.35)
-    return VGroup(halo, outer, inner, word)
+    mark = logo_mark(size)
+    word = T("Meroidea", 30 * radius, TEXT, weight="SEMIBOLD")
+    word.next_to(mark, DOWN, buff=0.22 * radius)
+    return VGroup(halo, mark[0], VGroup(mark[1], mark[2]), word)
 
 
 def lock(color: str = MINT, s: float = 1.0):
@@ -31,7 +33,7 @@ class Solution(PitchScene):
 
     def construct(self):
         rng = np.random.default_rng(3)
-        k = kicker("02 · THE SOLUTION", GLOW)
+        k = kicker("02 · THE SOLUTION")
 
         # Echo of the tangle from scene 1.
         pts = ring_points(6, 3.2, phase=PI / 6)

@@ -7,7 +7,7 @@ class Architecture(PitchScene):
     SID = "s03"
 
     def construct(self):
-        k = kicker("03 · ISOLATION BY CONSTRUCTION", MINT)
+        k = kicker("03 · ISOLATION BY CONSTRUCTION")
         self.add(k)
 
         # ---- Part 1: row-level security ---------------------------------------------------------
@@ -25,7 +25,7 @@ class Architecture(PitchScene):
             t = mono(txt, size, color, weight="BOLD" if bold else "NORMAL").move_to(box)
             return VGroup(box, t)
 
-        header = VGroup(*[cell(c, w, MUTED, "#121922", 18) for c, w in zip(cols, widths)]).arrange(RIGHT, buff=0)
+        header = VGroup(*[cell(c, w, MUTED, MUTED_BG, 18) for c, w in zip(cols, widths)]).arrange(RIGHT, buff=0)
         body = VGroup()
         for tid, rec, amt in rows:
             r = VGroup(cell(tid, widths[0], tcolor[tid], bold=True), cell(rec, widths[1]), cell(amt, widths[2]))

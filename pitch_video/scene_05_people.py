@@ -7,7 +7,7 @@ class People(PitchScene):
     SID = "s05"
 
     def construct(self):
-        k = kicker("05 · PEOPLE & PERMISSIONS", MINT)
+        k = kicker("05 · PEOPLE & PERMISSIONS")
         self.add(k)
 
         l1 = T("People are where most CRMs stop.", 40, MUTED, weight="SEMIBOLD")
@@ -83,7 +83,7 @@ class People(PitchScene):
         cost = ValueTracker(0)
         cost_t = always_redraw(lambda: VGroup(
             T("wage cost, live", 20, MUTED),
-            T(f"${cost.get_value():,.0f}", 34, GOLD, weight="BOLD", font=MONO)).arrange(RIGHT, buff=0.3)
+            T(f"${cost.get_value():,.0f}", 34, GLOW, weight="BOLD", font=MONO)).arrange(RIGHT, buff=0.3)
             .next_to(roster, DOWN, buff=0.4))
         self.play(FadeIn(head), FadeIn(rows), FadeIn(names), run_time=0.6)
         self.add(cost_t)

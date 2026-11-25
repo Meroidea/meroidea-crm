@@ -8,10 +8,12 @@ class Problem(PitchScene):
 
     def construct(self):
         rng = np.random.default_rng(7)
-        k = kicker("01 · THE PROBLEM", CORAL)
+        k = kicker("01 · THE PROBLEM")
 
         title = T("Every small business runs on a tangle.", 46, TEXT, weight="SEMIBOLD")
-        self.play_cue("every", FadeIn(k, shift=RIGHT * 0.2), Write(title), run_time=1.4, lead=0.0)
+        hero_waves, wclock = waves(height=3.0)
+        self.add(wclock, hero_waves)
+        self.play_cue("every", FadeIn(k, shift=RIGHT * 0.2), FadeIn(hero_waves), Write(title), run_time=1.4, lead=0.0)
 
         tools = [
             ("Leads · spreadsheet", "spreadsheet", np.array([-4.5, 2.0, 0]), SKY),
@@ -54,7 +56,8 @@ class Problem(PitchScene):
 
         # Title makes room as the first tool appears.
         self.cue("leads", lead=0.35)
-        self.play(FadeOut(title, shift=UP * 0.3), run_time=0.5)
+        self.play(FadeOut(title, shift=UP * 0.3), FadeOut(hero_waves), run_time=0.5)
+        self.remove(hero_waves, wclock)
 
         for idx, (_, word, pos, col) in enumerate(tools):
             self.cue(word, lead=0.45)
