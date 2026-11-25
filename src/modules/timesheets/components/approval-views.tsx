@@ -2,7 +2,9 @@ import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Timer } from 'luci
 import Link from 'next/link';
 
 import { EmptyState } from '@/components/data/empty-state';
+import { MeroAIPayroll } from '@/modules/ai/components/meroai-payroll';
 import { MeroAITimesheets } from '@/modules/ai/components/meroai-timesheets';
+import type { PayrollPreview } from '@/modules/ai/meroai-payroll';
 import { PageHeader } from '@/components/data/page-header';
 import { Button } from '@/components/ui/button';
 import { addDaysToDate } from '@/lib/dates';
@@ -19,7 +21,7 @@ import type { TimesheetPeriod } from '@/modules/timesheets/period';
 
 export const TIMESHEET_VIEWS = [
   ['mine', 'Timesheet'],
-  ['day', 'Approve by day'],
+  ['day', 'Authorise by day'],
   ['period', 'Pay period'],
 ] as const;
 
@@ -48,8 +50,8 @@ export function TimesheetViewNav({ view, date }: { view: string; date?: string }
 }
 
 const SHOW = [
-  ['pending', 'To approve'],
-  ['approved', 'Approved'],
+  ['pending', 'To authorise'],
+  ['approved', 'Authorised'],
   ['all', 'All'],
 ] as const;
 
@@ -62,6 +64,7 @@ export function ApprovalViews({
   today,
   meroAI = false,
   previousCosts = null,
+  payroll = null,
 }: {
   view: 'day' | 'period';
   show: 'pending' | 'approved' | 'all';
@@ -72,6 +75,8 @@ export function ApprovalViews({
   meroAI?: boolean;
   /** Each person's cost in the previous pay period, for comparison; null without pay access. */
   previousCosts?: Record<string, number | null> | null;
+  /** What MeroAI would pay, for whoever runs payroll (ADR-084); null otherwise. */
+  payroll?: PayrollPreview | null;
 }) {
   const { date } = period;
   const money = (cents: number) => formatMoney(centsToAmount(cents), currency);
@@ -122,7 +127,7 @@ export function ApprovalViews({
         title="Timesheets"
         description={
           view === 'day'
-            ? 'Check what was worked against what was rostered, then approve it for pay.'
+            ? 'Check what was worked against what was rostered, then authorise it for pay.'
             : `Pay period ${formatCalendarDate(period.from)} to ${formatCalendarDate(period.to)}.`
         }
         actions={
@@ -139,7 +144,7 @@ export function ApprovalViews({
       <TimesheetViewNav view={view} date={date} />
       {period.locked && (
         <p className="rounded-lg border bg-card px-4 py-3 text-sm">
-          This pay period has been authorised for pay, so its time can no longer change.
+          This pay period has been paid, so its timesheets can no longer change.
         </p>
       )}
 
@@ -202,8 +207,8 @@ export function ApprovalViews({
                   period.day.length === 0
                     ? 'Nobody was rostered or recorded time this day'
                     : show === 'approved'
-                      ? 'Nothing approved yet for this day'
-                      : 'Everything for this day is approved'
+                      ? 'Nothing authorised yet for this day'
+                      : 'Everything for this day is authorised'
                 }
                 description="Rostered shifts appear once the roster is published; time appears when someone clocks in or it is typed in."
               />
@@ -231,8 +236,8 @@ export function ApprovalViews({
             </p>
             {problems.length === 0 ? (
               <p className="mt-1 text-muted-foreground">
-                Everything rostered in this period has been worked and approved. Only approved time
-                is exported.
+                Everything rostered in this period has been worked and authorised. Only authorised
+                time is exported.
               </p>
             ) : (
               <ul className="mt-1 list-disc pl-5 text-muted-foreground">
@@ -245,6 +250,9 @@ export function ApprovalViews({
             )}
           </div>
 
+          {meroAI && payroll && !period.locked && (
+            <MeroAIPayroll date={date} preview={payroll} currency={currency} />
+          )}
           {meroAI && !period.locked && (
             <MeroAITimesheets
               date={date}
@@ -295,7 +303,7 @@ export function ApprovalViews({
               <tbody>
                 {period.summary.map((person) => {
                   const notes = [
-                    person.waiting && `${person.waiting} to approve`,
+                    person.waiting && `${person.waiting} to authorise`,
                     person.missing && `${person.missing} with no time`,
                     person.running && `${person.running} still clocked in`,
                     person.upcoming && `${person.upcoming} still to be worked`,
@@ -410,13 +418,13 @@ export function ApprovalViews({
             </Button>
             <Button asChild variant="ghost">
               <Link href={`/timesheets?view=day&date=${period.from}`}>
-                Approve this period day by day
+                Authorise this period day by day
               </Link>
             </Button>
           </div>
           {period.showCost && (
             <p className="text-xs text-muted-foreground">
-              Gross is worked out from approved time: under an award with written-down rules, by
+              Gross is worked out from authorised time: under an award with written-down rules, by
               those rules and the Fair Work Commission’s rates; otherwise hours at the agreed rate
               with your day loadings. Payslips are still made on the Payroll screen. Check these
               figures before relying on them for pay.

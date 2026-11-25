@@ -238,6 +238,20 @@ export async function getLastEmployerDetails(ctx: TenantContext): Promise<string
   return last?.employerDetails ?? null;
 }
 
+/** The super rate on the business's latest payslip, to start the next pay run from. */
+export async function getLastSuperRate(ctx: TenantContext): Promise<string | null> {
+  requirePermission(ctx, 'payroll.manage');
+  const [last] = await withRls(ctx, (tx) =>
+    tx
+      .select({ superRate: payslips.superRate })
+      .from(payslips)
+      .where(eq(payslips.tenantId, ctx.tenantId))
+      .orderBy(desc(payslips.createdAt))
+      .limit(1),
+  );
+  return last?.superRate ? String(Number(last.superRate)) : null;
+}
+
 /**
  * People with shifts on an authorised roster who have no payslip from it: they were not linked
  * to an employee record, had no accepted contract, or are paid a salary.

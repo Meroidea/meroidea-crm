@@ -179,6 +179,25 @@ export const timesheetAuthoriseSchema = z.object({
 
 export type TimesheetAuthoriseInput = z.output<typeof timesheetAuthoriseSchema>;
 
+/** "Run payroll with MeroAI" on the pay period view, as the manager confirmed it (ADR-084). */
+export const runPayrollSchema = z.object({
+  /** Any day of the pay period. */
+  date: isoDate,
+  paymentDate: z.iso.date('Choose the payment date'),
+  superRate: z
+    .string()
+    .trim()
+    .regex(/^\d{1,2}(\.\d{1,2})?$/, 'Use a percentage like 12'),
+  employerDetails: z
+    .string()
+    .trim()
+    .max(400)
+    .nullish()
+    .transform((value) => value || null),
+});
+
+export type RunPayrollInput = z.output<typeof runPayrollSchema>;
+
 /** Ask MeroAI on the invoices page (ADR-077): an invoice described in a sentence or two. */
 export const meroAIInvoiceDraftSchema = z.object({
   text: z

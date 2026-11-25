@@ -254,7 +254,7 @@ export function EntryButton({
             <SheetDescription>
               {entry
                 ? 'A corrected entry goes back to waiting so it is checked again.'
-                : 'For time that was worked but not clocked. It waits for a manager to approve.'}
+                : 'For time that was worked but not clocked. It waits for a manager to authorise.'}
             </SheetDescription>
           </SheetHeader>
           <form
@@ -391,7 +391,7 @@ export function EntryActions({
           <Button
             size="sm"
             variant="ghost"
-            aria-label="Approve"
+            aria-label="Authorise"
             disabled={isPending}
             onClick={() => run(() => decideEntriesAction({ ids, decision: 'approved' }))}
           >
@@ -415,7 +415,7 @@ export function EntryActions({
           disabled={isPending}
           onClick={() => run(() => decideEntriesAction({ ids, decision: 'pending' }))}
         >
-          Undo
+          Unauthorise
         </Button>
       )}
       {canDelete && (

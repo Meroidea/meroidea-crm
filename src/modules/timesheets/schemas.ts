@@ -79,7 +79,7 @@ export type DecideEntriesInput = z.output<typeof decideEntriesSchema>;
 
 export const ENTRY_STATUS_LABELS = {
   pending: 'Waiting',
-  approved: 'Approved',
+  approved: 'Authorised',
   rejected: 'Rejected',
 } as const;
 export type EntryStatus = keyof typeof ENTRY_STATUS_LABELS;
