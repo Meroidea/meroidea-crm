@@ -45,3 +45,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# investor pitch video: venv, render cache and outputs (rebuild with pitch_video/build.py)
+.venv-video/
+pitch_video/build/
+pitch_video/meroidea_investor_pitch.mp4
+pitch_video/__pycache__/
+pitch_video/assets/bgm.mp3
