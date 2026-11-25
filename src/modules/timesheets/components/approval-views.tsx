@@ -61,6 +61,7 @@ export function ApprovalViews({
   currency,
   today,
   meroAI = false,
+  previousCosts = null,
 }: {
   view: 'day' | 'period';
   show: 'pending' | 'approved' | 'all';
@@ -69,6 +70,8 @@ export function ApprovalViews({
   today: string;
   /** MeroAI may prepare the period's authorisation (ADR-082). */
   meroAI?: boolean;
+  /** Each person's cost in the previous pay period, for comparison; null without pay access. */
+  previousCosts?: Record<string, number | null> | null;
 }) {
   const { date } = period;
   const money = (cents: number) => formatMoney(centsToAmount(cents), currency);
@@ -250,24 +253,41 @@ export function ApprovalViews({
           )}
 
           <div className="overflow-x-auto rounded-xl border bg-card">
-            <table className="w-full min-w-[40rem] text-left text-sm">
+            <table className="w-full min-w-[60rem] text-left text-sm">
               <thead className="border-b bg-muted/60 text-xs text-muted-foreground">
                 <tr>
-                  <th scope="col" className="px-4 py-2 font-medium">
+                  <th scope="col" className="px-4 py-3 font-medium">
                     Name
                   </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Employee ID
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">
                     Rostered
                   </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    Approved
+                  <th scope="col" className="px-4 py-3 text-right font-medium">
+                    Worked
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">
+                    Overtime
                   </th>
                   {period.showCost && (
-                    <th scope="col" className="px-4 py-2 text-right font-medium">
-                      Gross
-                    </th>
+                    <>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">
+                        Previous cost
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">
+                        Cost
+                      </th>
+                    </>
                   )}
-                  <th scope="col" className="px-4 py-2 font-medium">
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
+                    On time
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
+                    Comments
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center font-medium">
                     Status
                   </th>
                 </tr>
@@ -280,30 +300,89 @@ export function ApprovalViews({
                     person.running && `${person.running} still clocked in`,
                     person.upcoming && `${person.upcoming} still to be worked`,
                   ].filter(Boolean);
+                  const previous = previousCosts?.[person.userId] ?? null;
+                  const change =
+                    previous && person.costCents !== null
+                      ? ((person.costCents - previous) / previous) * 100
+                      : null;
+                  const dash = <span className="text-muted-foreground">–</span>;
                   return (
-                    <tr key={person.userId} className="border-b last:border-b-0">
-                      <th scope="row" className="px-4 py-2 font-medium" data-sensitive>
-                        {person.fullName}
+                    <tr
+                      key={person.userId}
+                      className={cn(
+                        'border-b align-top last:border-b-0',
+                        person.ready && 'bg-[color-mix(in_srgb,var(--primary)_6%,var(--card))]',
+                      )}
+                    >
+                      <th scope="row" className="px-4 py-3 font-medium" data-sensitive>
+                        <Link
+                          href={`/timesheets?view=day&date=${period.from}`}
+                          className="text-primary hover:underline"
+                        >
+                          {person.fullName}
+                        </Link>
                       </th>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {formatHours(person.rosteredMinutes)}
+                      <td className="px-4 py-3 tabular-nums" data-sensitive>
+                        {person.employeeId ?? dash}
                       </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {formatHours(person.approvedMinutes)}
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {(person.rosteredMinutes / 60).toFixed(1)} hrs
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {(person.approvedMinutes / 60).toFixed(1)} hrs
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {person.overtimeMinutes
+                          ? `${(person.overtimeMinutes / 60).toFixed(1)} hrs`
+                          : dash}
                       </td>
                       {period.showCost && (
-                        <td className="px-4 py-2 text-right tabular-nums" data-sensitive>
-                          {person.costCents === null ? '—' : money(person.costCents)}
-                        </td>
+                        <>
+                          <td className="px-4 py-3 text-right tabular-nums" data-sensitive>
+                            {previous === null ? money(0) : money(previous)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums" data-sensitive>
+                            <span
+                              className={cn(
+                                'font-medium',
+                                change !== null && change > 0
+                                  ? 'text-destructive-text'
+                                  : 'text-primary',
+                                previous === null && person.costCents && 'text-destructive-text',
+                              )}
+                            >
+                              {person.costCents === null ? '—' : money(person.costCents)}
+                            </span>
+                            {change !== null && Math.abs(change) >= 0.01 && (
+                              <span className="block text-xs text-muted-foreground">
+                                {change > 0 ? '+' : ''}
+                                {change.toFixed(2)}%
+                              </span>
+                            )}
+                          </td>
+                        </>
                       )}
-                      <td className="px-4 py-2">
+                      <td className="px-4 py-3 text-center tabular-nums">
+                        {person.onTime.clocked
+                          ? `${person.onTime.onTime}/${person.onTime.clocked}`
+                          : dash}
+                      </td>
+                      <td className="px-4 py-3 text-center tabular-nums">
+                        {person.comments || dash}
+                      </td>
+                      <td className="px-4 py-3 text-center">
                         {person.ready ? (
-                          <span className="flex items-center gap-1.5">
-                            <CircleCheck aria-hidden className="size-4 text-primary" /> Ready
-                          </span>
+                          <CircleCheck
+                            aria-label="Ready for pay"
+                            className="mx-auto size-5 fill-primary text-primary-foreground"
+                          />
                         ) : (
-                          <span className="flex items-center gap-1.5 text-warning-text">
-                            <CircleAlert aria-hidden className="size-4" /> {notes.join(', ')}
+                          <span
+                            className="inline-flex items-center gap-1 text-xs text-warning-text"
+                            title={notes.join(', ')}
+                          >
+                            <CircleAlert aria-hidden className="size-4" />
+                            {notes.join(', ')}
                           </span>
                         )}
                       </td>

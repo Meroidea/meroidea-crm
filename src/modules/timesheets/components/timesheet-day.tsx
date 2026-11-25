@@ -121,35 +121,50 @@ function DayRow({
         onChange={(event) => set(event.target.value)}
         aria-label={`${label} for ${row.fullName}`}
         aria-invalid={!value && !fixed}
-        className="w-28 tabular-nums"
+        className="w-32 text-center text-base tabular-nums"
       />
-      <span className="tabular-nums">{hint ? `Rostered ${hint}` : 'Not rostered'}</span>
+      <span className="tabular-nums">{hint ? `R ${hint}` : 'Not rostered'}</span>
     </label>
   );
 
+  // The shift as it will be paid: typed or recorded times, else the roster's.
+  const barStart = complete ? start : (shift?.startTime ?? null);
+  const barEnd = complete ? end : (shift?.endTime ?? null);
+  const unpaid = Number(breakMinutes || 0) || (!entry ? (shift?.breakMinutes ?? 0) : 0);
+  const length = barStart && barEnd ? shiftLength(barStart, barEnd) : 0;
+  // The break drawn on the hour before the middle, as the timesheet export places it.
+  const breakAt = length ? Math.floor(length / 2 / 60) * 60 : 0;
+  const allowances = row.lines.filter((line) => line.minutes === null);
+  const paidMinutes =
+    workedMinutes ?? (typedMinutes !== null && typedMinutes > 0 ? typedMinutes : null);
+  const hm = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+
   return (
-    <li className="grid gap-4 border-b p-4 last:border-b-0 lg:grid-cols-[14rem_1fr_15rem]">
-      <div className="flex min-w-0 items-start gap-3">
+    <li className="grid border-b last:border-b-0 lg:grid-cols-[15rem_1fr_16rem_2.75rem]">
+      <div className="flex min-w-0 items-start gap-3 p-4 lg:border-r">
         <span
           aria-hidden
           style={tone}
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--tone)_30%,var(--card))] text-[11px] font-semibold"
+          className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--tone)_22%,var(--card))] text-sm font-semibold"
         >
           {teamCode(row.team?.name) || '·'}
         </span>
-        <div className="min-w-0">
-          <p className="truncate font-medium" data-sensitive>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold" data-sensitive>
             {row.fullName}
           </p>
-          <p className="truncate text-xs text-muted-foreground">
+          <p
+            style={tone}
+            className="mt-1.5 truncate rounded-md border border-l-4 border-l-(--tone) bg-card px-2 py-1 text-xs"
+          >
             {row.team?.name ?? (shift ? 'No team' : 'Not rostered this day')}
           </p>
           {entry && (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1.5 text-xs text-muted-foreground">
               {running
                 ? 'Still clocked in'
                 : entry.source === 'clock'
-                  ? 'Clocked'
+                  ? 'Clocked in and out'
                   : entry.source === 'roster'
                     ? 'Paid from the roster'
                     : 'Typed in'}
@@ -158,181 +173,230 @@ function DayRow({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-start gap-3">
-          {field(start, setStart, 'Start', shift?.startTime ?? null)}
-          {field(end, setEnd, 'Finish', shift?.endTime ?? null)}
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={5}
-              value={breakMinutes}
-              placeholder="0"
-              disabled={fixed || isPending}
-              onChange={(event) => setBreakMinutes(event.target.value)}
-              aria-label={`Unpaid break in minutes for ${row.fullName}`}
-              className="w-20 tabular-nums"
-            />
-            <span>Unpaid break{shift ? ` · rostered ${shift.breakMinutes}m` : ''}</span>
-          </label>
-          {shift && !entry && !locked && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-1"
-              onClick={useRostered}
-            >
-              As rostered
-            </Button>
+      <div className="flex min-w-0 flex-col">
+        <div className="flex flex-col gap-3 p-4">
+          <div
+            style={tone}
+            className={cn(
+              'flex h-1.5 overflow-hidden rounded-full bg-muted',
+              !entry && 'opacity-50',
+            )}
+            aria-hidden
+          >
+            {length > 0 &&
+              (unpaid > 0 && unpaid < length ? (
+                <>
+                  <span className="bg-(--tone)" style={{ width: `${(breakAt / length) * 100}%` }} />
+                  <span className="bg-muted" style={{ width: `${(unpaid / length) * 100}%` }} />
+                  <span className="flex-1 bg-(--tone)" />
+                </>
+              ) : (
+                <span className="flex-1 bg-(--tone)" />
+              ))}
+          </div>
+          <div className="flex flex-wrap items-start gap-3">
+            {field(start, setStart, 'Start', shift?.startTime ?? null)}
+            {field(end, setEnd, 'Finish', shift?.endTime ?? null)}
+            {shift && !entry && !locked && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-1"
+                onClick={useRostered}
+              >
+                As rostered
+              </Button>
+            )}
+            <label className="ml-auto flex flex-col items-end gap-1 text-xs text-muted-foreground">
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={5}
+                value={breakMinutes}
+                placeholder="0"
+                disabled={fixed || isPending}
+                onChange={(event) => setBreakMinutes(event.target.value)}
+                aria-label={`Unpaid break in minutes for ${row.fullName}`}
+                className="w-24 text-center tabular-nums"
+              />
+              <span>
+                {Number(breakMinutes || 0) > 0 ? `${breakMinutes} min unpaid break` : 'No break'}
+                {shift ? ` · R ${shift.breakMinutes}m` : ''}
+              </span>
+            </label>
+          </div>
+          {row.warnings.length > 0 && (
+            <ul className="flex flex-col gap-1 text-xs text-warning-text">
+              {row.warnings.map((warning) => (
+                <li
+                  key={`${warning.clause}|${warning.message}`}
+                  className="flex items-start gap-1.5"
+                >
+                  <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    {warning.message} (cl {warning.clause})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {error && (
+            <p role="alert" className="text-sm text-destructive-text">
+              {error}
+            </p>
           )}
         </div>
-        {row.lines.length > 0 && (
-          <details className="text-sm">
-            <summary className="cursor-pointer text-xs text-muted-foreground">
-              Pay lines under the award ({row.lines.length})
-            </summary>
-            <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
-              {row.lines.map((line) => (
-                <div key={`${line.kind}|${line.label}`} className="contents">
-                  <dt className="text-muted-foreground">
-                    {line.label}
-                    <span className="text-xs">
-                      {' '}
-                      ·{' '}
+        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-2 text-xs">
+          <span className="text-muted-foreground">Allowances</span>
+          {allowances.length ? (
+            allowances.map((line) => {
+              const each = Math.round(Number(line.rate) * 100);
+              return (
+                <span key={`${line.kind}|${line.label}`}>
+                  {line.label} ({each > 0 ? Math.max(1, Math.round(line.cents / each)) : 1})
+                </span>
+              );
+            })
+          ) : (
+            <span className="text-muted-foreground">None</span>
+          )}
+          {row.lines.length > 0 && (
+            <details className="ml-auto">
+              <summary className="cursor-pointer text-muted-foreground">
+                Pay lines ({row.lines.length})
+              </summary>
+              <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
+                {row.lines.map((line) => (
+                  <div key={`${line.kind}|${line.label}`} className="contents">
+                    <dt className="text-muted-foreground">
+                      {line.label} ·{' '}
                       {line.minutes === null
                         ? `${formatMoney(line.rate, currency)} each`
                         : `${formatHours(line.minutes)} at ${formatMoney(line.rate, currency)}`}{' '}
                       · cl {line.clause}
-                    </span>
-                  </dt>
-                  <dd className="text-right tabular-nums" data-sensitive>
-                    {money(line.cents, currency)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </details>
-        )}
-        {row.warnings.length > 0 && (
-          <ul className="flex flex-col gap-1 text-xs text-warning-text">
-            {row.warnings.map((warning) => (
-              <li key={`${warning.clause}|${warning.message}`} className="flex items-start gap-1.5">
-                <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-                <span>
-                  {warning.message} (cl {warning.clause})
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive-text">
-            {error}
-          </p>
+                    </dt>
+                    <dd className="text-right tabular-nums" data-sensitive>
+                      {money(line.cents, currency)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t p-4 lg:border-t-0 lg:border-l">
+        <dl className="grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1 text-sm tabular-nums">
+          <dt className="font-medium">Wage cost</dt>
+          <dd className="text-right font-semibold" data-sensitive>
+            {showCost && row.workedCents !== null ? money(row.workedCents, currency) : ''}
+          </dd>
+          <dd className="text-right font-medium">
+            {paidMinutes !== null ? `(${hm(paidMinutes)})` : '—'}
+          </dd>
+          <dt className="text-muted-foreground">Rostered</dt>
+          <dd className="text-right text-muted-foreground" data-sensitive>
+            {showCost && row.rosteredCents !== null ? money(row.rosteredCents, currency) : ''}
+          </dd>
+          <dd className="text-right text-muted-foreground">
+            {shift ? `(${hm(shift.paidMinutes)})` : '—'}
+          </dd>
+          <dt className="text-muted-foreground">Variance</dt>
+          <dd
+            className={cn(
+              'text-right',
+              overCents !== null && overCents !== 0
+                ? 'text-destructive-text'
+                : 'text-muted-foreground',
+            )}
+            data-sensitive
+          >
+            {showCost && overCents !== null && overCents !== 0
+              ? `${overCents > 0 ? '+' : '−'}${money(Math.abs(overCents), currency)}`
+              : '--'}
+          </dd>
+          <dd
+            className={cn(
+              'text-right',
+              overMinutes ? 'text-destructive-text' : 'text-muted-foreground',
+            )}
+          >
+            {overMinutes ? `${overMinutes > 0 ? '+' : '−'}${hm(Math.abs(overMinutes))}` : '--'}
+          </dd>
+        </dl>
+        {!locked ? (
+          approved ? (
+            <Button
+              type="button"
+              className="w-full"
+              disabled={isPending}
+              onClick={() => save(false)}
+              title="Click to reopen it"
+            >
+              <CircleCheck aria-hidden /> Approved
+            </Button>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={isPending || running || !complete || !row.canApprove}
+                title={row.canApprove ? undefined : 'Someone else has to approve your own time'}
+                onClick={() => save(true)}
+              >
+                <Check aria-hidden /> Approve
+              </Button>
+              {dirty && entry && complete && !running && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => save(false)}
+                >
+                  Save changes
+                </Button>
+              )}
+              {rejected && <Badge variant="destructive">Rejected</Badge>}
+            </div>
+          )
+        ) : (
+          entry?.status === 'approved' && (
+            <p className="flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+              <CircleCheck aria-hidden className="size-4" /> Authorised
+            </p>
+          )
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <dl className="grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-0.5 text-sm tabular-nums">
-          <dt className="text-muted-foreground">Worked</dt>
-          <dd className="text-right font-medium" data-sensitive>
-            {showCost && row.workedCents !== null ? money(row.workedCents, currency) : ''}
-          </dd>
-          <dd className="text-right">
-            {workedMinutes !== null
-              ? formatHours(workedMinutes)
-              : typedMinutes !== null && typedMinutes > 0
-                ? `${formatHours(typedMinutes)} typed`
-                : '—'}
-          </dd>
-          <dt className="text-muted-foreground">Rostered</dt>
-          <dd className="text-right" data-sensitive>
-            {showCost && row.rosteredCents !== null ? money(row.rosteredCents, currency) : ''}
-          </dd>
-          <dd className="text-right">{shift ? formatHours(shift.paidMinutes) : '—'}</dd>
-          {overMinutes !== null && (
-            <>
-              <dt className="text-muted-foreground">Difference</dt>
-              <dd
-                className={cn('col-span-2 text-right', overMinutes > 0 && 'text-destructive-text')}
-              >
-                {overMinutes === 0 && (overCents ?? 0) === 0
-                  ? 'As rostered'
-                  : `${overMinutes >= 0 ? 'Over' : 'Under'} by ${formatHours(Math.abs(overMinutes))}${
-                      showCost && overCents !== null
-                        ? ` · ${overCents >= 0 ? '+' : '−'}${money(Math.abs(overCents), currency)}`
-                        : ''
-                    }`}
-              </dd>
-            </>
-          )}
-        </dl>
-        {!locked && (
-          <div className="flex flex-wrap items-center gap-2">
-            {approved ? (
-              <Button
-                type="button"
-                size="sm"
-                disabled={isPending}
-                onClick={() => save(false)}
-                title="Reopen to change it"
-              >
-                <CircleCheck aria-hidden /> Approved
-              </Button>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isPending || running || !complete || !row.canApprove}
-                  title={row.canApprove ? undefined : 'Someone else has to approve your own time'}
-                  onClick={() => save(true)}
-                >
-                  <Check aria-hidden /> Approve
-                </Button>
-                {dirty && entry && complete && !running && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() => save(false)}
-                  >
-                    Save
-                  </Button>
-                )}
-              </>
-            )}
-            {rejected && <Badge variant="destructive">Rejected</Badge>}
-            {approved && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Reopen ${row.fullName}’s time`}
-                disabled={isPending}
-                onClick={() => save(false)}
-              >
-                <RotateCcw aria-hidden />
-              </Button>
-            )}
-            {entry && !approved && !running && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Remove ${row.fullName}’s recorded time`}
-                disabled={isPending}
-                onClick={() => run(() => deleteEntryAction({ id: entry.id }))}
-              >
-                <Trash2 aria-hidden />
-              </Button>
-            )}
-          </div>
+      <div className="flex flex-row items-center justify-end gap-1 border-t px-2 py-2 lg:flex-col lg:justify-start lg:border-t-0 lg:border-l lg:py-4">
+        {!locked && approved && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Reopen ${row.fullName}’s time`}
+            disabled={isPending}
+            onClick={() => save(false)}
+          >
+            <RotateCcw aria-hidden />
+          </Button>
+        )}
+        {!locked && entry && !approved && !running && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Remove ${row.fullName}’s recorded time`}
+            disabled={isPending}
+            onClick={() => run(() => deleteEntryAction({ id: entry.id }))}
+          >
+            <Trash2 aria-hidden />
+          </Button>
         )}
       </div>
     </li>
