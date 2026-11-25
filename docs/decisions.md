@@ -2518,3 +2518,37 @@ logo should be the word "meroAI", its dots constantly transforming to form it.
 **Consequences.**
 - Small marks take more width in their rows; every place they sit is a flex row that allows it.
 - From 64 pixels up the mark stays square, with room for the word across it.
+
+## ADR-086 — MeroAI's mark: a sphere of dots that resolves into the typed word
+
+**Status.** Accepted (2026-11-25). Replaces the look in ADR-085. ADR-085's wide small marks
+(`markWidth`) and its sizes stand.
+
+**Context.** The owner asked for the mark to be a sphere of dots that transforms creatively into
+the word "meroAI". The finished word should be plain typed text, not dots. The transformation
+should come round constantly and often. The header mark should look clickable. And the whole thing
+should feel minimal and deliberate, not like generated filler.
+
+**Decision.**
+- One loop of about seven seconds (`LOGO_TIMELINE`, `logoPhase`):
+  1. a turning sphere of black dots (the Fibonacci lattice, near half shown);
+  2. the dots swirl out into the letters, landing from left to right (each dot matched to a
+     letter by where it sits as the loop starts);
+  3. a thin scan line passes over the dotted letters and leaves the word typed, solid and crisp;
+  4. the typed word holds for about two seconds;
+  5. the scan line breaks it back into dots;
+  6. the dots return to the sphere.
+- The dots are sampled from the same word drawn in the page's font, and the typed word is drawn
+  in that font at the mark's scale. The dots therefore sit exactly inside the letters they
+  resolve into.
+- Monochrome ink, one thin line, cubic easing, no colour or glow beyond the existing thinking
+  band: minimal on purpose.
+- While MeroAI works, the mark rests as the sphere, spinning faster with a band of light; a word
+  already out finishes its loop first. With reduced motion it is the typed word, still.
+- The header trigger is a `.meroai-chip`, a quiet raised pill in the ink tokens: a fine border, a
+  soft top highlight and a small shadow. It lifts a pixel on hover and settles when pressed, so
+  the mark reads as a button. Other marks sit in cards and stay plain.
+
+**Consequences.**
+- The word is readable for most of each loop, and the dots come round every seven seconds.
+- The scan, shuffle and vortex effects of ADR-085 are removed; the sphere maths is back.

@@ -210,9 +210,9 @@ export function AssistantDrawer({
           variant="ghost"
           aria-label="MeroAI"
           title="MeroAI"
-          className="h-9 rounded-full px-2"
+          className="meroai-chip h-10 rounded-full px-3"
         >
-          <MeroOrb size={32} state={pending ? 'thinking' : 'idle'} />
+          <MeroOrb size={30} state={pending ? 'thinking' : 'idle'} />
         </Button>
       </SheetTrigger>
       <SheetContent

@@ -5,19 +5,17 @@ import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 import {
-  dotProgress,
   easeInOutCubic,
+  fibonacciSphere,
+  LOGO_TIMELINE,
+  logoPhase,
   markWidth,
-  outAndBack,
   parseRgb,
   rgba,
+  rotate,
   sampleMask,
-  seededCloud,
-  seededShuffle,
-  WORD_TIMELINE,
-  wobble,
+  staggered,
   wordDotCount,
-  wordPhase,
   type Point2,
   type Rgb,
 } from './mero-orb-math';
@@ -26,7 +24,7 @@ export type MeroOrbState = 'idle' | 'thinking';
 
 /**
  * MeroAI's ink (the `--meroai-ink` token) as numbers, read the way the browser resolves it. The
- * mark is monochrome on purpose: the same dots in every business, on whatever is behind them.
+ * mark is monochrome on purpose: the same in every business, on whatever is behind it.
  */
 function inkColour(element: Element): Rgb {
   const raw = getComputedStyle(element).getPropertyValue('--meroai-ink').trim();
@@ -39,46 +37,51 @@ function inkColour(element: Element): Rgb {
 const WORD = 'meroAI';
 
 /**
- * The word's dots, from the page's own font drawn on a scratch canvas and sampled (sampleMask).
- * In mark units: x from -1 to 1 across the writing width. A small mark is drawn larger on the
- * scratch canvas, so its thin strokes still give clean letters to sample.
+ * The typed word and the dots that write it. The word is drawn on a scratch canvas in the page's
+ * own font and its letters sampled (sampleMask), so each dot lands inside the very letters the
+ * word is later typed in. Returns the dots in mark units (x from -1 to 1 across the writing
+ * width) and the CSS font that types the same word at the mark's scale.
  */
-function wordPoints(size: number, fontFamily: string): Point2[] {
-  const scale = Math.max(1, 120 / size);
-  const width = Math.round(size * 2 * scale);
-  const height = Math.round(size * 0.8 * scale);
+function wordGeometry(width: number, fontFamily: string): { points: Point2[]; font: string } {
+  const scale = Math.max(1, 120 / width);
+  const scratchWidth = Math.round(width * 2 * scale);
+  const scratchHeight = Math.round(width * 0.8 * scale);
   const scratch = document.createElement('canvas');
-  scratch.width = width;
-  scratch.height = height;
+  scratch.width = scratchWidth;
+  scratch.height = scratchHeight;
   const context = scratch.getContext('2d', { willReadFrequently: true });
-  if (!context) return [];
-  // Heavier letters on a small mark, where a regular stroke is under a pixel wide.
-  const weight = size < 96 ? 800 : 700;
-  let fontSize = height * 0.8;
+  if (!context) return { points: [], font: '' };
+  const weight = width < 96 ? 700 : 650;
+  let fontSize = scratchHeight * 0.8;
   context.font = `${weight} ${fontSize}px ${fontFamily}`;
-  fontSize *= Math.min(1, (width * 0.94) / context.measureText(WORD).width);
+  fontSize *= Math.min(1, (scratchWidth * 0.94) / context.measureText(WORD).width);
   context.font = `${weight} ${fontSize}px ${fontFamily}`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillStyle = '#000';
-  context.fillText(WORD, width / 2, height / 2);
-  const mask = context.getImageData(0, 0, width, height);
+  context.fillText(WORD, scratchWidth / 2, scratchHeight / 2);
+  const mask = context.getImageData(0, 0, scratchWidth, scratchHeight);
   let inked = 0;
-  for (let index = 3; index < mask.data.length; index += 4)
+  for (let index = 3; index < mask.data.length; index += 4) {
     if (mask.data[index]! >= 128) inked += 1;
-  return sampleMask(mask, wordDotCount(inked / (scale * scale), size));
+  }
+  // One scratch pixel is 0.47 / scale mark pixels: the writing spans 94% of the mark's width.
+  return {
+    points: sampleMask(mask, wordDotCount(inked / (scale * scale), width)),
+    font: `${weight} ${(fontSize * 0.47) / scale}px ${fontFamily}`,
+  };
 }
 
 /**
- * MeroAI's mark: the word "meroAI" written in black dots on a transparent ground, so it sits on
- * the page's own background. The word is always there and never still. Each dot fizzes about its
- * place, a glint runs along the letters, and every few seconds the dots rework the word: they
- * burst into a cloud and swirl back, ride a wave across it, swap places so the letters dissolve
- * and knit again, or wind into a spiral and unwind (WORD_EFFECTS). While MeroAI works, the dots
- * move faster and the changes come sooner. Decorative: the words around it carry the meaning.
+ * MeroAI's mark. A turning sphere of black dots swirls out into the letters of "meroAI"; a thin
+ * scan line passes over them and leaves the word typed, solid and crisp; the word holds, the scan
+ * line breaks it back into dots, and they return to the sphere. About seven seconds a loop, on a
+ * transparent ground, so it sits on the page's own background. While MeroAI works, the sphere
+ * spins faster with a band of light across it, and the word waits until the work is done.
+ * Decorative: the words around it, or the button it sits in, carry the meaning.
  *
- * Drawn on a plain canvas, no library. It pauses when off screen or in a background tab, and
- * draws the word once, still, for people who ask for reduced motion.
+ * Drawn on a plain canvas, no library. It pauses when off screen or in a background tab, and is
+ * the typed word, still, for people who ask for reduced motion.
  */
 export function MeroOrb({
   size = 32,
@@ -102,111 +105,156 @@ export function MeroOrb({
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return;
 
-    const ratio = Math.min(2, window.devicePixelRatio || 1);
     const width = markWidth(size);
+    const height = size;
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(size * ratio);
+    canvas.height = Math.round(height * ratio);
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    const DOT = inkColour(canvas);
-    const cx0 = width / 2;
-    const cy0 = size / 2;
+    const INK = inkColour(canvas);
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = height * 0.44;
     const writing = width * 0.47;
-    // The scatter cloud fills the mark's own shape: a wide oval on a wide mark, never a ball.
-    const cloudX = width * 0.46;
-    const cloudY = size * 0.42;
-    const dot = Math.max(0.55, width / 140);
+    // On a wide mark the dots travel sideways; their swirl stays inside its height.
+    const squash = Math.min(1, height / width);
+    const dot = Math.max(0.55, width / 150);
 
-    // The word is sampled once the page's font has loaded, so the letters are the brand's own.
     let word: Point2[] = [];
-    // Which letter place each dot holds now; a shuffle hands every dot another's place.
+    let font = '';
+    let sphere: ReturnType<typeof fibonacciSphere> = [];
+    let left = 0;
+    let right = 0;
+    // Which letter dot each sphere dot becomes: settled as each loop leaves the sphere, by where
+    // the dots are then, so the left of the sphere writes the "m".
     let slot: number[] = [];
-    let next: number[] = [];
-    let cloud: Point2[] = [];
-    let seenCycle = -1;
-    let seenEffect = '';
+    let wasSphere = true;
 
+    let yaw = 0;
     let energy = stateRef.current === 'thinking' ? 1 : 0;
     let clock = 0;
-    // Start halfway through the first scatter, so the word gathers out of a cloud on arrival.
-    let wordClock = WORD_TIMELINE.hold + WORD_TIMELINE.change * 0.45;
+    let logoClock = LOGO_TIMELINE.sphere * 0.4;
     let last = performance.now();
     let frame = 0;
     let running = false;
     let cancelled = false;
 
-    const enterCycle = (cycle: number, effect: string) => {
-      if (seenEffect === 'shuffle') slot = next;
-      seenCycle = cycle;
-      seenEffect = effect;
-      if (effect === 'shuffle') {
-        const order = seededShuffle(word.length, cycle + 1);
-        next = slot.map((_, index) => slot[order[index]!]!);
-      }
-      if (effect === 'scatter') cloud = seededCloud(word.length, cycle + 1);
+    const typeWord = (from: number, to: number) => {
+      if (to <= from) return;
+      context.save();
+      context.beginPath();
+      context.rect(from, 0, to - from, height);
+      context.clip();
+      context.font = font;
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillStyle = rgba(INK, 1);
+      context.fillText(WORD, cx, cy);
+      context.restore();
+    };
+
+    const scanLine = (x: number, strength: number) => {
+      const top = cy - height * 0.36;
+      const bottom = cy + height * 0.36;
+      const gradient = context.createLinearGradient(0, top, 0, bottom);
+      gradient.addColorStop(0, rgba(INK, 0));
+      gradient.addColorStop(0.5, rgba(INK, 0.55 * strength));
+      gradient.addColorStop(1, rgba(INK, 0));
+      context.fillStyle = gradient;
+      context.fillRect(x - 0.5, top, 1, bottom - top);
+    };
+
+    const disc = (x: number, y: number, r: number, alpha: number) => {
+      if (alpha <= 0.01) return;
+      context.fillStyle = rgba(INK, alpha);
+      context.beginPath();
+      context.arc(x, y, r, 0, Math.PI * 2);
+      context.fill();
     };
 
     const draw = (still = false) => {
-      context.clearRect(0, 0, width, size);
+      context.clearRect(0, 0, width, height);
       if (word.length === 0) return;
-      const phase = still ? { cycle: 0, effect: 'scatter', progress: 0 } : wordPhase(wordClock);
-      if (!still && phase.cycle !== seenCycle) enterCycle(phase.cycle, phase.effect);
-      const fizz = still ? 0 : dot * (0.7 + energy * 1.3);
-      // The glint's centre along the word (0 = left, 1 = right), passing every few seconds.
-      const glint = ((clock * (0.32 + energy * 0.8)) % 1.6) - 0.3;
+      if (still) {
+        typeWord(0, width);
+        return;
+      }
+      const { stage, t } = logoPhase(logoClock);
+      const sweep = Math.sin(clock * 2.2);
+      const projected = sphere.map((base) => {
+        const p = rotate(base, yaw, 0.32);
+        return { x: cx + p.x * radius, y: cy + p.y * radius, facing: p.z };
+      });
 
-      for (let index = 0; index < word.length; index += 1) {
-        const home = word[slot[index] ?? index]!;
-        const hx = cx0 + home.x * writing;
-        const hy = cy0 + home.y * writing;
-        const place = (home.x + 1) / 2;
-        const t = dotProgress(phase.progress, place);
-        let x = hx;
-        let y = hy;
-        let flight = 0;
+      if (stage === 'sphere') {
+        wasSphere = true;
+      } else if (wasSphere) {
+        wasSphere = false;
+        const order = projected
+          .map((_, index) => index)
+          .sort((a, b) => projected[a]!.x - projected[b]!.x);
+        slot = new Array<number>(projected.length);
+        order.forEach((dotIndex, position) => {
+          slot[dotIndex] = position;
+        });
+      }
 
-        if (t > 0) {
-          if (phase.effect === 'scatter') {
-            const far = cloud[index] ?? { x: 0, y: 0 };
-            const cx = cx0 + far.x * cloudX;
-            const cy = cy0 + far.y * cloudY;
-            flight = outAndBack(t);
-            const swirl = (index % 2 === 0 ? 1 : -1) * Math.sin(Math.PI * t) * 0.3;
-            x = hx + (cx - hx) * flight - (cy - hy) * swirl;
-            y = hy + (cy - hy) * flight + (cx - hx) * swirl;
-          } else if (phase.effect === 'wave') {
-            flight = Math.sin(Math.PI * t);
-            y = hy - flight * size * 0.16;
-            x = hx + flight * Math.sin(index) * width * 0.015;
-          } else if (phase.effect === 'shuffle') {
-            const target = word[next[index] ?? index]!;
-            const tx = cx0 + target.x * writing;
-            const ty = cy0 + target.y * writing;
-            const travel = easeInOutCubic(t);
-            flight = Math.sin(Math.PI * t);
-            const swirl = (index % 2 === 0 ? 1 : -1) * flight * 0.25;
-            x = hx + (tx - hx) * travel - (ty - hy) * swirl;
-            y = hy + (ty - hy) * travel + (tx - hx) * swirl;
-          } else {
-            flight = outAndBack(t);
-            const angle = flight * 2.6;
-            const shrink = 1 - flight * 0.8;
-            const ox = hx - cx0;
-            const oy = hy - cy0;
-            x = cx0 + (ox * Math.cos(angle) - oy * Math.sin(angle)) * shrink;
-            y = cy0 + (ox * Math.sin(angle) + oy * Math.cos(angle)) * shrink;
-          }
+      if (stage === 'hold') {
+        typeWord(0, width);
+        return;
+      }
+
+      // The scan line runs a little past the letters on both sides, so it enters and leaves.
+      const scan = left - dot * 4 + (right - left + dot * 8) * easeInOutCubic(t);
+      const fade = Math.max(2, width * 0.04);
+      if (stage === 'resolve') typeWord(0, scan);
+      if (stage === 'dissolve') typeWord(scan, width);
+
+      for (let index = 0; index < projected.length; index += 1) {
+        const from = projected[index]!;
+        const sphereAlpha = from.facing > 0.02 ? 0.45 + from.facing * 0.55 : 0;
+        const sphereSize = dot * (0.6 + Math.max(0, from.facing) * 0.7);
+
+        if (stage === 'sphere') {
+          if (from.facing <= 0.02) continue;
+          const glow = energy * Math.max(0, 1 - Math.abs((from.y - cy) / radius - sweep) * 2.5);
+          disc(
+            from.x,
+            from.y,
+            sphereSize * (1 + glow * 0.4),
+            Math.min(1, sphereAlpha + glow * 0.5),
+          );
+          continue;
         }
 
-        x += wobble(clock * 1.4, index * 0.37) * fizz;
-        y += wobble(clock * 1.2 + 5, index * 0.61) * fizz;
-        const shine = still ? 0 : Math.exp(-(((place - glint) / 0.09) ** 2));
-        const twinkle = still ? 1 : 0.86 + 0.14 * Math.sin(clock * 3 + index * 1.7);
-        context.fillStyle = rgba(DOT, twinkle - flight * 0.25 + shine * 0.2);
-        context.beginPath();
-        context.arc(x, y, dot * (1 + shine * 0.55 + flight * 0.35), 0, Math.PI * 2);
-        context.fill();
+        const target = word[slot[index] ?? index]!;
+        const tx = cx + target.x * writing;
+        const ty = cy + target.y * writing;
+
+        if (stage === 'resolve' || stage === 'dissolve') {
+          // Ahead of the line in "resolve", behind it in "dissolve": still dots, fading at the line.
+          const distance = stage === 'resolve' ? tx - scan : scan - tx;
+          disc(tx, ty, dot, Math.max(0, Math.min(1, distance / fade)) * 0.95);
+          continue;
+        }
+
+        const place = (target.x + 1) / 2;
+        // 0 on the sphere, 1 in the letter.
+        const k = stage === 'form' ? staggered(t, place) : 1 - staggered(t, place);
+        const lift = Math.sin(Math.PI * k);
+        const dx = tx - from.x;
+        const dy = ty - from.y;
+        const swirl = (index % 2 === 0 ? 1 : -1) * lift * 0.35;
+        disc(
+          from.x + dx * k - dy * swirl,
+          from.y + dy * k + dx * swirl * squash,
+          sphereSize + (dot - sphereSize) * k + lift * dot * 0.5,
+          sphereAlpha + (0.95 - sphereAlpha) * k,
+        );
       }
+
+      if (stage === 'resolve' || stage === 'dissolve') scanLine(scan, Math.sin(Math.PI * t));
     };
 
     const tick = (now: number) => {
@@ -215,10 +263,10 @@ export function MeroOrb({
       const target = stateRef.current === 'thinking' ? 1 : 0;
       energy += (target - energy) * Math.min(1, seconds * 3);
       clock += seconds;
-      // While MeroAI works, the changes come sooner: the hold runs faster, the changes themselves
-      // keep their pace so they still read.
-      const phase = wordPhase(wordClock);
-      wordClock += seconds * (phase.progress > 0 ? 1 : 1 + energy * 1.5);
+      // While MeroAI works the mark rests as the spinning sphere: a word already out finishes its
+      // loop first.
+      if (target === 0 || logoPhase(logoClock).stage !== 'sphere') logoClock += seconds;
+      yaw += seconds * (0.35 + energy * 1.2);
       draw();
       frame = requestAnimationFrame(tick);
     };
@@ -244,10 +292,16 @@ export function MeroOrb({
     const onVisibility = () => (document.hidden || !visible ? stop() : start());
     const onMotion = () => (reduced.matches ? (stop(), draw(true)) : start());
 
+    // The word is laid out once the page's font has loaded, so the letters are the brand's own.
     void document.fonts.ready.then(() => {
       if (cancelled) return;
-      word = wordPoints(width, getComputedStyle(canvas).fontFamily || 'sans-serif');
-      slot = word.map((_, index) => index);
+      const geometry = wordGeometry(width, getComputedStyle(canvas).fontFamily || 'sans-serif');
+      word = geometry.points;
+      font = geometry.font;
+      sphere = fibonacciSphere(word.length);
+      const xs = word.map((point) => cx + point.x * writing);
+      left = Math.min(...xs);
+      right = Math.max(...xs);
       draw(reduced.matches);
       observer.observe(canvas);
       document.addEventListener('visibilitychange', onVisibility);

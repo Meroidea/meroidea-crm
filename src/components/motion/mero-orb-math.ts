@@ -1,10 +1,38 @@
 /**
- * The geometry, timing and colour arithmetic behind MeroAI's mark (ADR-078, ADR-080, ADR-085):
- * dots that always spell "meroAI" and keep changing how they do it. Pure, so it is tested without
- * a canvas.
+ * The geometry, timing and colour arithmetic behind MeroAI's mark (ADR-078, ADR-086): a sphere
+ * of dots that swirls into the word "meroAI", resolves into the typed word, and goes back again.
+ * Pure, so it is tested without a canvas.
  */
 
+export type Vec3 = { x: number; y: number; z: number };
 export type Rgb = { r: number; g: number; b: number };
+
+/**
+ * `count` points spread evenly over a unit sphere (the Fibonacci lattice): no clumps at the
+ * poles, which a random spread would give, so the shell reads as a smooth surface.
+ */
+export function fibonacciSphere(count: number): Vec3[] {
+  const points: Vec3[] = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let index = 0; index < count; index += 1) {
+    const y = 1 - (index / Math.max(1, count - 1)) * 2;
+    const radius = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = golden * index;
+    points.push({ x: Math.cos(theta) * radius, y, z: Math.sin(theta) * radius });
+  }
+  return points;
+}
+
+/** Turns a point about the vertical axis, then tilts it towards the viewer. */
+export function rotate(point: Vec3, yaw: number, tilt: number): Vec3 {
+  const cosY = Math.cos(yaw);
+  const sinY = Math.sin(yaw);
+  const x = point.x * cosY + point.z * sinY;
+  const z1 = -point.x * sinY + point.z * cosY;
+  const cosX = Math.cos(tilt);
+  const sinX = Math.sin(tilt);
+  return { x, y: point.y * cosX - z1 * sinX, z: point.y * sinX + z1 * cosX };
+}
 
 /** "#4b49ac" or "rgb(75, 73, 172)" (what a canvas reports back) as numbers; null otherwise. */
 export function parseRgb(value: string): Rgb | null {
@@ -108,73 +136,43 @@ export function wordDotCount(inkedArea: number, size: number): number {
   return Math.round(Math.min(1400, Math.max(60, inkedArea / (spacing * spacing))));
 }
 
-/**
- * The ways the dots rework the word, one after another, each starting and ending on the word:
- * - scatter: the dots burst into a cloud and swirl back;
- * - wave: a swell lifts the letters, travelling from left to right;
- * - shuffle: every dot flies to another dot's place, so the letters dissolve and knit again;
- * - vortex: the word winds into a spiral at the centre and unwinds.
- */
-export const WORD_EFFECTS = ['scatter', 'wave', 'shuffle', 'vortex'] as const;
-export type WordEffect = (typeof WORD_EFFECTS)[number];
-
-/** One loop: the word held (still alive, never frozen), then one change. */
-export const WORD_TIMELINE = { hold: 3.2, change: 2.4 } as const;
-export const WORD_CYCLE = WORD_TIMELINE.hold + WORD_TIMELINE.change;
-
-/** Where the loop is at `seconds`: which change, and how far through it (0 while held). */
-export function wordPhase(seconds: number): {
-  cycle: number;
-  effect: WordEffect;
-  progress: number;
-} {
-  const time = Math.max(0, seconds);
-  const cycle = Math.floor(time / WORD_CYCLE);
-  const into = time - cycle * WORD_CYCLE;
-  return {
-    cycle,
-    effect: WORD_EFFECTS[cycle % WORD_EFFECTS.length]!,
-    progress: into < WORD_TIMELINE.hold ? 0 : (into - WORD_TIMELINE.hold) / WORD_TIMELINE.change,
-  };
-}
-
-/**
- * One dot's progress through a change, staggered by where it sits in the word so every change
- * runs from left to right. `place` runs from 0 (left) to 1.
- */
-export function dotProgress(progress: number, place: number, spread = 0.35): number {
-  if (progress <= 0) return 0;
-  return clamp01((progress - clamp01(place) * spread) / (1 - spread));
-}
-
 export const easeInOutCubic = (t: number) => {
   const c = clamp01(t);
   return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
 };
 
-/** Out and home again: 0 at the word, 1 at the far point, then 0, eased both ways. */
-export function outAndBack(t: number): number {
-  if (t <= 0 || t >= 1) return 0;
-  return t < 0.5 ? easeInOutCubic(t * 2) : easeInOutCubic((1 - t) * 2);
-}
+/**
+ * One loop of the mark, in seconds: the turning sphere; its dots swirling into the letters; a
+ * scan line resolving the dots into the typed word; the word held; the scan line breaking it back
+ * into dots; and the dots returning to the sphere.
+ */
+export const LOGO_TIMELINE = {
+  sphere: 1.1,
+  form: 1.5,
+  resolve: 0.5,
+  hold: 2.2,
+  dissolve: 0.5,
+  release: 1.3,
+} as const;
+export type LogoStage = keyof typeof LOGO_TIMELINE;
+const STAGES = Object.keys(LOGO_TIMELINE) as LogoStage[];
+export const LOGO_CYCLE = STAGES.reduce((total, stage) => total + LOGO_TIMELINE[stage], 0);
 
-/** A repeatable shuffle of 0..count-1: the same seed always gives the same order. */
-export function seededShuffle(count: number, seed: number): number[] {
-  const random = seeded(seed * 7919 + count);
-  const order = Array.from({ length: count }, (_, index) => index);
-  for (let index = count - 1; index > 0; index -= 1) {
-    const swap = Math.floor(random() * (index + 1));
-    [order[index], order[swap]] = [order[swap]!, order[index]!];
+/** Where the loop is at `seconds`: the stage, and how far through it (0 to 1). */
+export function logoPhase(seconds: number): { stage: LogoStage; t: number } {
+  let into = ((seconds % LOGO_CYCLE) + LOGO_CYCLE) % LOGO_CYCLE;
+  for (const stage of STAGES) {
+    const length = LOGO_TIMELINE[stage];
+    if (into < length) return { stage, t: into / length };
+    into -= length;
   }
-  return order;
+  return { stage: 'sphere', t: 0 };
 }
 
-/** `count` repeatable points spread evenly over the unit disc, for the scatter cloud. */
-export function seededCloud(count: number, seed: number): Point2[] {
-  const random = seeded(seed * 104_729 + count);
-  return Array.from({ length: count }, () => {
-    const angle = random() * Math.PI * 2;
-    const radius = Math.sqrt(random());
-    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
-  });
+/**
+ * One dot's share of a flight, staggered by where it lands so the word writes itself from left
+ * to right, and comes apart in the same direction. `place` runs from 0 (left) to 1.
+ */
+export function staggered(t: number, place: number, spread = 0.45): number {
+  return easeInOutCubic((t - clamp01(place) * spread) / (1 - spread));
 }
