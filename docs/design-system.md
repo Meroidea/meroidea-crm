@@ -64,23 +64,26 @@ Checked against WCAG AA (4.5:1 for normal text on white):
   used inside the signed-in app, where it would compete with tables and forms.
 - Dark mode: not in MVP; tokens make it a later addition.
 
-## MeroAI (ADR-078, ADR-080, ADR-085)
+## MeroAI (ADR-078, ADR-080, ADR-085, ADR-086)
 
 - **Mark.** `MeroOrb` from `src/components/motion/mero-orb.tsx`. Never use a sparkle icon for
   MeroAI. Use `state="thinking"` while a MeroAI request runs and `idle` otherwise.
-- **Sizes.** `size` is the height. 20–24 in a summary or row, 32 in the header button, 32–40 on a
+- **Sizes.** `size` is the height. 20–24 in a summary or row, 30 in the header button, 32–40 on a
   card, 120–140 for an empty state. Below 64 the mark is as wide as the word (2.6 times its
   height), so leave room for it in the row.
-- **Look.** The word "meroAI" written in black dots (`--meroai-ink`) on a transparent ground, so it
-  sits on the page's background; the same in every business, at every size (ADR-085). The word is
-  always there and always moving: the dots fizz, a glint runs along the letters, and every few
-  seconds the dots rework the word (scatter, wave, shuffle, vortex) and settle back into it.
+- **Look.** A turning sphere of black dots (`--meroai-ink`) swirls into the letters of "meroAI";
+  a thin scan line resolves them into the typed word, solid and crisp; the word holds about two
+  seconds, then breaks back into dots and returns to the sphere (about seven seconds a loop,
+  ADR-086). Transparent ground, the same in every business. While MeroAI works it rests as the
+  spinning sphere.
 - **Classes.** These are for MeroAI only:
   - `.meroai-text`: the "MeroAI" wordmark, ink with a passing glint.
+  - `.meroai-chip`: the mark as a button on its own (the header trigger): a quiet raised pill
+    that lifts a hair on hover and settles when pressed.
   - `.meroai-button`: the one primary action of a MeroAI surface, on a shadcn `Button`: ink, a
     fine dot grain and a passing glint.
   - `.meroai-surface`: the panel background, a faint field of dots fading down the card.
   - `.meroai-edge`: the panel border, ink fading to the border colour. It combines with
     `.meroai-surface`.
 - **Motion.** The mark pauses off screen and in background tabs. With reduced motion, it is the
-  word, still, and the glints don't move. The orb is `aria-hidden`; always pair it with words.
+  typed word, still, the glints don't move and the chip doesn't lift. The orb is `aria-hidden`; always pair it with words.

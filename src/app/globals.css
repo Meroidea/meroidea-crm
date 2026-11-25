@@ -317,7 +317,7 @@
 }
 
 /* ---------------------------------------------------------------------------------------------
-   MeroAI (ADR-078, ADR-080): its orb (src/components/motion/mero-orb.tsx) and the few touches
+   MeroAI (ADR-078, ADR-080, ADR-086): its mark (src/components/motion/mero-orb.tsx) and the few touches
    around it, in the orb's black ink and dots (--meroai-ink, --meroai-paper), with the card and
    border tokens, so it reads the same on every business's brand colour.
    --------------------------------------------------------------------------------------------- */
@@ -437,10 +437,44 @@
         border-box;
   }
 
+  /* MeroAI's mark as a control on its own (the header): a quiet raised pill, so the word reads as
+     something to press. It lifts a hair on hover and settles when pressed. */
+  .meroai-chip[data-slot='button'] {
+    border: 1px solid color-mix(in srgb, var(--meroai-ink) 14%, var(--border));
+    background: linear-gradient(
+      to bottom,
+      var(--meroai-paper),
+      color-mix(in srgb, var(--meroai-ink) 4%, var(--meroai-paper))
+    );
+    box-shadow:
+      inset 0 1px 0 var(--meroai-paper),
+      0 1px 2px color-mix(in srgb, var(--meroai-ink) 12%, transparent);
+    transition:
+      transform 160ms ease,
+      box-shadow 160ms ease,
+      border-color 160ms ease;
+  }
+  .meroai-chip[data-slot='button']:hover {
+    border-color: color-mix(in srgb, var(--meroai-ink) 30%, var(--border));
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 var(--meroai-paper),
+      0 6px 14px -6px color-mix(in srgb, var(--meroai-ink) 35%, transparent);
+  }
+  .meroai-chip[data-slot='button']:active {
+    transform: translateY(0) scale(0.98);
+    box-shadow: inset 0 1px 2px color-mix(in srgb, var(--meroai-ink) 14%, transparent);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .meroai-text,
     .meroai-button[data-slot='button'] {
       animation: none;
+    }
+    .meroai-chip[data-slot='button'],
+    .meroai-chip[data-slot='button']:hover,
+    .meroai-chip[data-slot='button']:active {
+      transform: none;
     }
   }
 }
