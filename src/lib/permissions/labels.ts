@@ -39,6 +39,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'files.view': 'See the document library',
   'files.edit': 'Edit library documents',
   'files.manage': 'Manage the document library',
+  'files.request_signatures': 'Send documents for signature',
   'invoices.manage': 'Manage invoices',
   'payroll.manage': 'Run payroll',
   'social.view': 'See customers’ social media messages',

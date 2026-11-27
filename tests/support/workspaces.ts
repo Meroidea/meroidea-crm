@@ -115,6 +115,11 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
     'time_entries',
     'leave_requests',
     'leave_types',
+    // Signature requests point at library documents and memberships (ADR-089).
+    'sign_request_events',
+    'sign_request_fields',
+    'sign_request_signers',
+    'sign_requests',
     'library_document_versions',
     'library_documents',
     'payslips',

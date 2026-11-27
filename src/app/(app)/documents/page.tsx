@@ -1,4 +1,5 @@
 import {
+  FileSignature,
   FileSpreadsheet,
   FileText,
   FileType,
@@ -13,6 +14,7 @@ import { EmptyState } from '@/components/data/empty-state';
 import { FilterBar } from '@/components/data/filter-bar';
 import { ListPagination } from '@/components/data/list-pagination';
 import { PageHeader } from '@/components/data/page-header';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
 import { DownloadButton, UploadButton } from '@/modules/files/components/files-tools';
@@ -62,7 +64,18 @@ export default async function DocumentsPage({ searchParams }: PageProps<'/docume
             ? 'Your business’s shared files. Open one to edit it here, together, without downloading.'
             : 'Your business’s shared files, with every version kept.'
         }
-        actions={canManage && <UploadButton folders={folders} />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {hasPermission(ctx, 'files.request_signatures') && (
+              <Button asChild variant="outline">
+                <Link href="/documents/signatures">
+                  <FileSignature aria-hidden /> Signatures
+                </Link>
+              </Button>
+            )}
+            {canManage && <UploadButton folders={folders} />}
+          </div>
+        }
       />
       {!canEdit && (
         <p className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-text">

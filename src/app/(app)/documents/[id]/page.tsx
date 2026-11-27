@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/lib/format';
+import { RequestSignaturesButton } from '@/modules/esign/components/request-actions';
 import { DownloadButton, ManageDocument } from '@/modules/files/components/files-tools';
 import { editorSettings } from '@/modules/files/editor';
 import { DOCUMENT_FORMATS, formatBytes } from '@/modules/files/formats';
@@ -21,6 +22,8 @@ export default async function DocumentPage({ params }: PageProps<'/documents/[id
   const document = parsed.success ? await getDocument(ctx, parsed.data.id) : null;
   if (!document) notFound();
   const canManage = hasPermission(ctx, 'files.manage');
+  const canRequestSignatures =
+    document.extension === 'pdf' && hasPermission(ctx, 'files.request_signatures');
   const folders = canManage ? await listFolders(ctx) : [];
 
   return (
@@ -50,6 +53,7 @@ export default async function DocumentPage({ params }: PageProps<'/documents/[id
                 folders={folders}
               />
             )}
+            {canRequestSignatures && <RequestSignaturesButton documentId={document.id} />}
             <DownloadButton id={document.id} />
             {editorSettings() && (
               <Button asChild>

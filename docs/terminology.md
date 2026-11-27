@@ -28,6 +28,9 @@ UI via `tenants.labels`, but the **code name never changes**.
 | **Document** | An uploaded file. May satisfy a requirement. | — | — |
 | **Custom field** | Tenant-defined field on Contact/Opportunity/Organization/Product. | Preferred country, IELTS score, Intake | Budget, Bedrooms |
 | **Library document** | A Word, Excel, PowerPoint or PDF file in a business's shared library, with every saved version kept. Distinct from *Document* (a file attached to a contact or opportunity checklist). | — | — |
+| **Signature request** | A PDF from the library sent for electronic signature: a draft, then out for signature, then completed, declined or voided (or expired, when its time runs out). | — | — |
+| **Signer** | A person asked to sign a signature request. Not a login: they open a personal emailed link, and confirm it's them with an emailed code when the request asks for one. | — | — |
+| **Signed copy** | The finished PDF of a completed signature request: every signer's values drawn on the original, with a certificate of completion added. Checked on `/verify` by its SHA-256 fingerprint. | — | — |
 | **Invoice** | A numbered bill to a customer: draft, then sent, then paid or void. Cannot be edited once sent. | — | — |
 | **Payslip** | One employee's pay for one authorised roster period: draft until released, then visible to that employee and fixed. | — | — |
 | **Supplier** | A business the workspace buys from, with a price list, delivery days and an ordering lead time. | — | — |
