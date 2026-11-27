@@ -5,7 +5,7 @@ The inbox also takes email, under its own feature: see [email-inbox.md](email-in
 
 The social inbox (ADR-064, ADR-066) lets a business connect its Facebook Pages, Instagram
 professional accounts, WhatsApp number and TikTok business account, and read and answer customers'
-messages in Meroidea. It lives under **Marketing** in the menu.
+messages in Meroidea. It lives under **Communication** in the menu (ADR-088).
 The code is built; what stands between it and a client business is a one-time setup by the
 platform owner with Meta and TikTok, including their reviews. This page is that checklist.
 
@@ -55,7 +55,7 @@ WhatsApp runs through the same Meta app as section 1, with the platform as a **T
    `whatsapp_business_management`. Meta asks for two videos:
    - a message sent from Meroidea and received in WhatsApp (send a reply from a test number's
      conversation);
-   - a template created in Meroidea (Marketing → WhatsApp templates → New template).
+   - a template created in Meroidea (Communication → Social inbox → Settings → WhatsApp templates → New template).
 
    Until approved and verified, at most 10 new WhatsApp accounts can be onboarded in a rolling
    7 days (200 after).
@@ -119,10 +119,10 @@ created by the migration; its size is the platform's cost.
 
 ## 5. Switch it on for a business
 
-In `/platform`, open the business and tick **Social inbox**. Its Admin then opens **Marketing →
+In `/platform`, open the business and tick **Social inbox**. Its Admin then opens **Communication →
 Social inbox → Settings → Connected accounts** and connects their accounts; **WhatsApp templates**
 joins that Settings menu once a WhatsApp number is connected (ADR-073). Email is a separate area,
-**Marketing → Email**, under its own feature. Managers can read and reply; give other
+**Communication → Email**, under its own feature. Managers can read and reply; give other
 roles `social.view` / `social.reply` in Settings → Roles.
 
 What the business needs:
@@ -159,7 +159,7 @@ What the business needs:
   was said.
 - Inbox foundations (ADR-068):
   - Colleagues can leave private notes in a conversation. Notes are never sent to the customer.
-  - Saved replies are typed with `/` in the reply box (Marketing → Saved replies).
+  - Saved replies are typed with `/` in the reply box (Settings → Saved replies on either area).
   - The inbox shows who else has a conversation open, and who is typing.
   - A WhatsApp sender whose number belongs to exactly one contact is linked to that contact
     automatically. When several contacts share the number, staff choose which one it is.

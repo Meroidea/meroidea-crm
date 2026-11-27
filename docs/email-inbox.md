@@ -51,8 +51,8 @@ Without all three, the Email card says "Not available yet" and nothing is receiv
 
 ## 5. Switch it on for a business
 
-In `/platform`, open the business and tick **Email inbox**. Its Admin then sees **Email** on
-**Marketing → Inbox → Connected accounts**.
+In `/platform`, open the business and tick **Email inbox**. Its Admin then opens
+**Communication → Email → Settings → Email inbox address**.
 - The Admin creates an address there, such as `harbour-cafe@inbox.meroidea.com`.
 - They either publish it, or set their own support address to forward to it.
 - Inbox permissions (`social.view`, `social.reply`, `social.manage`) apply to email exactly as to

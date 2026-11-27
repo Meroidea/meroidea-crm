@@ -34,7 +34,7 @@ test('an admin opens the social inbox and sees what can be connected', async ({
   await page.goto('/social');
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('heading', { level: 1, name: 'Social inbox' })).toBeVisible();
-  // Marketing has three areas (ADR-073); campaigns are shown as coming soon. The sidebar is
+  // Communication has three areas (ADR-073, ADR-088); campaigns are shown as coming soon. The sidebar is
   // closed behind its menu button on a phone.
   if (testInfo.project.name !== 'mobile-375') {
     await expect(page.getByRole('link', { name: 'Social inbox', exact: true })).toBeVisible();
@@ -68,7 +68,7 @@ test('an admin opens the social inbox and sees what can be connected', async ({
     ),
   ).toBe(false);
 
-  // WhatsApp templates live under Marketing, next to the inbox.
+  // WhatsApp templates live under Communication, next to the inbox.
   await page.goto('/social/templates');
   await expect(page.getByRole('heading', { level: 1, name: 'WhatsApp templates' })).toBeVisible();
   await expect(page.getByText('Connect a WhatsApp number first')).toBeVisible();

@@ -10,10 +10,10 @@ import {
 import { parseMetaWebhook } from '@/modules/social/providers/meta-webhook';
 import { mailboxOf, SOCIAL_INBOX_PLATFORMS } from '@/modules/social/providers/types';
 
-// The Marketing areas and each channel's own conventions (ADR-073).
+// The Communication areas and each channel's own conventions (ADR-073, ADR-088).
 
-describe('the Marketing menu', () => {
-  const marketing = NAVIGATION.find((group) => group.title === 'Marketing')!;
+describe('the Communication menu', () => {
+  const marketing = NAVIGATION.find((group) => group.title === 'Communication')!;
 
   it('has exactly Social inbox, Email and Marketing campaigns', () => {
     expect(marketing.items.map((item) => ('title' in item.label ? item.label.title : ''))).toEqual([
