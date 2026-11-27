@@ -2592,3 +2592,23 @@ chat bubbles.
   `email` variant), so notes, saved replies, presence and Retry work the same in both.
 - Showing a sender's formatted email would need the HTML stored and shown in a sandboxed frame
   with its own security review. That is a separate decision, not part of this change.
+
+## ADR-088 — The Marketing section is renamed Communication
+
+**Status.** Accepted (2026-11-27). Renames the menu section from ADR-073; its areas, addresses and
+permissions are unchanged.
+
+**Context.** The owner asked, on 27 November 2026, for the section to be called Communication:
+it holds the business's conversations with customers (the Social inbox, Email and website chat),
+which are service and sales as much as marketing.
+
+**Decision.**
+- The sidebar section and its group on the Roles page are titled **Communication**, with a
+  message icon instead of the megaphone.
+- The areas keep their names and addresses: Social inbox (`/social`), Email (`/email`) and
+  Marketing campaigns (still coming soon). Campaigns keep "Marketing" in their name because they
+  are marketing, and that is what Australian law regulates (Spam Act 2003).
+- Code names (`social` permissions, `social_*` tables, the `marketing-areas` tests) are not
+  renamed: they are not shown to anyone, and renaming them would only churn migrations and tests.
+- Lead sources named "Marketing", "Marketing consent" and WhatsApp's "Marketing" template category
+  are different things and keep their names.

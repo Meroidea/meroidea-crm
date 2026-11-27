@@ -32,7 +32,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Mail,
-  Megaphone,
+  MessageSquare,
   MessagesSquare,
   Settings,
   Receipt,
@@ -142,10 +142,10 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
-    // Three areas (ADR-073): customers' messages on social media and website chat, customer email,
-    // and campaigns, which are planned next.
-    title: 'Marketing',
-    icon: Megaphone,
+    // Three areas (ADR-073), named Communication since ADR-088: customers' messages on social media
+    // and website chat, customer email, and campaigns, which are planned next.
+    title: 'Communication',
+    icon: MessageSquare,
     items: [
       {
         href: '/social',
