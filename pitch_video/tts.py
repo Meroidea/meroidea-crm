@@ -20,7 +20,11 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from script import SCENES, SPEED, VOICE
+import importlib
+import os
+
+_script = importlib.import_module(os.environ.get("PITCH_SCRIPT", "script"))
+SCENES, SPEED, VOICE = _script.SCENES, _script.SPEED, _script.VOICE
 
 ROOT = Path(__file__).parent
 AUDIO = ROOT / "build" / "audio"
@@ -50,7 +54,7 @@ def split_sentences(text: str) -> list[str]:
 def synth_scene(pipe, scene: dict) -> None:
     wav = AUDIO / f"{scene['id']}.wav"
     meta = AUDIO / f"{scene['id']}.json"
-    digest = hashlib.sha1(f"kokoro-v3|{VOICE}|{SPEED}|{scene['text']}".encode()).hexdigest()
+    digest = hashlib.sha1(f"kokoro-v4|{VOICE}|{SPEED}|{scene['text']}".encode()).hexdigest()
     if wav.exists() and meta.exists() and json.loads(meta.read_text()).get("hash") == digest:
         print(f"  {scene['id']}: cached")
         return
@@ -68,7 +72,7 @@ def synth_scene(pipe, scene: dict) -> None:
             shift = head / SR
             for tok in result.tokens or []:
                 if tok.start_ts is not None and norm(tok.text):
-                    words.append([norm(tok.text), round(offset + max(0.0, tok.start_ts - shift), 3)])
+                    words.append([norm(tok.text), round(offset + max(0.0, tok.start_ts - shift), 3), tok.text + (tok.whitespace or "")])
             chunks.append(audio)
             offset += len(audio) / SR
         gap = pause_after(sentence)

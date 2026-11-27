@@ -23,13 +23,22 @@ from scipy.io import wavfile
 from scipy.signal import butter, fftconvolve, sosfilt
 
 import sfx
-from script import SCENES
+import importlib
+import os
+
+PROJECTS = {
+    "pitch": {"script": "script", "out": "meroidea_investor_pitch.mp4", "res": None},
+    "reel": {"script": "script_reel", "out": "meroidea_reel.mp4", "res": (1080, 1920)},
+}
+PROJECT = PROJECTS[os.environ.get("PITCH_PROJECT", "pitch")]
+os.environ["PITCH_SCRIPT"] = PROJECT["script"]
+SCENES = importlib.import_module(PROJECT["script"]).SCENES
 
 ROOT = Path(__file__).parent
 BUILD = ROOT / "build"
 MEDIA = BUILD / "media"
 QUALITY_DIR = {"h": "1080p60", "l": "480p15", "m": "720p30", "k": "2160p60"}
-OUT = ROOT / "meroidea_investor_pitch.mp4"
+OUT = ROOT / PROJECT["out"]
 MANIM = Path(sys.executable).with_name("manim")
 TTS_PYTHON = ROOT.parent / ".venv-tts" / "bin" / "python"  # Kokoro needs Python 3.12
 
@@ -52,6 +61,10 @@ def measure_lufs(path: Path) -> float:
 
 
 def scene_video(scene: dict, quality: str) -> Path:
+    if PROJECT["res"]:
+        fps = {"h": 60, "l": 15, "m": 30, "k": 60}[quality]
+        w, h = PROJECT["res"] if quality in "hk" else (PROJECT["res"][0] // 2, PROJECT["res"][1] // 2)
+        return MEDIA / "videos" / scene["module"] / f"{h}p{fps}" / f"{scene['cls']}.mp4"
     return MEDIA / "videos" / scene["module"] / QUALITY_DIR[quality] / f"{scene['cls']}.mp4"
 
 
@@ -61,7 +74,11 @@ def render_one(scene: dict, quality: str) -> str:
     log = BUILD / "logs" / f"{scene['id']}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     with open(log, "w") as fh:
-        proc = subprocess.run([str(MANIM), f"-q{quality}", "--media_dir", str(MEDIA), "--disable_caching",
+        res = []
+        if PROJECT["res"]:
+            w, h = PROJECT["res"] if quality in "hk" else (PROJECT["res"][0] // 2, PROJECT["res"][1] // 2)
+            res = ["-r", f"{w},{h}"]
+        proc = subprocess.run([str(MANIM), f"-q{quality}", *res, "--media_dir", str(MEDIA), "--disable_caching",
                                f"{scene['module']}.py", scene["cls"]], cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT)
     if proc.returncode:
         raise RuntimeError(f"render failed for {scene['id']}: see {log}")

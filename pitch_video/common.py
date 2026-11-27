@@ -167,7 +167,11 @@ def background_plate(width: int = 1920, height: int = 1080) -> Path:
     dc = np.array([0xCF, 0xD4, 0xE6], np.float32)
     img = bg[None, None, :] * (1 - vis[..., None]) + dc[None, None, :] * vis[..., None]
     path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(img.astype(np.uint8)).resize((width, height), Image.LANCZOS).save(path)
+    # Write-then-rename: parallel renders may build the same plate at once.
+    import os
+    tmp = path.with_suffix(f".{os.getpid()}.tmp.png")
+    Image.fromarray(img.astype(np.uint8)).resize((width, height), Image.LANCZOS).save(tmp)
+    os.replace(tmp, path)
     return path
 
 
@@ -242,7 +246,8 @@ class Sync:
     def __init__(self, sid: str):
         meta = json.loads((ROOT / "build" / "audio" / f"{sid}.json").read_text())
         self.duration: float = meta["duration"]
-        self.words: list[tuple[str, float]] = [(w, t) for w, t in meta["words"]]
+        self.words: list[tuple[str, float]] = [(w[0], w[1]) for w in meta["words"]]
+        self.raw: list[str] = [w[2] if len(w) > 2 else w[0] for w in meta["words"]]
         self.cursor = 0
 
     def t(self, word: str) -> float:
@@ -267,7 +272,8 @@ class PitchScene(MovingCameraScene):
         self.sync = Sync(self.SID)
         from manim import ImageMobject
         # Plate is 1.3x the frame (same 20 px dot pitch) so pans and pushes never show its edge.
-        self.bg = ImageMobject(str(background_plate(2496, 1404))).set(height=config.frame_height * 1.3)
+        pw, ph = int(config.pixel_width * 1.3), int(config.pixel_height * 1.3)
+        self.bg = ImageMobject(str(background_plate(pw, ph))).set(height=config.frame_height * 1.3)
         self.bg.z_index = -100
         self.add(self.bg)
         # Constant life: drifting brand particles and a slow push-in, so no frame is ever still.
@@ -288,6 +294,26 @@ class PitchScene(MovingCameraScene):
         frame.add_updater(lambda m: m.set(width=w0 * self.zoom.get_value()
                                           * (1 - push * min(1.0, self.renderer.time / max(total, 1))))
                           .move_to(self.focus.get_center()))
+
+    def play(self, *animations, **kwargs):
+        """After a fade-out, also remove the faded group's children: FadeIn on a child registers it
+        as a separate top-level object, which would otherwise survive its parent's FadeOut."""
+        super().play(*animations, **kwargs)
+
+        def leaves(a):
+            subs = getattr(a, "animations", None)
+            if subs:
+                for s_ in subs:
+                    yield from leaves(s_)
+            else:
+                yield a
+
+        for a in animations:
+            for leaf in leaves(a):
+                if getattr(leaf, "remover", False) and getattr(leaf, "mobject", None) is not None:
+                    keep = {id(getattr(self, "bg", None)), id(getattr(self, "particles", None))}
+                    fam = [m for m in leaf.mobject.get_family() if id(m) not in keep]
+                    self.remove(*fam)
 
     def sfx(self, name: str, gain: float = 0.0, offset: float = 0.0):
         """Log a sound effect at the current animation time (+offset). Placed by build.py."""
