@@ -9,6 +9,7 @@ import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { ConversationDetails } from '@/modules/social/components/conversation-details';
 import { DetailsSheet } from '@/modules/social/components/details-sheet';
+import { EmailList } from '@/modules/social/components/email-list';
 import { EmailSenderControls } from '@/modules/social/components/email-sender-controls';
 import { InboxList } from '@/modules/social/components/inbox-list';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
@@ -46,7 +47,8 @@ import {
 } from '@/modules/social/service';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
-import { areaSwitchedOn, loadInboxArea } from './inbox-area';
+import { EmailWorkspace } from './email-workspace';
+import { areaSettings, areaSwitchedOn, loadInboxArea } from './inbox-area';
 
 export const conversationMetadata: Metadata = { title: 'Conversation' };
 
@@ -186,6 +188,129 @@ export async function ConversationScreen({
     />
   );
 
+  const threadItems = thread.messages.map((message) => ({
+    id: message.id,
+    direction: message.direction,
+    body: message.body,
+    attachments: message.attachments,
+    sentAtLabel: formatDateTime(ctx, message.sentAt),
+    status: message.status,
+    error: message.error,
+    sentByName: message.sentByName,
+    unverified: message.direction === 'inbound' && message.emailMeta?.verified === false,
+    automated: message.emailMeta?.automated === true,
+  }));
+
+  if (mailbox === 'email' && area.area.kind === 'email') {
+    return (
+      <EmailWorkspace
+        filters={filters}
+        unread={area.area.unread}
+        mailboxLabel={area.mailboxLabel}
+        settings={areaSettings(ctx, mailbox, area.area)}
+        reading
+        actions={<InboxRealtime tenantId={ctx.tenantId} />}
+        list={
+          <EmailList
+            rows={list.rows}
+            filters={filters}
+            nextCursor={list.nextCursor}
+            activeId={conversation.id}
+            hasAccounts={area.hasAccounts}
+            canManage={hasPermission(ctx, 'social.manage')}
+            timeZone={ctx.tenant.timezone}
+          />
+        }
+      >
+        <MarkRead conversationId={conversation.id} unread={conversation.unreadCount} />
+        <section
+          aria-label={`Email with ${name}`}
+          className="flex min-h-[70dvh] min-w-0 flex-1 flex-col gap-3 rounded-xl border bg-muted/30 p-3 sm:p-4 lg:min-h-0 lg:overflow-hidden"
+        >
+          <Link
+            href={back}
+            className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground lg:hidden"
+          >
+            <ArrowLeft aria-hidden className="size-4" /> Email
+          </Link>
+          <header className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1 basis-60">
+              <h2
+                className="text-lg font-semibold tracking-tight break-words sm:text-xl"
+                data-sensitive
+              >
+                {conversation.subject ?? '(no subject)'}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {thread.messages.length} {thread.messages.length === 1 ? 'message' : 'messages'}
+                {conversation.contactId && thread.contactName ? (
+                  <>
+                    {' · '}
+                    {contactLabel}:{' '}
+                    <Link
+                      href={`/contacts/${conversation.contactId}`}
+                      className="underline-offset-4 hover:underline"
+                      data-sensitive
+                    >
+                      {thread.contactName}
+                    </Link>
+                  </>
+                ) : null}
+                {snoozed
+                  ? ` · Snoozed until ${formatDateTime(ctx, conversation.snoozedUntil)}`
+                  : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canReply && !conversation.contactId && (
+                <EmailSenderControls
+                  conversationId={conversation.id}
+                  markedNotCustomer={notCustomer}
+                />
+              )}
+              <DetailsSheet title={name} alwaysShown>
+                {details}
+              </DetailsSheet>
+            </div>
+          </header>
+
+          <ThreadView
+            conversationId={conversation.id}
+            platform={platform}
+            platformLabel={PLATFORM_LABELS[platform]}
+            canReply={canReply}
+            canned={canned}
+            articles={ctx.tenant.features.includes('knowledge_base')}
+            presence={{ tenantId: ctx.tenantId, userId: ctx.userId, members }}
+            blockedReason={blockedReason}
+            humanAgent={false}
+            maxChars={REPLY_RULES[platform].maxChars}
+            attach={
+              accountLive && Object.keys(MEDIA_RULES[platform]).length > 0
+                ? {
+                    limits: MEDIA_RULES[platform],
+                    captions: CAPTIONS[platform],
+                    platformLabel: PLATFORM_LABELS[platform],
+                  }
+                : null
+            }
+            email={{
+              customerName: name,
+              customerEmail: conversation.participantEmail,
+              accountName: thread.accountName,
+              accountAddress: thread.accountUsername,
+            }}
+            messages={threadItems}
+          />
+          <p className="text-xs text-muted-foreground">
+            Replies are emailed from {thread.accountName} with the subject “Re:{' '}
+            {conversation.subject ?? 'your message'}”, and the customer’s answers come back here.
+          </p>
+        </section>
+      </EmailWorkspace>
+    );
+  }
+
   return (
     <div className="flex w-full max-w-screen-2xl flex-col gap-4">
       <MarkRead conversationId={conversation.id} unread={conversation.unreadCount} />
@@ -323,18 +448,7 @@ export async function ConversationScreen({
                 )
               ) : null
             }
-            messages={thread.messages.map((message) => ({
-              id: message.id,
-              direction: message.direction,
-              body: message.body,
-              attachments: message.attachments,
-              sentAtLabel: formatDateTime(ctx, message.sentAt),
-              status: message.status,
-              error: message.error,
-              sentByName: message.sentByName,
-              unverified: message.direction === 'inbound' && message.emailMeta?.verified === false,
-              automated: message.emailMeta?.automated === true,
-            }))}
+            messages={threadItems}
           />
           <p className={templateOnly ? 'hidden' : 'text-xs text-muted-foreground'}>
             {platform === 'email'

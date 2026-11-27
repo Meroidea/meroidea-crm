@@ -17,11 +17,20 @@ import {
  * The conversation’s details below the widest screens (ADR-067): the third pane opens as a
  * sheet, with the same content the wide layout shows beside the thread.
  */
-export function DetailsSheet({ title, children }: { title: string; children: ReactNode }) {
+export function DetailsSheet({
+  title,
+  children,
+  alwaysShown = false,
+}: {
+  title: string;
+  children: ReactNode;
+  /** Keep the button on wide screens too, where there is no details column (Email). */
+  alwaysShown?: boolean;
+}) {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="outline" size="sm" className="2xl:hidden">
+        <Button variant="outline" size="sm" className={alwaysShown ? undefined : '2xl:hidden'}>
           <PanelRight aria-hidden /> Details
         </Button>
       </SheetTrigger>

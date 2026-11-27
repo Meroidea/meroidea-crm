@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { EmailList } from '@/modules/social/components/email-list';
 import { InboxList } from '@/modules/social/components/inbox-list';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
 import type { Mailbox } from '@/modules/social/providers/types';
@@ -17,7 +18,8 @@ import { listConversations } from '@/modules/social/queries';
 import { inboxFiltersSchema } from '@/modules/social/schemas';
 import { hasPermission, requirePermission, requireTenantContext } from '@/server/context';
 
-import { areaSwitchedOn, loadInboxArea } from './inbox-area';
+import { areaSettings, areaSwitchedOn, loadInboxArea } from './inbox-area';
+import { EmailWorkspace } from './email-workspace';
 
 /**
  * An area's list with an empty reading pane (ADR-073): the Social inbox (social media and website
@@ -39,21 +41,34 @@ export async function InboxScreen({
     loadInboxArea(ctx, mailbox),
   ]);
   const canManage = hasPermission(ctx, 'social.manage');
-  const canReply = hasPermission(ctx, 'social.reply');
-  const settings = [
-    canManage && {
-      href: mailbox === 'email' ? '/social/accounts?area=email' : '/social/accounts',
-      label: mailbox === 'email' ? 'Email inbox address' : 'Connected accounts',
-    },
-    mailbox === 'social' &&
-      canManage &&
-      area.area.kind === 'social' &&
-      area.area.platforms.includes('whatsapp') && {
-        href: '/social/templates',
-        label: 'WhatsApp templates',
-      },
-    canReply && { href: '/social/replies', label: 'Saved replies' },
-  ].filter((item): item is { href: string; label: string } => Boolean(item));
+  const settings = areaSettings(ctx, mailbox, area.area);
+
+  if (mailbox === 'email' && area.area.kind === 'email') {
+    return (
+      <EmailWorkspace
+        filters={filters}
+        unread={area.area.unread}
+        mailboxLabel={area.mailboxLabel}
+        settings={settings}
+        actions={<InboxRealtime tenantId={ctx.tenantId} />}
+        list={
+          <EmailList
+            rows={rows}
+            filters={filters}
+            nextCursor={nextCursor}
+            hasAccounts={area.hasAccounts}
+            canManage={canManage}
+            timeZone={ctx.tenant.timezone}
+          />
+        }
+      >
+        <div className="hidden h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-card/50 text-center text-sm text-muted-foreground lg:flex">
+          <Mail aria-hidden className="size-8" />
+          Choose an email to read and reply.
+        </div>
+      </EmailWorkspace>
+    );
+  }
 
   return (
     <div className="flex w-full max-w-7xl flex-col gap-4">
