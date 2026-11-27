@@ -2552,3 +2552,43 @@ should feel minimal and deliberate, not like generated filler.
 **Consequences.**
 - The word is readable for most of each loop, and the dots come round every seven seconds.
 - The scan, shuffle and vortex effects of ADR-085 are removed; the sphere maths is back.
+
+## ADR-087 — Email looks like a desktop mail client: folders, a dated list and a reading pane
+
+**Status.** Accepted (2026-11-27). Changes the Email area's layout from ADR-073; the Social inbox
+is unchanged.
+
+**Context.** The owner asked, on 27 November 2026, for the Email area to look like a desktop mail
+client (a screenshot of Outlook on the web): folders on the left, a list grouped by day, and the
+open email with its sender, recipient and date. Customers' emails read better as letters than as
+chat bubbles.
+
+**Decision.**
+1. *Three panes* on a wide screen (`EmailWorkspace`):
+   - folders: the inbox address, Customers, To review and Filtered with unread counts, then the
+     views (Open, Assigned to me, Unread, Snoozed, Done, All), then the area's settings;
+   - the list: search, then threads grouped Today, Yesterday, Last 7 days, Last 30 days and
+     Older, by the business's calendar day (`email-layout.ts`). Each row shows sender, subject,
+     first line and time; unread rows are bold with a bar on the left;
+   - the reading pane: the subject as its title, then each email as a card with sender and
+     address, "To", date and Reply. The three latest are open and older ones are folded to their
+     first line. The reply box stays in view while the messages scroll.
+   On a phone the folders are a row of chips above the list, and an open email takes the screen.
+2. *Details* (customer, assignment, status, ticket) open from a Details button on every screen
+   size, giving the reading pane the width a details column would take.
+3. *What is not copied.*
+   - Received HTML is still never rendered (ADR-070). The body is the email's text, so a sender's
+     own layout, colours and buttons are not shown.
+   - The red "outside the organisation" banner is not copied: every customer email comes from
+     outside, so it would be on every message. The caution banner shows only when the sender
+     failed DKIM and DMARC, where it means something.
+   - No Reply all, Forward, Move, Junk or Archive: the inbox answers one customer per thread
+     (ADR-070), and Done, Snooze and "Not a customer" already do the sorting.
+   - No Microsoft names, marks or colours: the layout follows the convention, in Meroidea's
+     tokens.
+
+**Consequences.**
+- Email and the Social inbox share the queries, actions and reply box (`ThreadView`, now with an
+  `email` variant), so notes, saved replies, presence and Retry work the same in both.
+- Showing a sender's formatted email would need the HTML stored and shown in a sandboxed frame
+  with its own security review. That is a separate decision, not part of this change.

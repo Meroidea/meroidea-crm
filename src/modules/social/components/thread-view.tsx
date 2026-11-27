@@ -7,7 +7,6 @@ import {
   Check,
   CheckCheck,
   Clock,
-  FileText,
   Lock,
   MessageSquareText,
   Paperclip,
@@ -34,9 +33,11 @@ import {
 import { ArticlePicker } from '@/modules/kb/components/article-picker';
 
 import { findCanned } from '../canned';
-import { receiptLabel, storyLabel } from '../channel-conventions';
+import { receiptLabel } from '../channel-conventions';
 import type { StoredAttachment } from '../media';
 import type { SocialPlatform } from '../providers/types';
+import { EmailMessage, type EmailParties } from './email-message';
+import { Attachment } from './message-attachment';
 import { CHANNEL_TINT } from './platform-badge';
 import { PresenceNote, useConversationPresence, type PresenceSetup } from './conversation-presence';
 
@@ -64,93 +65,6 @@ const STATUS_ICONS: Record<string, typeof Check> = {
   read: CheckCheck,
 };
 
-function Attachment({
-  messageId,
-  index,
-  attachment,
-  platformLabel,
-}: {
-  messageId: string;
-  index: number;
-  attachment: StoredAttachment;
-  platformLabel: string;
-}) {
-  const story = storyLabel(attachment.type);
-  if (story) {
-    return (
-      <span className="flex flex-col gap-1">
-        <span className="text-xs font-medium opacity-80">{story}</span>
-        {attachment.state === 'stored' || attachment.state === 'pending' ? (
-          <Attachment
-            messageId={messageId}
-            index={index}
-            attachment={{ ...attachment, type: 'story' }}
-            platformLabel={platformLabel}
-          />
-        ) : (
-          <span className="text-xs opacity-80">The story is no longer available.</span>
-        )}
-      </span>
-    );
-  }
-  const src = `/api/social/media/${messageId}/${index}`;
-  if (attachment.state === 'stored') {
-    const mime = attachment.mimeType ?? '';
-    if (mime.startsWith('image/')) {
-      return (
-        <a href={src} target="_blank" rel="noopener noreferrer" className="block">
-          {/* eslint-disable-next-line @next/next/no-img-element -- a one-minute signed redirect per request; nothing for the image optimiser to cache */}
-          <img
-            src={src}
-            alt={`${attachment.type} sent by the customer`}
-            loading="lazy"
-            className="max-h-64 max-w-full rounded-lg object-contain"
-          />
-        </a>
-      );
-    }
-    if (mime.startsWith('video/')) {
-      return (
-        <video controls preload="metadata" src={src} className="max-h-72 max-w-full rounded-lg" />
-      );
-    }
-    if (mime.startsWith('audio/'))
-      return <audio controls preload="metadata" src={src} className="max-w-full" />;
-    return (
-      <a
-        href={src}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 underline underline-offset-4"
-      >
-        <FileText aria-hidden className="size-4" /> Open the file
-      </a>
-    );
-  }
-  if (attachment.state === 'pending') {
-    return <span className="text-xs opacity-80">Saving the {attachment.type}…</span>;
-  }
-  return (
-    <span className="text-xs opacity-80">
-      {attachment.type === 'sticker' ? 'A sticker' : `A ${attachment.type}`} that could not be saved
-      {attachment.url ? (
-        <>
-          {' '}
-          ·{' '}
-          <a
-            href={attachment.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-4"
-          >
-            open on {platformLabel}
-          </a>
-        </>
-      ) : null}
-    </span>
-  );
-}
-
 /**
  * The open conversation: its messages and the reply box. A reply appears at once as "Sending…"
  * (optimistic), then the server's own record replaces it: sent, delivered and read as receipts
@@ -171,6 +85,7 @@ export function ThreadView({
   canned = [],
   presence = null,
   articles = false,
+  email = null,
 }: {
   conversationId: string;
   messages: ThreadItem[];
@@ -196,6 +111,8 @@ export function ThreadView({
   presence?: PresenceSetup | null;
   /** Whether help articles can be linked from the reply box (ADR-071). */
   articles?: boolean;
+  /** Email (ADR-087): show each message as an email between these two, not as a bubble. */
+  email?: EmailParties | null;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<'reply' | 'note'>('reply');
@@ -214,6 +131,16 @@ export function ThreadView({
   useEffect(() => () => clearTimeout(typingTimer.current), []);
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const replyBox = useRef<HTMLTextAreaElement>(null);
+  const focusReply = () => {
+    setMode('reply');
+    setPicker(null);
+    // The box exists once the reply tab is shown; wait a frame for it.
+    requestAnimationFrame(() => {
+      replyBox.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      replyBox.current?.focus();
+    });
+  };
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [shown, addOptimistic] = useOptimistic(messages, (current, reply: ThreadItem) => [
@@ -403,14 +330,34 @@ export function ThreadView({
     });
 
   return (
-    <div className="flex flex-1 flex-col gap-3">
+    // Email keeps its reply box in view and scrolls the messages above it.
+    <div className={cn('flex flex-1 flex-col gap-3', email && 'min-h-0')}>
       <ol
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 lg:min-h-24"
+        className={cn(
+          'flex min-h-0 flex-1 flex-col overflow-y-auto pr-1 lg:min-h-24',
+          email ? 'gap-3' : 'gap-2',
+        )}
         aria-label="Messages"
         aria-live="polite"
       >
         {shown.length === 0 && <li className="text-sm text-muted-foreground">No messages yet.</li>}
-        {shown.map((message) => {
+        {shown.map((message, index) => {
+          if (email && message.direction !== 'note') {
+            return (
+              <li key={message.id}>
+                <EmailMessage
+                  message={message}
+                  parties={email}
+                  // A long thread opens at its last three emails; older ones start folded.
+                  folded={index < shown.length - 3}
+                  canReply={canReply}
+                  busy={isPending}
+                  onReply={focusReply}
+                  onRetry={retry}
+                />
+              </li>
+            );
+          }
           if (message.direction === 'note') {
             return (
               <li key={message.id} className="flex flex-col items-stretch gap-1 px-2 sm:px-8">
@@ -577,6 +524,7 @@ export function ThreadView({
               )}
               <div className="relative">
                 <Textarea
+                  ref={replyBox}
                   aria-label={
                     mode === 'note' ? 'Private note for colleagues' : 'Reply to the customer'
                   }
