@@ -2708,3 +2708,57 @@ panel.
 - Not built: drafts, signatures, pictures inside the text, tables, fonts, nested lists, address
   suggestions from contacts, scheduled sending, Reply all and Forward, and formatting in the reply
   box (replies stay plain text).
+
+## ADR-091 — Email like a mail client: drafts, signatures, fonts, tables, pictures, suggestions, Reply all, Forward and formatted replies
+
+**Status.** Accepted (2026-11-28). Completes ADR-090's "not built" list.
+
+**Context.** The owner asked, on 28 November 2026, for the rest of a desktop mail client's
+writing tools: drafts, signatures, pictures inside the text, tables, fonts, address suggestions
+from contacts, Reply all and Forward, and formatting in the reply box.
+
+**Decision.**
+1. *Fonts, tables and pictures* join the email document (ADR-090), which stays the only thing
+   the HTML is built from.
+   - Fonts are the email-safe families (Arial, Verdana, Tahoma, Trebuchet MS, Georgia, Times New
+     Roman, Courier New), with fallbacks, since mail programs drop web fonts.
+   - Tables: up to 50 rows of 10 cells, an optional header row, rows and columns added or deleted
+     from the caret's cell.
+   - A picture block holds only a path in the writer's own Compose folder (`COMPOSE_PATH`). The
+     editor shows it through `/api/social/compose-file/<file>`: only the name comes from the
+     address, and the folder is always the signed-in person's.
+   - On send each picture is read back, must be an image of the sender's own, and goes as an
+     embedded attachment with a Content-ID (`cid:`). Nothing loads from the web, so pictures show
+     without prompts and cannot track opens. At most 20 pictures; files and pictures together at
+     most 25 MB.
+2. *Drafts* (`email_drafts`): Compose saves a moment after each change.
+   - Private to the writer, by RLS (`email_drafts_own`) and in every query.
+   - A Drafts folder lists them; one reopens in Compose.
+   - Sending deletes the draft in the same transaction; its files become the email's.
+   - Discarding deletes it with its files, except a picture the signature still uses.
+   - Autosaves are not audited: a draft is the writer's working copy, not a business record.
+3. *Signatures* (`email_signatures`): one per person per business, private like a draft, written
+   with the same editor (pictures included, such as a logo).
+   - Added below two empty lines to new emails and, as chosen, to replies and forwards.
+   - Saving is audited without the words.
+4. *Address suggestions*: contacts whose name or email starts with what is typed in To, Cc or
+   Bcc. Only within `contacts.view` and its record scope (`scopeFilter`), at most eight.
+5. *Formatted replies*: the email thread's Reply tab is the same editor (`EmailReplyBox`), with
+   Cc, Bcc, files, pictures, the signature, saved replies and help article links.
+   `replyWithEmail` checks files and pictures as Compose does. Cc and Bcc count against the daily
+   recipient limits, so replies cannot get round them; the thread's person does not count.
+6. *Reply all* copies in everyone an email went to, less the thread's person and the business's
+   own inbox addresses. Their answers start their own threads (ADR-070).
+7. *Forward* opens Compose with "Fwd:", who the email was from and to, and its text and
+   formatting.
+   - Only a message the person may read, never a private note.
+   - Its files and pictures are copied into the forwarder's own Compose folder, so the forward
+     passes the same ownership checks and the original never changes.
+   - Files Compose cannot send are named in a notice.
+
+**Consequences.**
+- Migration `0088` creates both tables with RLS, grants, the `email_channel` feature switch and
+  the `inbox_channel` rule. `deleteBusiness` finds them through their foreign keys.
+- Abandoned uploads (a closed tab before a draft saved) still wait for a sweep.
+- Not built: several signatures, draft sharing, scheduled sending, read receipts, nested lists,
+  and pasting formatted text (pasting keeps the words only, by design).

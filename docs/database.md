@@ -1845,6 +1845,22 @@ email_sender_rules  id, tenant_id, email (lower case, 3-200), kind 'not_customer
 - `app.erase_contact_traces` also removes `to`, `cc` and `bcc` from `email_outbound` in the
   person's threads.
 
+**Drafts and signatures (migration `0088`, ADR-091).**
+```sql
+email_drafts      id, tenant_id, user_id (composite FK → tenant_memberships), account_id (composite
+                  FK → social_accounts), subject (<= 200), content jsonb ({to, cc, bcc, subject,
+                  doc, attachments}, <= 1 MB as text), created_at, updated_at
+                  unique (tenant_id, id); index (tenant_id, user_id, updated_at)
+email_signatures  id, tenant_id, user_id (composite FK), doc jsonb (<= 200 KB as text),
+                  use_on_new bool default true, use_on_replies bool default true, updated_at
+                  unique (tenant_id, id); unique (tenant_id, user_id)
+```
+- RLS: `email_drafts_own` / `email_signatures_own`: all actions only where `user_id = auth.uid()`
+  and the person has `social.reply`. Restrictive `feature_switch` on `email_channel`; drafts also
+  carry the `inbox_channel` rule on their inbox.
+- Composed messages' `attachments` entries may carry `inline: true` and `contentId` (pictures in
+  the text, ADR-091).
+
 ### social_canned_responses
 A saved reply (ADR-068). Shared with the team when `owner_user_id` is empty, else one person's.
 ```sql

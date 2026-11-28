@@ -247,6 +247,16 @@ change as touching sensitive personal data.
   made up.
 - Sessions never write `social_messages.email_meta` or `email_message_id` (restrictive policy
   `social_messages_email_columns`); keep it whenever the insert grant or policies change.
+- Pictures in an email (ADR-091) are only paths matching `COMPOSE_PATH`, re-checked on send by
+  `prepareComposedFiles` as the sender's own images, and sent as `cid:` attachments. Never let a
+  picture be a web address, and serve unsent ones only through `/api/social/compose-file/<file>`,
+  which builds the folder from the signed-in person, never from the request.
+- Drafts and signatures are their owner's alone (`email_drafts_own`, `email_signatures_own`);
+  keep `user_id = auth.uid()` in the policies and in every query. Never audit a draft's or a
+  signature's words.
+- Forwarding copies the original's files into the forwarder's own folder (`prepareForward`); it
+  reads the message under RLS and never a note. Address suggestions stay within `contacts.view`
+  and `scopeFilter`.
 - The Email area's "Not a customer" rules (ADR-073) only sort threads into Filtered; they never
   stop an email being received or stored. Keep `created_by = auth.uid()` on insert and no update
   grant, and never put the address in an audit row.

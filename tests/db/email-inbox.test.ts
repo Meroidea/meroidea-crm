@@ -10,7 +10,18 @@ import { textToEmailDoc, type EmailDoc } from '@/modules/social/email-doc';
 import { createEmailInbox } from '@/modules/social/email-service';
 import { getConversation, listAccounts, listConversations } from '@/modules/social/queries';
 import {
+  deleteDraft,
+  getDraft,
+  getSignature,
+  listDrafts,
+  prepareForward,
+  saveDraft,
+  saveSignature,
+  suggestAddresses,
+} from '@/modules/social/compose-service';
+import {
   replyToConversation,
+  replyWithEmail,
   retryReply,
   startComposeUpload,
   startEmailConversation,
@@ -233,8 +244,10 @@ const compose = (input: {
   body?: string;
   doc?: EmailDoc;
   attachments?: { path: string; fileName: string; mimeType: string }[];
+  draftId?: string;
 }) => ({
   accountId,
+  ...(input.draftId ? { draftId: input.draftId } : {}),
   to: input.to,
   cc: input.cc ?? [],
   bcc: input.bcc ?? [],
@@ -833,6 +846,195 @@ describe('composing with Cc, Bcc, formatting and files (ADR-090)', () => {
     expect(
       await insert({ direction: 'inbound', outbound: JSON.stringify({ to: [], doc: [] }) }),
     ).toBe('refused');
+  });
+});
+
+describe('drafts, signatures, suggestions, formatted replies and forwards (ADR-091)', () => {
+  const PDF = new TextEncoder().encode('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n');
+  const PNG = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1,
+    0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+  ]);
+  const storage = () => createSupabaseAdminClient().storage.from('social-media');
+
+  async function put(ctx: TenantContext, name: string, bytes: Uint8Array, mimeType: string) {
+    const ticket = await startComposeUpload(ctx, {
+      accountId,
+      fileName: name,
+      mimeType,
+      size: bytes.byteLength,
+    });
+    const { error } = await storage().uploadToSignedUrl(
+      ticket.path,
+      ticket.token,
+      new Blob([new Uint8Array(bytes)]),
+      {
+        contentType: mimeType,
+      },
+    );
+    expect(error).toBeNull();
+    return ticket.path;
+  }
+  const exists = async (path: string) => {
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    const { data } = await storage().list(folder, { search: path.split('/').pop() });
+    return (data ?? []).length > 0;
+  };
+
+  it('a draft is its writer’s alone, and sending it deletes it', async () => {
+    const saved = await saveDraft(manager, {
+      accountId,
+      to: ['half-typed@'],
+      cc: [],
+      bcc: [],
+      subject: 'Draft subject',
+      doc: [],
+      attachments: [],
+    });
+    expect((await listDrafts(manager)).map((draft) => draft.id)).toContain(saved.id);
+    // Nobody else sees it: not the owner of the business, not another business.
+    expect(await getDraft(owner, saved.id)).toBeNull();
+    expect((await listDrafts(owner)).map((draft) => draft.id)).not.toContain(saved.id);
+    const seen = (await withRls(owner, (tx) =>
+      tx.execute(sql`select count(*)::int as n from email_drafts where id = ${saved.id}`),
+    )) as unknown as { n: number }[];
+    expect(seen[0]!.n).toBe(0);
+    await expectCode(
+      () =>
+        saveDraft(owner, {
+          id: saved.id,
+          accountId,
+          to: [],
+          cc: [],
+          bcc: [],
+          subject: 'Taken over',
+          doc: [],
+          attachments: [],
+        }),
+      'NOT_FOUND',
+    );
+    const { conversationId } = await startEmailConversation(
+      manager,
+      compose({ to: [RECIPIENT_COMPOSE], subject: 'From a draft', body: 'Hi', draftId: saved.id }),
+    );
+    expect(conversationId).toBeTruthy();
+    expect(await getDraft(manager, saved.id)).toBeNull();
+  });
+
+  it('a draft cannot name another person’s file, and discarding removes its own', async () => {
+    const theirs = await put(owner, 'theirs.pdf', PDF, 'application/pdf');
+    const file = { fileName: 'x.pdf', mimeType: 'application/pdf', size: PDF.byteLength };
+    const base = { accountId, to: [], cc: [], bcc: [], subject: '', doc: [] };
+    await expectCode(
+      () => saveDraft(manager, { ...base, attachments: [{ ...file, path: theirs }] }),
+      'VALIDATION',
+    );
+    const mine = await put(manager, 'mine.pdf', PDF, 'application/pdf');
+    const saved = await saveDraft(manager, { ...base, attachments: [{ ...file, path: mine }] });
+    expect(await exists(mine)).toBe(true);
+    await deleteDraft(manager, saved.id, { removeFiles: true });
+    expect(await exists(mine)).toBe(false);
+  });
+
+  it('a signature is its owner’s alone; an empty one is removed', async () => {
+    const doc: EmailDoc = [
+      { type: 'paragraph', content: [{ text: 'Morgan, Harbour Cafe', b: true }] },
+    ];
+    await saveSignature(manager, { doc, useOnNew: true, useOnReplies: false });
+    expect(await getSignature(manager)).toEqual({ doc, useOnNew: true, useOnReplies: false });
+    expect(await getSignature(owner)).toBeNull();
+    const seen = (await withRls(owner, (tx) =>
+      tx.execute(
+        sql`select count(*)::int as n from email_signatures where user_id = ${manager.userId}`,
+      ),
+    )) as unknown as { n: number }[];
+    expect(seen[0]!.n).toBe(0);
+    await saveSignature(manager, { doc: [], useOnNew: true, useOnReplies: true });
+    expect(await getSignature(manager)).toBeNull();
+  });
+
+  it('suggests contacts the person may see, and nothing from another business', async () => {
+    expect(await suggestAddresses(owner, 'kim')).toContainEqual({
+      name: 'Kim',
+      email: KNOWN,
+    });
+    expect(await suggestAddresses(owner, 'k')).toEqual([]);
+    expect(await suggestAddresses(outsider, 'kim')).toEqual([]);
+    // "%" is searched for, not a wildcard that matches everyone.
+    expect(await suggestAddresses(owner, '%%')).toEqual([]);
+  });
+
+  it('a formatted reply carries Cc, files and an embedded picture', async () => {
+    const [thread] = await rows<{ id: string }>(sql`
+      select id from social_conversations
+      where account_id = ${accountId} and participant_email = ${KNOWN} order by created_at limit 1`);
+    const picture = await put(manager, 'logo.png', PNG, 'image/png');
+    const pdf = await put(manager, 'menu.pdf', PDF, 'application/pdf');
+    const { messageId } = await replyWithEmail(manager, {
+      conversationId: thread!.id,
+      cc: [`boss-${stamp}@example.com`, KNOWN],
+      bcc: [],
+      doc: [
+        { type: 'paragraph', content: [{ text: 'Here you go' }] },
+        { type: 'image', path: picture, alt: 'Logo' },
+      ],
+      attachments: [{ path: pdf, fileName: 'menu.pdf', mimeType: 'application/pdf' }],
+    });
+    const sent = sends.at(-1)!;
+    expect(sent.body.to).toEqual([KNOWN]);
+    // The thread's person is already the recipient: not copied again.
+    expect(sent.body.cc).toEqual([`boss-${stamp}@example.com`]);
+    const files = sent.body.attachments as { filename: string; content_id?: string }[];
+    const inline = files.find((file) => file.content_id);
+    expect(files.map((file) => file.filename)).toEqual(['menu.pdf', 'picture-1.png']);
+    expect(String(sent.body.html)).toContain(`src="cid:${inline!.content_id}"`);
+    const [stored] = await rows<{ attachments: { inline?: boolean }[] }>(
+      sql`select attachments from social_messages where id = ${messageId}`,
+    );
+    expect(stored!.attachments.map((file) => Boolean(file.inline))).toEqual([false, true]);
+  });
+
+  it('a picture must be the sender’s own upload', async () => {
+    const theirs = await put(owner, 'theirs.png', PNG, 'image/png');
+    await expectCode(
+      () =>
+        startEmailConversation(
+          manager,
+          compose({
+            to: [RECIPIENT_COMPOSE],
+            subject: 'x',
+            doc: [{ type: 'image', path: theirs, alt: '' }],
+          }),
+        ),
+      'VALIDATION',
+    );
+  });
+
+  it('forwarding copies the email and its files into the forwarder’s own folder', async () => {
+    const pdf = await put(manager, 'quote.pdf', PDF, 'application/pdf');
+    const { messageId } = await startEmailConversation(
+      manager,
+      compose({
+        to: [RECIPIENT_COMPOSE],
+        subject: 'Re: The quote',
+        doc: [{ type: 'paragraph', content: [{ text: 'Attached', i: true }] }],
+        attachments: [{ path: pdf, fileName: 'quote.pdf', mimeType: 'application/pdf' }],
+      }),
+    );
+    // The owner forwards the manager's email (earlier tests used up the owner's daily sends).
+    const forward = await prepareForward(owner, messageId);
+    expect(forward?.subject).toBe('Fwd: The quote');
+    expect(forward?.doc).toContainEqual({
+      type: 'paragraph',
+      content: [{ text: 'Attached', i: true }],
+    });
+    const copy = forward!.attachments[0]!;
+    expect(copy.fileName).toBe('quote.pdf');
+    expect(copy.path.startsWith(`${tenantId}/social/compose/${owner.userId}/`)).toBe(true);
+    expect(copy.path).not.toBe(pdf);
+    expect(await exists(pdf)).toBe(true);
+    expect(await prepareForward(outsider, messageId)).toBeNull();
   });
 });
 

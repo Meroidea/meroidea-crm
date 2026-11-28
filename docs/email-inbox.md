@@ -121,10 +121,19 @@ In `/platform`, open the business and tick **Email inbox**. Its Admin then opens
   - A person can email at most 200 people a day from Compose, and an inbox 500; replies are not
     limited. Addresses at the inbox domain are refused.
   - It is for one-to-one email. Marketing to many people belongs in campaigns, with consent.
+- **Writing like a mail client (ADR-091).**
+  - Fonts (email-safe families), tables, and pictures inside the text, sent as embedded pictures
+    that show without loading anything from the web.
+  - **Drafts** save as you write and wait in the Drafts folder; only you see yours.
+  - **My signature** (in Email's settings menu) is added to new emails and, if you choose,
+    replies and forwards; only you see and use yours.
+  - To, Cc and Bcc suggest contacts you may see as you type.
+  - The reply box has the same formatting, files, pictures, Cc and Bcc. **Reply all** copies in
+    everyone else the email went to; **Forward** opens Compose with the email and its files.
 
 ## 7. Not done yet
 
 - Sending from a business's own domain (e.g. `support@harbourcafe.com.au`). That needs the
   business's domain verified in Resend; replies come from the inbox address for now.
-- Drafts, signatures and formatting in replies.
+- Several signatures per person, scheduled sending, read receipts.
 - Keeping the original HTML of a received email.
