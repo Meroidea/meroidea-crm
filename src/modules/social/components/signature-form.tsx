@@ -1,16 +1,14 @@
 'use client';
 
-import { createBrowserClient } from '@supabase/ssr';
 import { Save } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { ErrorNote, useActionRunner } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
-import { publicEnv } from '@/lib/env.public';
-import { saveSignatureAction, startComposeUploadAction } from '@/modules/social/actions';
+import { saveSignatureAction } from '@/modules/social/actions';
 
 import type { EmailDoc } from '../email-doc';
-import { MAX_COMPOSE_FILE_BYTES } from '../schemas';
+import { uploadComposePicture } from './compose-upload';
 import { EmailEditor, type EmailEditorHandle } from './email-editor';
 
 /**
@@ -33,35 +31,12 @@ export function SignatureForm({
 
   const uploadPicture = async (file: File): Promise<string | null> => {
     setSaved(false);
-    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
-      setError('Pictures can be JPEG, PNG, GIF or WebP.');
+    const result = await uploadComposePicture(accountId, file);
+    if ('error' in result) {
+      setError(result.error);
       return null;
     }
-    if (file.size > MAX_COMPOSE_FILE_BYTES) {
-      setError('That picture is too large.');
-      return null;
-    }
-    const ticket = await startComposeUploadAction({
-      accountId,
-      fileName: file.name,
-      mimeType: file.type,
-      size: file.size,
-    });
-    if (!ticket.ok) {
-      setError(ticket.error.message);
-      return null;
-    }
-    const uploaded = await createBrowserClient(
-      publicEnv.supabaseUrl,
-      publicEnv.supabasePublishableKey,
-    )
-      .storage.from('social-media')
-      .uploadToSignedUrl(ticket.data.path, ticket.data.token, file, { contentType: file.type });
-    if (uploaded.error) {
-      setError('The picture did not upload. Try again.');
-      return null;
-    }
-    return ticket.data.path;
+    return result.path;
   };
 
   return (

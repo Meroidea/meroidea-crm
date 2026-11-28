@@ -55,6 +55,8 @@ export type EmailEditorHandle = {
   load: (doc: EmailDoc) => void;
   /** Adds a document at the end (a signature), with an empty line before it. */
   append: (doc: EmailDoc) => void;
+  /** Types words at the caret, or at the start when the text has not been touched. */
+  insertText: (text: string) => void;
 };
 
 /** Where a picture in the writer's own Compose folder is shown from, in the editor. */
@@ -161,6 +163,27 @@ export const EmailEditor = forwardRef<
     load: (doc) => {
       // Markup built here from a checked document, every character escaped (email-doc.ts).
       if (area.current) area.current.innerHTML = emailDocEditorHtml(doc, composeFileUrl);
+    },
+    insertText: (text) => {
+      if (!area.current || disabled) return;
+      area.current.focus();
+      const range = saved.current;
+      const selection = document.getSelection();
+      if (range && area.current.contains(range.startContainer)) {
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      } else {
+        // Untouched: above the signature, at the very start.
+        const start = document.createRange();
+        start.setStart(area.current, 0);
+        start.collapse(true);
+        selection?.removeAllRanges();
+        selection?.addRange(start);
+      }
+      document.execCommand('insertText', false, text);
+      const after = document.getSelection();
+      if (after && after.rangeCount > 0) saved.current = after.getRangeAt(0).cloneRange();
+      onInput?.();
     },
     append: (doc) => {
       if (!area.current || doc.length === 0) return;

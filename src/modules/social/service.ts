@@ -85,6 +85,7 @@ import {
 import type {
   AssignInput,
   ComposeEmailInput,
+  EmailReplyInput,
   MediaReplyInput,
   ReplyInput,
   SnoozeInput,
@@ -949,6 +950,105 @@ export async function startEmailConversation(
     }
     throw error;
   }
+}
+
+/**
+ * A formatted email reply on a thread (ADR-091): to the thread's person, with Cc, Bcc, formatted
+ * text, files and pictures, checked as Compose's are. Cc and Bcc count against the daily
+ * recipient limits, so a reply cannot become a way round them; the thread's person does not.
+ */
+export async function replyWithEmail(
+  ctx: TenantContext,
+  input: EmailReplyInput,
+  now = new Date(),
+): Promise<{ messageId: string }> {
+  requirePermission(ctx, 'social.reply');
+  const domain = inboxDomain();
+  if (!domain || !emailInboxConfigured()) {
+    throw new AppError('CONFLICT', 'Email is not set up on this platform yet.');
+  }
+  const [thread] = await withRls(ctx, (tx) =>
+    tx
+      .select({ email: socialConversations.participantEmail, accountId: socialAccounts.id })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.id, input.conversationId),
+          eq(socialAccounts.platform, 'email'),
+        ),
+      )
+      .limit(1),
+  );
+  if (!thread?.email) throw new AppError('NOT_FOUND', 'That conversation was not found.');
+  const seen = new Set<string>([thread.email]);
+  const once = (list: string[]) =>
+    list.filter((address) => (seen.has(address) ? false : (seen.add(address), true)));
+  const cc = once(input.cc);
+  const bcc = once(input.bcc);
+  if ([...cc, ...bcc].some((address) => address.endsWith(`@${domain}`))) {
+    throw new AppError('VALIDATION', 'Choose addresses outside the inbox.');
+  }
+  const copies = cc.length + bcc.length;
+  if (copies > 0) {
+    await enforceRateLimit(
+      {
+        bucket: 'email-new:person',
+        subject: `${ctx.tenantId}:${ctx.userId}`,
+        limit: NEW_EMAIL_RECIPIENTS_PER_PERSON_DAILY,
+        windowSeconds: 86_400,
+        weight: copies,
+      },
+      `You can copy at most ${NEW_EMAIL_RECIPIENTS_PER_PERSON_DAILY} people a day into emails.`,
+    );
+    await enforceRateLimit(
+      {
+        bucket: 'email-new:inbox',
+        subject: thread.accountId,
+        limit: NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY,
+        windowSeconds: 86_400,
+        weight: copies,
+      },
+      `This inbox has emailed ${NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY} people today, its daily limit.`,
+    );
+  }
+  const files = await prepareComposedFiles(ctx, input);
+  const body = emailDocText(input.doc);
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const checked = await checkReply(tx, ctx, input.conversationId, body, now);
+    const to = [checked.conversation.participantEmail!];
+    const [pending] = await tx
+      .insert(socialMessages)
+      .values({
+        tenantId: ctx.tenantId,
+        conversationId: checked.conversation.id,
+        accountId: checked.account.id,
+        direction: 'outbound',
+        body,
+        attachments: storedComposedFiles(files),
+        emailOutbound: { to, cc, bcc, doc: input.doc },
+        sentAt: now,
+        sentByUserId: ctx.userId,
+        status: 'sending',
+      })
+      .returning({ id: socialMessages.id });
+    return {
+      ...checked,
+      messageId: pending!.id,
+      body,
+      template: null,
+      media: null,
+      composed: { to, cc, bcc, doc: input.doc, ...files },
+    };
+  });
+  return deliver(ctx, prepared, now, 'create');
 }
 
 /** A template's body with the values in place of its placeholders, as the customer sees it. */

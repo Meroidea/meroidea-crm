@@ -391,3 +391,25 @@ export type EmailSignatureInput = z.output<typeof emailSignatureSchema>;
 
 /** What is being typed in To, Cc or Bcc, for address suggestions (ADR-091). */
 export const addressQuerySchema = z.object({ q: z.string().trim().max(100) });
+
+/**
+ * A formatted email reply on a thread (ADR-091): to the thread's person, with Cc and Bcc, text
+ * and files as Compose writes them.
+ */
+export const emailReplySchema = z.object({
+  conversationId: z.uuid(),
+  cc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+  bcc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+  doc: emailDocSchema,
+  attachments: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(500),
+        fileName: z.string().trim().min(1).max(200),
+        mimeType: z.string().max(200),
+      }),
+    )
+    .max(MAX_COMPOSE_FILES)
+    .default([]),
+});
+export type EmailReplyInput = z.output<typeof emailReplySchema>;

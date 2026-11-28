@@ -1,7 +1,7 @@
 import { Mail } from 'lucide-react';
 import { notFound } from 'next/navigation';
 
-import { getDraft, getSignature } from '@/modules/social/compose-service';
+import { getDraft, getSignature, prepareForward } from '@/modules/social/compose-service';
 import { EmailCompose, type ComposeStart } from '@/modules/social/components/email-compose';
 import type { EmailDoc } from '@/modules/social/email-doc';
 import { EmailList } from '@/modules/social/components/email-list';
@@ -58,7 +58,13 @@ export async function ComposeScreen({
       {canCompose ? (
         <EmailCompose
           // A different draft or forward is a different email: start the form afresh.
-          key={typeof query.draft === 'string' ? query.draft : 'new'}
+          key={
+            typeof query.draft === 'string'
+              ? query.draft
+              : typeof query.forward === 'string'
+                ? `forward-${query.forward}`
+                : 'new'
+          }
           inboxes={area.newEmailFrom}
           start={start}
           timeZone={ctx.tenant.timezone}
@@ -101,5 +107,21 @@ async function composeStart(
     };
   }
   const signature = await getSignature(ctx);
+  const forwardId = typeof query.forward === 'string' ? query.forward : null;
+  if (forwardId && /^[0-9a-f-]{36}$/.test(forwardId)) {
+    const forward = await prepareForward(ctx, forwardId);
+    if (!forward) notFound();
+    // As a mail program forwards: room to write, the signature, then the forwarded email.
+    const signed = signature?.useOnReplies ? [BLANK_LINE, ...signature.doc] : [];
+    return {
+      subject: forward.subject,
+      doc: [BLANK_LINE, ...signed, ...forward.doc],
+      attachments: forward.attachments,
+      notice:
+        forward.skipped > 0
+          ? `${forward.skipped} file${forward.skipped === 1 ? '' : 's'} could not be forwarded: Compose sends images, PDF and Office files up to 10 MB.`
+          : undefined,
+    };
+  }
   return signature?.useOnNew ? { doc: [BLANK_LINE, BLANK_LINE, ...signature.doc] } : {};
 }

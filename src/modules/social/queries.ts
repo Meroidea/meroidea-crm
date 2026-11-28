@@ -363,7 +363,7 @@ export type ThreadMessage = {
   error: string | null;
   sentByName: string | null;
   /** Email: whether the sender passed DKIM or DMARC, and whether a machine sent it. */
-  emailMeta: { verified?: boolean; automated?: boolean } | null;
+  emailMeta: { verified?: boolean; automated?: boolean; to?: string[]; cc?: string[] } | null;
   /** Email written in Compose (ADR-090): recipients and formatting, checked again here. */
   composed: StoredCompose | null;
 };

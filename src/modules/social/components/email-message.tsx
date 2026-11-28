@@ -1,4 +1,5 @@
-import { AlertTriangle, Reply, RotateCcw, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Forward, Reply, ReplyAll, RotateCcw, ShieldAlert } from 'lucide-react';
+import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { initials } from '@/lib/format';
@@ -30,6 +31,7 @@ export function EmailMessage({
   canReply,
   busy,
   onReply,
+  onReplyAll,
   onRetry,
 }: {
   message: ThreadItem;
@@ -38,6 +40,8 @@ export function EmailMessage({
   canReply: boolean;
   busy: boolean;
   onReply: () => void;
+  /** Reply all (ADR-091), when the email went to others too. */
+  onReplyAll?: () => void;
   onRetry: (messageId: string) => void;
 }) {
   const outbound = message.direction === 'outbound';
@@ -185,10 +189,22 @@ export function EmailMessage({
             )}
           </p>
         )}
-        {!outbound && canReply && (
-          <div>
-            <Button type="button" variant="outline" size="sm" onClick={onReply}>
-              <Reply aria-hidden /> Reply
+        {canReply && !message.id.startsWith('pending-') && (
+          <div className="flex flex-wrap gap-2">
+            {!outbound && (
+              <Button type="button" variant="outline" size="sm" onClick={onReply}>
+                <Reply aria-hidden /> Reply
+              </Button>
+            )}
+            {onReplyAll && (
+              <Button type="button" variant="outline" size="sm" onClick={onReplyAll}>
+                <ReplyAll aria-hidden /> Reply all
+              </Button>
+            )}
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/email/compose?forward=${message.id}`}>
+                <Forward aria-hidden /> Forward
+              </Link>
             </Button>
           </div>
         )}

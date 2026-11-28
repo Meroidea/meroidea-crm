@@ -30,6 +30,7 @@ import {
   composeUploadSchema,
   draftIdSchema,
   emailDraftSchema,
+  emailReplySchema,
   emailSignatureSchema,
   noteSchema,
   replySchema,
@@ -116,6 +117,12 @@ export const discardDraftAction = authedAction(
 export const suggestAddressesAction = authedAction(
   { permission: 'social.reply', input: addressQuerySchema },
   (ctx, input) => compose.suggestAddresses(ctx, input.q),
+);
+
+/** A formatted email reply, with Cc, Bcc, files and pictures (ADR-091). */
+export const emailReplyAction = authedAction(
+  { permission: 'social.reply', input: emailReplySchema, revalidate: paths },
+  (ctx, input) => social.replyWithEmail(ctx, input),
 );
 
 /** Saves the person's own email signature (ADR-091). */

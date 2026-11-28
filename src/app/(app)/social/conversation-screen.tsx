@@ -12,7 +12,11 @@ import { DetailsSheet } from '@/modules/social/components/details-sheet';
 import { EmailList } from '@/modules/social/components/email-list';
 import { EmailSenderControls } from '@/modules/social/components/email-sender-controls';
 import { InboxList } from '@/modules/social/components/inbox-list';
+import { getSignature } from '@/modules/social/compose-service';
+import { EmailReplyBox } from '@/modules/social/components/email-reply-box';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
+import { parseAddress } from '@/modules/social/email-parse';
+import { emailInboxConfigured, inboxDomain } from '@/modules/social/providers/resend';
 import {
   CHANNEL_BORDER,
   CustomerAvatar,
@@ -188,6 +192,26 @@ export async function ConversationScreen({
     />
   );
 
+  // Reply all (ADR-091): everyone an email went to, less the thread's person and our inboxes.
+  const domain = inboxDomain();
+  const replyAllCc = (message: (typeof thread.messages)[number]): string[] => {
+    if (mailbox !== 'email' || message.direction === 'note') return [];
+    const listed =
+      message.direction === 'inbound'
+        ? [...(message.emailMeta?.to ?? []), ...(message.emailMeta?.cc ?? [])]
+        : [...(message.composed?.to ?? []), ...(message.composed?.cc ?? [])];
+    const addresses = listed
+      .map((raw) => parseAddress(raw).email)
+      .filter((email): email is string => Boolean(email))
+      .filter(
+        (email) =>
+          email !== conversation.participantEmail && !(domain && email.endsWith(`@${domain}`)),
+      );
+    return [...new Set(addresses)];
+  };
+  const signature =
+    mailbox === 'email' && canReply && emailInboxConfigured() ? await getSignature(ctx) : null;
+
   const threadItems = thread.messages.map((message) => ({
     id: message.id,
     direction: message.direction,
@@ -200,6 +224,7 @@ export async function ConversationScreen({
     unverified: message.direction === 'inbound' && message.emailMeta?.verified === false,
     automated: message.emailMeta?.automated === true,
     composed: message.composed,
+    replyAllCc: replyAllCc(message),
   }));
 
   if (mailbox === 'email' && area.area.kind === 'email') {
@@ -303,6 +328,17 @@ export async function ConversationScreen({
               accountName: thread.accountName,
               accountAddress: thread.accountUsername,
             }}
+            emailReply={
+              canReply && emailInboxConfigured() ? (
+                <EmailReplyBox
+                  conversationId={conversation.id}
+                  accountId={thread.accountId}
+                  signature={signature?.useOnReplies ? signature.doc : null}
+                  canned={canned}
+                  articles={ctx.tenant.features.includes('knowledge_base')}
+                />
+              ) : null
+            }
             messages={threadItems}
           />
           <p className="text-xs text-muted-foreground">

@@ -1,18 +1,43 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import { and, asc, count, desc, eq, ilike, isNotNull, isNull, or } from 'drizzle-orm';
 
-import { contacts, emailDrafts, emailSignatures, socialAccounts } from '@/db/schema';
+import {
+  contacts,
+  emailDrafts,
+  emailSignatures,
+  socialAccounts,
+  socialConversations,
+  socialMessages,
+} from '@/db/schema';
 import { AppError } from '@/lib/errors';
 import { scopeFilter } from '@/lib/permissions/scope';
 import { contactScope } from '@/modules/contacts/access';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
-import { removeSocialMedia } from '@/server/storage';
+import { copySocialMedia, removeSocialMedia } from '@/server/storage';
 
-import { emailDocDraftSchema, emailDocImagePaths, emailDocText, type EmailDoc } from './email-doc';
-import { emailDraftSchema, type EmailDraftInput, type EmailSignatureInput } from './schemas';
+import {
+  emailDocDraftSchema,
+  emailDocImagePaths,
+  emailDocText,
+  readStoredCompose,
+  textToEmailDoc,
+  withImagePaths,
+  type EmailDoc,
+} from './email-doc';
+import type { StoredAttachment } from './media';
+import {
+  COMPOSE_FILE_TYPES,
+  emailDraftSchema,
+  MAX_COMPOSE_FILE_BYTES,
+  MAX_COMPOSE_FILES,
+  type EmailDraftInput,
+  type EmailSignatureInput,
+} from './schemas';
 
 /*
  * Drafts and signatures (ADR-091). Both belong to one person: RLS (`email_drafts_own`,
@@ -343,4 +368,170 @@ export async function suggestAddresses(
       .limit(8),
   );
   return rows.flatMap((row) => (row.email ? [{ name: row.name ?? '', email: row.email }] : []));
+}
+
+/* --------------------------------------------------------------------------- forward */
+
+/** "Re: Fwd: Quote" → "Fwd: Quote". */
+export function forwardSubject(subject: string | null): string {
+  const base = (subject ?? '').replace(/^(\s*(re|fwd?|aw|sv)\s*:\s*)+/i, '').trim();
+  return `Fwd: ${base || 'your message'}`.slice(0, 200);
+}
+
+export type ForwardStart = {
+  subject: string;
+  doc: EmailDoc;
+  attachments: { path: string; fileName: string; mimeType: string; size: number }[];
+  /** Files the original had that cannot be sent from Compose (a kind email does not take). */
+  skipped: number;
+};
+
+const EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+};
+
+/**
+ * An email to forward, opened in Compose (ADR-091): "Fwd:" and the subject, who it was from and
+ * to, and its text with its formatting. Only a message the person may read (RLS, social.view),
+ * never a private note. Its files and pictures are copied into the person's own Compose folder,
+ * so the forwarded email is checked like any other and the original is never changed.
+ */
+export async function prepareForward(
+  ctx: TenantContext,
+  messageId: string,
+): Promise<ForwardStart | null> {
+  requirePermission(ctx, 'social.reply');
+  requirePermission(ctx, 'social.view');
+  const [row] = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        direction: socialMessages.direction,
+        body: socialMessages.body,
+        sentAt: socialMessages.sentAt,
+        attachments: socialMessages.attachments,
+        emailMeta: socialMessages.emailMeta,
+        emailOutbound: socialMessages.emailOutbound,
+        subject: socialConversations.subject,
+        participantEmail: socialConversations.participantEmail,
+        participantName: socialConversations.participantName,
+        accountName: socialAccounts.name,
+        accountAddress: socialAccounts.externalId,
+      })
+      .from(socialMessages)
+      .innerJoin(
+        socialConversations,
+        and(
+          eq(socialConversations.tenantId, socialMessages.tenantId),
+          eq(socialConversations.id, socialMessages.conversationId),
+        ),
+      )
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialMessages.tenantId, ctx.tenantId),
+          eq(socialMessages.id, messageId),
+          eq(socialAccounts.platform, 'email'),
+        ),
+      )
+      .limit(1),
+  );
+  if (!row || (row.direction !== 'inbound' && row.direction !== 'outbound')) return null;
+
+  const meta = (row.emailMeta ?? {}) as { fromName?: string | null; to?: unknown; cc?: unknown };
+  const composed = row.direction === 'outbound' ? readStoredCompose(row.emailOutbound) : null;
+  const list = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  const from =
+    row.direction === 'inbound'
+      ? `${meta.fromName ?? row.participantName ?? ''} <${row.participantEmail ?? ''}>`.trim()
+      : `${row.accountName} <${row.accountAddress}>`;
+  const to =
+    row.direction === 'inbound'
+      ? list(meta.to)
+      : composed?.to.length
+        ? composed.to
+        : [row.participantEmail ?? ''];
+  const cc = row.direction === 'inbound' ? list(meta.cc) : (composed?.cc ?? []);
+  const date = new Intl.DateTimeFormat('en-AU', {
+    dateStyle: 'full',
+    timeStyle: 'short',
+    timeZone: ctx.tenant.timezone,
+  }).format(row.sentAt);
+
+  // Files and pictures, copied into the person's own folder.
+  const prefix = composeFolder(ctx);
+  const stored = (
+    Array.isArray(row.attachments) ? (row.attachments as StoredAttachment[]) : []
+  ).filter((file) => file.state === 'stored' && file.storagePath && file.mimeType);
+  const copyOf = async (file: StoredAttachment) => {
+    const ext =
+      EXTENSIONS[file.mimeType!] ?? file.storagePath!.split('.').pop()?.slice(0, 8) ?? 'bin';
+    const path = `${prefix}${randomUUID()}.${ext.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin'}`;
+    return (await copySocialMedia(file.storagePath!, path)) ? path : null;
+  };
+  const attachments: ForwardStart['attachments'] = [];
+  let skipped = 0;
+  for (const file of stored.filter((item) => !item.inline)) {
+    const allowed =
+      (COMPOSE_FILE_TYPES as readonly string[]).includes(file.mimeType!) &&
+      (file.size ?? 0) <= MAX_COMPOSE_FILE_BYTES &&
+      attachments.length < MAX_COMPOSE_FILES;
+    const path = allowed ? await copyOf(file) : null;
+    if (!path) {
+      skipped += 1;
+      continue;
+    }
+    attachments.push({
+      path,
+      fileName: file.fileName ?? `attachment.${path.split('.').pop()}`,
+      mimeType: file.mimeType!,
+      size: file.size ?? 0,
+    });
+  }
+  let original: EmailDoc = composed?.doc ?? textToEmailDoc(row.body ?? '');
+  if (composed) {
+    const copies = new Map<string, string>();
+    for (const file of stored.filter((item) => item.inline)) {
+      const path = await copyOf(file);
+      if (path) copies.set(file.storagePath!, path);
+    }
+    original = withImagePaths(original, copies);
+  }
+  const line = (text: string) => ({ type: 'paragraph' as const, content: [{ text }] });
+  const header: EmailDoc = [
+    { type: 'rule' },
+    {
+      type: 'paragraph',
+      content: [
+        { text: 'From: ', b: true },
+        { text: from },
+        { text: '\nSent: ', b: true },
+        { text: date },
+        { text: '\nTo: ', b: true },
+        { text: to.join(', ') },
+        ...(cc.length > 0 ? [{ text: '\nCc: ', b: true as const }, { text: cc.join(', ') }] : []),
+        { text: '\nSubject: ', b: true },
+        { text: row.subject ?? '' },
+      ],
+    },
+  ];
+  return {
+    subject: forwardSubject(row.subject),
+    doc: [line(''), ...header, ...original],
+    attachments,
+    skipped,
+  };
 }

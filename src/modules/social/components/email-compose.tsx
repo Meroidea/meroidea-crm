@@ -34,6 +34,7 @@ import {
   MAX_COMPOSE_FILES,
   MAX_EMAIL_RECIPIENTS,
 } from '../schemas';
+import { uploadComposePicture } from './compose-upload';
 import { EmailEditor, type EmailEditorHandle } from './email-editor';
 import { looksLikeEmail, RecipientInput } from './recipient-input';
 
@@ -69,6 +70,8 @@ export type ComposeStart = {
   subject?: string;
   doc?: EmailDoc | null;
   attachments?: { path: string; fileName: string; mimeType: string; size: number }[];
+  /** Shown above the form, e.g. files a forward could not carry. */
+  notice?: string;
 };
 
 /** How long after the last change a draft is saved. */
@@ -222,35 +225,12 @@ export function EmailCompose({
   /** A picture for the text (ADR-091): uploaded like a file, shown in the text, not listed. */
   const uploadPicture = async (file: File): Promise<string | null> => {
     touch();
-    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
-      setError('Pictures can be JPEG, PNG, GIF or WebP.');
+    const result = await uploadComposePicture(accountId, file);
+    if ('error' in result) {
+      setError(result.error);
       return null;
     }
-    if (file.size > MAX_COMPOSE_FILE_BYTES) {
-      setError(`Pictures can be up to ${MAX_COMPOSE_FILE_BYTES / MB} MB.`);
-      return null;
-    }
-    const ticket = await startComposeUploadAction({
-      accountId,
-      fileName: file.name,
-      mimeType: file.type,
-      size: file.size,
-    });
-    if (!ticket.ok) {
-      setError(ticket.error.message);
-      return null;
-    }
-    const uploaded = await createBrowserClient(
-      publicEnv.supabaseUrl,
-      publicEnv.supabasePublishableKey,
-    )
-      .storage.from('social-media')
-      .uploadToSignedUrl(ticket.data.path, ticket.data.token, file, { contentType: file.type });
-    if (uploaded.error) {
-      setError('The picture did not upload. Try again.');
-      return null;
-    }
-    return ticket.data.path;
+    return result.path;
   };
 
   const removeFile = (file: ComposeFile) => {
@@ -371,6 +351,11 @@ export function EmailCompose({
         </Button>
       </div>
 
+      {start.notice && (
+        <p role="status" className="border-b bg-warning/10 px-3 py-2 text-sm text-warning-text">
+          {start.notice}
+        </p>
+      )}
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <span className="w-12 shrink-0 text-sm text-muted-foreground">From</span>
         {inboxes.length > 1 ? (
