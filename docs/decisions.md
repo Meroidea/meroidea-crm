@@ -1819,7 +1819,8 @@ whether plus-addressing works.
 - Replies come from the inbox address, not the business's own domain (later).
 - A forwarded email whose DKIM did not survive forwarding stays "not verified" until a person
   links it.
-- No new email to someone who has not written first; the received HTML is not kept.
+- No new email to someone who has not written first (changed by ADR-089); the received HTML is
+  not kept.
 - Rate-limited mail is dropped, not queued.
 
 
@@ -2612,3 +2613,41 @@ which are service and sales as much as marketing.
   renamed: they are not shown to anyone, and renaming them would only churn migrations and tests.
 - Lead sources named "Marketing", "Marketing consent" and WhatsApp's "Marketing" template category
   are different things and keep their names.
+
+## ADR-089 — Email: write a new email to anyone from an inbox address
+
+**Status.** Accepted (2026-11-28). Changes ADR-070's "no new email to someone who has not written
+first" and adds a folder to ADR-073's and ADR-087's Email area.
+
+**Context.** The owner asked, on 28 November 2026, that an admin or user be able to send an email
+to any address from the Email area, not only answer emails that came in. Every business sends from
+the same platform inbox domain, so one business's misuse would hurt how every business's email is
+delivered.
+
+**Decision.**
+1. *Who and from where.* **New email** on the Email area (`social.reply`, the same people who can
+   reply) sends from one of the business's live inbox addresses to one recipient, with a subject
+   and a text body (up to 20,000 characters). Each new email opens its own thread, assigned to the
+   writer, so the person's reply comes back to it exactly as a customer's would (ADR-070: the
+   thread's own reply address, then In-Reply-To and References).
+2. *Sent like a reply.* `startEmailConversation` stores the thread and the message as "sending" in
+   one transaction under RLS, runs the same checks as a reply, and goes through the same delivery,
+   failure and Retry path. The first email keeps its subject as written; anything after a message
+   in the thread is "Re: …". Email has no reply window, so a follow-up can go before any answer.
+3. *Limits.* A person can start at most 100 new emails a day, and an inbox 300. Replies are not
+   limited. The counters store only a keyed hash (`enforceRateLimit`). An address at the inbox
+   domain is refused, since it would only loop back into Meroidea.
+4. *Contacts.* The thread is not linked to a contact when sent: under RLS the writer may see only
+   some of the contacts with that address, so "exactly one match" (ADR-068) cannot be told. The
+   person's answer links it from the webhook, verified, as for any received email.
+5. *A Sent folder.* A thread with nothing received sits in **Sent**. Without it, ADR-073's rule
+   ("no customer-written message" means machine mail) would have put every email the business
+   started in Filtered. The first answer moves the thread to Customers, To review or Filtered by
+   the usual rules, so every thread is still in exactly one folder.
+6. *The audit row* names the thread, never the address or the words.
+
+**Consequences.**
+- This is for one-to-one business email. The compose sheet says that marketing to many people
+  belongs in campaigns, with consent (Spam Act 2003), which are still to be built.
+- Not built: several recipients, Cc or Bcc, attachments on a new email (replies can attach one
+  file), drafts, and sending from a business's own domain.

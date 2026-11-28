@@ -99,11 +99,13 @@ export function EmailList({
                   ? 'Emails from people who are not contacts yet appear here, to link or set aside.'
                   : folder === 'filtered'
                     ? 'Auto-replies, bounces, mailing lists and senders marked “Not a customer” go here.'
-                    : view === 'open'
-                      ? 'Emails from your customers appear here the moment they arrive.'
-                      : view === 'mine'
-                        ? 'Threads given to you appear here.'
-                        : 'Try another view.'
+                    : folder === 'sent'
+                      ? 'Emails you start wait here until the person answers.'
+                      : view === 'open'
+                        ? 'Emails from your customers appear here the moment they arrive.'
+                        : view === 'mine'
+                          ? 'Threads given to you appear here.'
+                          : 'Try another view.'
               : 'Create your email inbox address to receive customers’ emails here.'
           }
           action={

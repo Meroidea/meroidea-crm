@@ -110,10 +110,18 @@ In `/platform`, open the business and tick **Email inbox**. Its Admin then opens
   most 2,000 an hour; anything beyond is dropped.
 - **Tickets.** An email conversation can become a helpdesk ticket like any other (ADR-069).
   Replies written on the ticket are emailed on the thread.
+- **New emails (ADR-089).** **New email** on the Email area writes to any address from one of
+  the business's inbox addresses (needs `social.reply`).
+  - Each one opens its own thread, assigned to the writer, and waits in **Sent** until the person
+    answers; their answer comes back to the thread and moves it to Customers or To review.
+  - The first email keeps its subject as written; follow-ups and replies are "Re: …".
+  - A person can start at most 100 a day, and an inbox 300; replies are not limited. Addresses at
+    the inbox domain are refused.
+  - It is for one-to-one email. Marketing to many people belongs in campaigns, with consent.
 
 ## 7. Not done yet
 
 - Sending from a business's own domain (e.g. `support@harbourcafe.com.au`). That needs the
   business's domain verified in Resend; replies come from the inbox address for now.
-- Starting a new email to someone who has not written in first.
+- Several recipients, Cc or Bcc, and attachments on a new email.
 - Keeping the original HTML of a received email.

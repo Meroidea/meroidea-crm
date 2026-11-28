@@ -83,7 +83,12 @@ export async function sendEmailReply(
     headers['In-Reply-To'] = inReplyTo;
     headers.References = ids.slice(-MAX_REFERENCES).join(' ');
   }
-  const subject = replySubject(conversation.subject);
+  // The first email of a thread the business started goes with its subject as written; anything
+  // after a message in the thread (received, or sent and given a Message-ID) is a reply.
+  const answering = Boolean(conversation.lastInboundAt) || ids.length > 0;
+  const subject = answering
+    ? replySubject(conversation.subject)
+    : (conversation.subject ?? replySubject(null));
   const attachments = reply.media
     ? [
         {

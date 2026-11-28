@@ -234,6 +234,10 @@ change as touching sensitive personal data.
 - Attachment links are fetched only through `media.ts`, from `inbound-cdn.resend.com`; a file
   from anywhere else is refused.
 - Nothing an email says goes into logs, audit rows or error messages.
+- A new email to any address (ADR-089) goes only through `startEmailConversation`: `social.reply`,
+  a live inbox of the person's own business, the per-person and per-inbox daily limits, and never
+  an address at the inbox domain. It never links a contact (RLS may hide other matches); the
+  answer does, from the webhook.
 - The Email area's "Not a customer" rules (ADR-073) only sort threads into Filtered; they never
   stop an email being received or stored. Keep `created_by = auth.uid()` on insert and no update
   grant, and never put the address in an audit row.
