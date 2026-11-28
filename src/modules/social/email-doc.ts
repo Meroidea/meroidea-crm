@@ -135,6 +135,12 @@ const blockSchema = z.discriminatedUnion('type', [
 ]);
 export type EmailBlock = z.output<typeof blockSchema>;
 
+/**
+ * A document still being written (a draft, a signature): the same blocks and formats, which may
+ * be empty. Sending still needs `emailDocSchema`.
+ */
+export const emailDocDraftSchema = z.array(blockSchema).max(1000);
+
 export const emailDocSchema = z
   .array(blockSchema)
   .max(1000)

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { emailDocSchema } from './email-doc';
+import { emailDocDraftSchema, emailDocSchema } from './email-doc';
 import { OAUTH_PROVIDERS } from './oauth-state-keys';
 import { SOCIAL_PLATFORMS } from './providers/types';
 
@@ -79,6 +79,8 @@ export const MAX_COMPOSE_FILE_BYTES = 10 * 1024 * 1024;
 export const composeEmailSchema = z
   .object({
     accountId: z.uuid(),
+    /** The draft this email was written in: deleted once it is sent (ADR-091). */
+    draftId: z.uuid().optional(),
     to: z.array(emailAddress).min(1, 'Add someone to send it to').max(MAX_EMAIL_RECIPIENTS),
     cc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
     bcc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
@@ -352,3 +354,40 @@ export type EmailInboxInput = z.output<typeof emailInboxSchema>;
 
 /** Marking an email thread's sender "Not a customer", or moving them back (ADR-073). */
 export const senderRuleSchema = z.object({ conversationId: z.uuid() });
+
+/** A file or picture on a draft, as Compose holds it. */
+const draftFile = z.object({
+  path: z.string().min(1).max(500),
+  fileName: z.string().trim().min(1).max(200),
+  mimeType: z.string().max(200),
+  size: z.number().int().min(0).max(MAX_COMPOSE_BYTES),
+});
+
+/**
+ * An email being written, saved as a draft (ADR-091). Lenient where writing is unfinished: the
+ * addresses are kept as typed and the text may be empty. Sending checks it all properly.
+ */
+export const emailDraftSchema = z.object({
+  id: z.uuid().optional(),
+  accountId: z.uuid(),
+  to: z.array(z.string().trim().max(254)).max(MAX_EMAIL_RECIPIENTS).default([]),
+  cc: z.array(z.string().trim().max(254)).max(MAX_EMAIL_RECIPIENTS).default([]),
+  bcc: z.array(z.string().trim().max(254)).max(MAX_EMAIL_RECIPIENTS).default([]),
+  subject: z.string().max(200).default(''),
+  doc: emailDocDraftSchema.default([]),
+  attachments: z.array(draftFile).max(MAX_COMPOSE_FILES).default([]),
+});
+export type EmailDraftInput = z.output<typeof emailDraftSchema>;
+
+export const draftIdSchema = z.object({ id: z.uuid() });
+
+/** A person's own email signature (ADR-091); an empty document removes it. */
+export const emailSignatureSchema = z.object({
+  doc: emailDocDraftSchema,
+  useOnNew: z.boolean(),
+  useOnReplies: z.boolean(),
+});
+export type EmailSignatureInput = z.output<typeof emailSignatureSchema>;
+
+/** What is being typed in To, Cc or Bcc, for address suggestions (ADR-091). */
+export const addressQuerySchema = z.object({ q: z.string().trim().max(100) });

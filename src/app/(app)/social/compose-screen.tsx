@@ -1,7 +1,9 @@
 import { Mail } from 'lucide-react';
 import { notFound } from 'next/navigation';
 
-import { EmailCompose } from '@/modules/social/components/email-compose';
+import { getDraft, getSignature } from '@/modules/social/compose-service';
+import { EmailCompose, type ComposeStart } from '@/modules/social/components/email-compose';
+import type { EmailDoc } from '@/modules/social/email-doc';
 import { EmailList } from '@/modules/social/components/email-list';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
 import { listConversations } from '@/modules/social/queries';
@@ -30,6 +32,7 @@ export async function ComposeScreen({
   ]);
   if (area.area.kind !== 'email') notFound();
   const canCompose = area.newEmailFrom.length > 0;
+  const start = canCompose ? await composeStart(ctx, query) : {};
 
   return (
     <EmailWorkspace
@@ -39,6 +42,7 @@ export async function ComposeScreen({
       settings={areaSettings(ctx, 'email', area.area)}
       actions={<InboxRealtime tenantId={ctx.tenantId} />}
       canCompose={canCompose}
+      drafts={area.drafts}
       reading
       list={
         <EmailList
@@ -52,7 +56,13 @@ export async function ComposeScreen({
       }
     >
       {canCompose ? (
-        <EmailCompose inboxes={area.newEmailFrom} />
+        <EmailCompose
+          // A different draft or forward is a different email: start the form afresh.
+          key={typeof query.draft === 'string' ? query.draft : 'new'}
+          inboxes={area.newEmailFrom}
+          start={start}
+          timeZone={ctx.tenant.timezone}
+        />
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-card/50 p-6 text-center text-sm text-muted-foreground">
           <Mail aria-hidden className="size-8" />
@@ -63,4 +73,33 @@ export async function ComposeScreen({
       )}
     </EmailWorkspace>
   );
+}
+
+const BLANK_LINE: EmailDoc[number] = { type: 'paragraph', content: [] };
+
+/**
+ * What Compose opens with (ADR-091): a draft of the person's own, as it was saved; otherwise an
+ * empty email with their signature below two empty lines, when they use it on new emails.
+ */
+async function composeStart(
+  ctx: Parameters<typeof getDraft>[0],
+  query: Record<string, string | string[] | undefined>,
+): Promise<ComposeStart> {
+  const draftId = typeof query.draft === 'string' ? query.draft : null;
+  if (draftId && /^[0-9a-f-]{36}$/.test(draftId)) {
+    const draft = await getDraft(ctx, draftId);
+    if (!draft) notFound();
+    return {
+      draftId: draft.id,
+      accountId: draft.accountId,
+      to: draft.to,
+      cc: draft.cc,
+      bcc: draft.bcc,
+      subject: draft.subject,
+      doc: draft.doc,
+      attachments: draft.attachments,
+    };
+  }
+  const signature = await getSignature(ctx);
+  return signature?.useOnNew ? { doc: [BLANK_LINE, BLANK_LINE, ...signature.doc] } : {};
 }

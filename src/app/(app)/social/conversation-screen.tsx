@@ -212,6 +212,7 @@ export async function ConversationScreen({
         reading
         actions={<InboxRealtime tenantId={ctx.tenantId} />}
         canCompose={area.newEmailFrom.length > 0}
+        drafts={area.drafts}
         list={
           <EmailList
             rows={list.rows}

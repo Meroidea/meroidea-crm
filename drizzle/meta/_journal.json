@@ -617,6 +617,13 @@
       "when": 1795828067466,
       "tag": "0087_email_compose_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795832021337,
+      "tag": "0088_email_drafts_signatures",
+      "breakpoints": true
     }
   ]
 }

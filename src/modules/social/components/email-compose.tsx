@@ -19,12 +19,14 @@ import { Button } from '@/components/ui/button';
 import { publicEnv } from '@/lib/env.public';
 import { cn } from '@/lib/utils';
 import {
+  discardDraftAction,
   removeComposeUploadAction,
+  saveDraftAction,
   sendComposedEmailAction,
   startComposeUploadAction,
 } from '@/modules/social/actions';
 
-import { emailDocText } from '../email-doc';
+import { emailDocText, type EmailDoc } from '../email-doc';
 import {
   COMPOSE_FILE_TYPES,
   MAX_COMPOSE_BYTES,
@@ -57,20 +59,59 @@ const sizeLabel = (bytes: number) =>
  * and files. Files upload as soon as they are chosen; the email goes when Send is pressed, and
  * the thread it opens is shown.
  */
-export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
+/** What Compose opens with (ADR-091): a draft, a forwarded email, or a signature. */
+export type ComposeStart = {
+  draftId?: string;
+  accountId?: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  doc?: EmailDoc | null;
+  attachments?: { path: string; fileName: string; mimeType: string; size: number }[];
+};
+
+/** How long after the last change a draft is saved. */
+const AUTOSAVE_MS = 1500;
+
+export function EmailCompose({
+  inboxes,
+  start = {},
+  timeZone,
+}: {
+  inboxes: EmailInboxOption[];
+  start?: ComposeStart;
+  timeZone: string;
+}) {
   const router = useRouter();
   const editor = useRef<EmailEditorHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [accountId, setAccountId] = useState(inboxes[0]?.id ?? '');
-  const [to, setTo] = useState<string[]>([]);
-  const [cc, setCc] = useState<string[]>([]);
-  const [bcc, setBcc] = useState<string[]>([]);
-  const [showCc, setShowCc] = useState(false);
-  const [showBcc, setShowBcc] = useState(false);
-  const [subject, setSubject] = useState('');
-  const [files, setFiles] = useState<ComposeFile[]>([]);
+  const [accountId, setAccountId] = useState(
+    inboxes.find((inbox) => inbox.id === start.accountId)?.id ?? inboxes[0]?.id ?? '',
+  );
+  const [to, setTo] = useState<string[]>(start.to ?? []);
+  const [cc, setCc] = useState<string[]>(start.cc ?? []);
+  const [bcc, setBcc] = useState<string[]>(start.bcc ?? []);
+  const [showCc, setShowCc] = useState((start.cc ?? []).length > 0);
+  const [showBcc, setShowBcc] = useState((start.bcc ?? []).length > 0);
+  const [subject, setSubject] = useState(start.subject ?? '');
+  const [files, setFiles] = useState<ComposeFile[]>(
+    (start.attachments ?? []).map((file) => ({
+      key: file.path,
+      name: file.fileName,
+      size: file.size,
+      mimeType: file.mimeType,
+      state: 'ready',
+      path: file.path,
+    })),
+  );
   const [error, setError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  // A forwarded email (files already copied) counts as started, so it is saved and guarded.
+  const [dirty, setDirty] = useState(Boolean(start.subject) && !start.draftId);
+  const [draftId, setDraftId] = useState<string | null>(start.draftId ?? null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  const saving = useRef(false);
   const [discarding, setDiscarding] = useState(false);
   const [sending, startSending] = useTransition();
   const leaving = useRef(false);
@@ -87,7 +128,43 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
   const touch = () => {
     setDirty(true);
     setError(null);
+    setVersion((value) => value + 1);
   };
+
+  // Saves the draft a moment after the writer stops (ADR-091): private to them, reopened from
+  // Drafts. Files still uploading are saved with the next change.
+  useEffect(() => {
+    if (!dirty || leaving.current) return;
+    const timer = setTimeout(async () => {
+      if (saving.current || leaving.current) return;
+      saving.current = true;
+      const result = await saveDraftAction({
+        ...(draftId ? { id: draftId } : {}),
+        accountId,
+        to,
+        cc,
+        bcc,
+        subject,
+        doc: editor.current?.read() ?? [],
+        attachments: files
+          .filter((file) => file.state === 'ready' && file.path)
+          .map((file) => ({
+            path: file.path!,
+            fileName: file.name,
+            mimeType: file.mimeType,
+            size: file.size,
+          })),
+      });
+      saving.current = false;
+      if (result.ok && !leaving.current) {
+        setDraftId(result.data.id);
+        setSavedAt(result.data.savedAt);
+      }
+    }, AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+    // Saves after each change (`version`), with what is on screen then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version, dirty]);
 
   const addFiles = async (chosen: File[]) => {
     touch();
@@ -206,8 +283,10 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
       return;
     }
     startSending(async () => {
+      leaving.current = true;
       const result = await sendComposedEmailAction({
         accountId,
+        ...(draftId ? { draftId } : {}),
         to,
         cc,
         bcc,
@@ -220,10 +299,10 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
         })),
       });
       if (!result.ok) {
+        leaving.current = false;
         setError(Object.values(result.error.fieldErrors ?? {})[0]?.[0] ?? result.error.message);
         return;
       }
-      leaving.current = true;
       router.push(`/email/${result.data.conversationId}`);
       router.refresh();
     });
@@ -231,8 +310,10 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
 
   const discard = () => {
     leaving.current = true;
+    // The draft and every file put on this email go; a file added since the last save too.
+    if (draftId) void discardDraftAction({ id: draftId });
     for (const file of files) if (file.path) void removeComposeUploadAction({ path: file.path });
-    router.push('/email');
+    router.push(draftId ? '/email/drafts' : '/email');
   };
 
   const from = inboxes.find((inbox) => inbox.id === accountId) ?? inboxes[0];
@@ -275,12 +356,16 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
             if (chosen.length > 0) void addFiles(chosen);
           }}
         />
+        <span className="ml-auto text-xs text-muted-foreground" role="status">
+          {savedAt
+            ? `Draft saved ${new Intl.DateTimeFormat('en-AU', { timeStyle: 'short', timeZone }).format(new Date(savedAt))}`
+            : ''}
+        </span>
         <Button
           type="button"
           variant="ghost"
-          className="ml-auto"
           disabled={sending}
-          onClick={() => (dirty ? setDiscarding(true) : discard())}
+          onClick={() => (dirty || draftId ? setDiscarding(true) : discard())}
         >
           <Trash2 aria-hidden /> Discard
         </Button>
@@ -387,6 +472,7 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
         onInput={touch}
         onFiles={(chosen) => void addFiles(chosen)}
         onPicture={uploadPicture}
+        initialDoc={start.doc ?? null}
       />
 
       {files.length > 0 && (

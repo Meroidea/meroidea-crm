@@ -21,6 +21,8 @@ export function EmailWorkspace({
   list,
   reading = false,
   canCompose = false,
+  drafts = null,
+  inDrafts = false,
   children,
 }: {
   filters: InboxFilters;
@@ -33,6 +35,10 @@ export function EmailWorkspace({
   reading?: boolean;
   /** The person may write a new email (ADR-090). */
   canCompose?: boolean;
+  /** How many drafts the person has (ADR-091), or null. */
+  drafts?: number | null;
+  /** The Drafts list is open. */
+  inDrafts?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -58,6 +64,8 @@ export function EmailWorkspace({
           settings={settings}
           phoneRow={!reading}
           canCompose={canCompose}
+          drafts={drafts}
+          inDrafts={inDrafts}
         />
         <div
           className={

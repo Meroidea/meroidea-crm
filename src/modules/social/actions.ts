@@ -26,7 +26,11 @@ import {
   messageIdSchema,
   composeEmailSchema,
   composeUploadPathSchema,
+  addressQuerySchema,
   composeUploadSchema,
+  draftIdSchema,
+  emailDraftSchema,
+  emailSignatureSchema,
   noteSchema,
   replySchema,
   senderRuleSchema,
@@ -35,6 +39,7 @@ import {
   templateIdSchema,
   templateReplySchema,
 } from './schemas';
+import * as compose from './compose-service';
 import * as email from './email-service';
 import * as triage from './email-triage';
 import { chatWidgetSchema } from './livechat-schemas';
@@ -93,6 +98,30 @@ export const replyAction = authedAction(
 export const sendComposedEmailAction = authedAction(
   { permission: 'social.reply', input: composeEmailSchema, revalidate: paths },
   (ctx, input) => social.startEmailConversation(ctx, input),
+);
+
+/** Saves the email being written as a draft (ADR-091): the writer's own, autosaved. */
+export const saveDraftAction = authedAction(
+  { permission: 'social.reply', input: emailDraftSchema },
+  (ctx, input) => compose.saveDraft(ctx, input),
+);
+
+/** Discards a draft and the files it held. */
+export const discardDraftAction = authedAction(
+  { permission: 'social.reply', input: draftIdSchema, revalidate: paths },
+  (ctx, input) => compose.deleteDraft(ctx, input.id, { removeFiles: true }),
+);
+
+/** Contacts matching what is typed in To, Cc or Bcc (ADR-091); within the person's scope. */
+export const suggestAddressesAction = authedAction(
+  { permission: 'social.reply', input: addressQuerySchema },
+  (ctx, input) => compose.suggestAddresses(ctx, input.q),
+);
+
+/** Saves the person's own email signature (ADR-091). */
+export const saveSignatureAction = authedAction(
+  { permission: 'social.reply', input: emailSignatureSchema, revalidate: paths },
+  (ctx, input) => compose.saveSignature(ctx, input),
 );
 
 /** A ticket to upload one file for an email being composed (ADR-090). */

@@ -1,6 +1,7 @@
 import {
   AlarmClock,
   CircleCheck,
+  FilePenLine,
   Filter,
   Inbox,
   Layers,
@@ -65,6 +66,8 @@ export function EmailFolders({
   settings,
   phoneRow = true,
   canCompose = false,
+  drafts = null,
+  inDrafts = false,
 }: {
   filters: InboxFilters;
   unread: Record<EmailFolder, number>;
@@ -75,8 +78,12 @@ export function EmailFolders({
   phoneRow?: boolean;
   /** The person may write a new email (ADR-090): Compose heads the folders. */
   canCompose?: boolean;
+  /** How many drafts the person has (ADR-091); null when they cannot write emails. */
+  drafts?: number | null;
+  /** The Drafts list is open: no conversation folder is current. */
+  inDrafts?: boolean;
 }) {
-  const folder = filters.folder ?? 'customers';
+  const folder = inDrafts ? null : (filters.folder ?? 'customers');
   const view = filters.view ?? 'open';
   const current = { view: filters.view, folder: filters.folder, q: filters.q };
   const item = (active: boolean) =>
@@ -127,6 +134,19 @@ export function EmailFolders({
               </Link>
             );
           })}
+          {drafts !== null && (
+            <Link
+              href="/email/drafts"
+              aria-current={inDrafts ? 'page' : undefined}
+              className={item(inDrafts)}
+            >
+              <FilePenLine aria-hidden className="size-4 shrink-0" />
+              <span className="flex-1 truncate">Drafts</span>
+              {drafts > 0 && (
+                <span className="text-xs text-muted-foreground tabular-nums">{drafts}</span>
+              )}
+            </Link>
+          )}
         </div>
         <div className="flex flex-col gap-0.5">
           <p className="px-2.5 pb-1.5 text-xs font-semibold text-muted-foreground">Show</p>
@@ -175,6 +195,18 @@ export function EmailFolders({
             {unread[key] > 0 && <span className="ml-1 tabular-nums">{unread[key]}</span>}
           </Link>
         ))}
+        {drafts !== null && (
+          <Link
+            href="/email/drafts"
+            aria-current={inDrafts ? 'page' : undefined}
+            className={cn(
+              'shrink-0 rounded-full border px-3 py-1 text-sm whitespace-nowrap text-muted-foreground',
+              inDrafts && 'border-primary bg-accent font-medium text-foreground',
+            )}
+          >
+            Drafts{drafts > 0 && <span className="ml-1 tabular-nums">{drafts}</span>}
+          </Link>
+        )}
       </nav>
     </>
   );

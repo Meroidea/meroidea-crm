@@ -52,6 +52,7 @@ export async function InboxScreen({
         settings={settings}
         actions={<InboxRealtime tenantId={ctx.tenantId} />}
         canCompose={area.newEmailFrom.length > 0}
+        drafts={area.drafts}
         list={
           <EmailList
             rows={rows}

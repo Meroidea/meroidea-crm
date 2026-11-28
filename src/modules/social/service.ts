@@ -28,6 +28,7 @@ import {
   socialMediaLinkForPlatform,
 } from '@/server/storage';
 
+import { deleteSentDraft } from './compose-service';
 import { readCredentials, storeCredentials, usableToken, type Credentials } from './credentials';
 import {
   COMPOSE_PATH,
@@ -909,6 +910,8 @@ export async function startEmailConversation(
         status: 'sending',
       })
       .returning({ id: socialMessages.id });
+    // The draft it was written in has become this email (its files are the email's now).
+    if (input.draftId) await deleteSentDraft(tx, ctx, input.draftId);
     // Never an address or the words (rules/security.md): the thread names the person.
     await audit(tx, ctx, {
       action: 'create',
