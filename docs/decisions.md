@@ -2820,3 +2820,39 @@ injection), and threads carry personal details.
   need the email list's search.
 - Not built: answers grounded in the business's own knowledge base or price list, scheduled
   digests, and automatic triage or replies without a person.
+
+## ADR-093 — Email Bin and Important
+
+**Status.** Accepted (2026-11-28).
+
+**Context.** The owner asked, on 28 November 2026, to delete any email from the list into a Bin
+that empties itself after 30 days, and to mark any email important.
+
+**Decision.**
+1. *What is deleted.* The email thread, the list's unit, for the whole team (the inbox is
+   shared). `social_conversations.deleted_at` marks it; Social media and live chat are not
+   affected.
+2. *The Bin.* A folder of its own; every other folder, the unread counts and MeroAI leave binned
+   threads out.
+   - Deleting from a row or the open thread needs `social.reply`; so does Restore. A thread in the
+     Bin opens read-only with the date it will be deleted forever.
+   - A new email from the customer takes the thread out of the Bin, so nothing they send is hidden.
+   - The database sets the Bin time (`social_conversations_bin_guard`): a session cannot backdate
+     it, or bin anything but an email thread.
+3. *Deleting forever.*
+   - "Delete forever" and "Empty Bin" need `social.manage` and ask first; they work only on
+     threads already in the Bin.
+   - A daily sweep (`/api/cron/email-bin`, 17:10 UTC, Vercel cron with `CRON_SECRET`) deletes
+     threads binned more than 30 days ago.
+   - Both use `app.email_delete_thread_rows`: messages and the thread go, tickets and tracked help
+     links made from it stay unlinked, and its files are removed from storage after the commit,
+     except a picture a signature or draft still uses.
+   - Every step writes an audit row (`delete` with `bin` or `permanent`, `restore`; the sweep as
+     `system`), with ids only.
+4. *Important.* `social_conversations.important`, a star on each row and in the thread header,
+   for the whole team. An Important folder lists them; they stay in their own folder too.
+
+**Consequences.**
+- The Bin works on whole threads; a single message inside a thread cannot be deleted on its own.
+- The sweep handles 500 threads a run; a larger backlog clears over the following days.
+- Importance is shared by the team, not personal; a personal flag would need its own table.

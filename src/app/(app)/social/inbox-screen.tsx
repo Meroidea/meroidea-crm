@@ -61,6 +61,7 @@ export async function InboxScreen({
             nextCursor={nextCursor}
             hasAccounts={area.hasAccounts}
             canManage={canManage}
+            canReply={hasPermission(ctx, 'social.reply')}
             timeZone={ctx.tenant.timezone}
           />
         }

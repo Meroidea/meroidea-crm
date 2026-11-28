@@ -52,6 +52,7 @@ export async function ComposeScreen({
           nextCursor={nextCursor}
           hasAccounts={area.hasAccounts}
           canManage={hasPermission(ctx, 'social.manage')}
+          canReply={hasPermission(ctx, 'social.reply')}
           timeZone={ctx.tenant.timezone}
         />
       }

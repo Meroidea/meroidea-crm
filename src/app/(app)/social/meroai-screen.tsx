@@ -48,6 +48,7 @@ export async function MeroAIInboxScreen({
           nextCursor={nextCursor}
           hasAccounts={area.hasAccounts}
           canManage={hasPermission(ctx, 'social.manage')}
+          canReply={hasPermission(ctx, 'social.reply')}
           timeZone={ctx.tenant.timezone}
         />
       }

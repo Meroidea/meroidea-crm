@@ -364,7 +364,8 @@ export function ThreadView({
                   parties={email}
                   // A long thread opens at its last three emails; older ones start folded.
                   folded={index < shown.length - 3}
-                  canReply={canReply}
+                  // No reply box (a thread in the Bin, email not set up): nothing to reply with.
+                  canReply={canReply && Boolean(emailReply)}
                   busy={isPending}
                   onReply={focusReply}
                   onReplyAll={

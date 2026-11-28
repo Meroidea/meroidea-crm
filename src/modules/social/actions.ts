@@ -1,6 +1,7 @@
 'use server';
 
 import { cookies } from 'next/headers';
+import { z } from 'zod';
 
 import { AppError } from '@/lib/errors';
 import { authedAction } from '@/server/action';
@@ -10,6 +11,8 @@ import { createOAuthState, OAUTH_COOKIE } from './oauth-state';
 import { metaAuthorizeUrl, metaConfigured } from './providers/meta';
 import { tiktokAuthorizeUrl, tiktokConfigured } from './providers/tiktok';
 import {
+  emailImportantSchema,
+  emailThreadsSchema,
   accountIdSchema,
   accountSettingsInputSchema,
   assignSchema,
@@ -40,6 +43,7 @@ import {
   templateIdSchema,
   templateReplySchema,
 } from './schemas';
+import * as bin from './bin-service';
 import * as compose from './compose-service';
 import * as email from './email-service';
 import * as triage from './email-triage';
@@ -272,4 +276,33 @@ export const markNotCustomerAction = authedAction(
 export const moveSenderBackAction = authedAction(
   { permission: 'social.reply', input: senderRuleSchema, revalidate: paths },
   (ctx, input) => triage.moveSenderBack(ctx, input.conversationId),
+);
+
+/* Bin and Important (ADR-093). */
+
+/** Deletes email threads to the Bin, where they stay restorable for 30 days. */
+export const binEmailAction = authedAction(
+  { permission: 'social.reply', input: emailThreadsSchema, revalidate: paths },
+  (ctx, input) => bin.binEmailThreads(ctx, input),
+);
+
+export const restoreEmailAction = authedAction(
+  { permission: 'social.reply', input: emailThreadsSchema, revalidate: paths },
+  (ctx, input) => bin.restoreEmailThreads(ctx, input),
+);
+
+export const importantEmailAction = authedAction(
+  { permission: 'social.reply', input: emailImportantSchema, revalidate: paths },
+  (ctx, input) => bin.setEmailImportant(ctx, input),
+);
+
+/** Deletes email threads in the Bin for good, now. Cannot be undone. */
+export const purgeEmailAction = authedAction(
+  { permission: 'social.manage', input: emailThreadsSchema, revalidate: paths },
+  (ctx, input) => bin.purgeEmailThreads(ctx, input),
+);
+
+export const emptyEmailBinAction = authedAction(
+  { permission: 'social.manage', input: z.object({}), revalidate: paths },
+  (ctx) => bin.emptyEmailBin(ctx),
 );

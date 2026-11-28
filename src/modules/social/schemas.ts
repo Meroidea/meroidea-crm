@@ -11,7 +11,14 @@ export const INBOX_VIEWS = ['open', 'mine', 'unread', 'snoozed', 'done', 'all'] 
  * contacts yet; machines' mail and senders marked "Not a customer"; and emails the business
  * started that nobody has answered yet.
  */
-export const EMAIL_FOLDERS = ['customers', 'review', 'filtered', 'sent'] as const;
+export const EMAIL_FOLDERS = [
+  'customers',
+  'review',
+  'important',
+  'filtered',
+  'sent',
+  'bin',
+] as const;
 export type EmailFolder = (typeof EMAIL_FOLDERS)[number];
 
 export const inboxFiltersSchema = z.object({
@@ -413,3 +420,20 @@ export const emailReplySchema = z.object({
     .default([]),
 });
 export type EmailReplyInput = z.output<typeof emailReplySchema>;
+
+/* ------------------------------------------------------------- Bin and Important (ADR-093) */
+
+/** How long an email thread stays in the Bin before it is deleted for good. */
+export const EMAIL_BIN_DAYS = 30;
+
+/** One or more email threads, as chosen in the list. */
+export const emailThreadsSchema = z.object({
+  conversationIds: z.array(z.uuid()).min(1, 'Choose an email first').max(100),
+});
+export type EmailThreadsInput = z.output<typeof emailThreadsSchema>;
+
+export const emailImportantSchema = z.object({
+  conversationIds: z.array(z.uuid()).min(1).max(100),
+  important: z.boolean(),
+});
+export type EmailImportantInput = z.output<typeof emailImportantSchema>;

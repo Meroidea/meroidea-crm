@@ -261,6 +261,17 @@ change as touching sensitive personal data.
   stop an email being received or stored. Keep `created_by = auth.uid()` on insert and no update
   grant, and never put the address in an audit row.
 
+## Email Bin and Important (ADR-093)
+
+- Only email threads go in the Bin or are marked important. Keep `social_conversations_bin_guard`:
+  sessions need `social.reply`, and the database sets the Bin time, so 30 days cannot be shortened.
+- Deleting forever runs only through `app.email_purge_thread` (`social.manage`, only from the Bin)
+  and the daily sweep in `bin-sweep.ts` (the only Bin code that may use `adminDb`, called only by
+  `/api/cron/email-bin` with `CRON_SECRET`). Keep `app.email_delete_thread_rows` ungranted.
+- Files are removed from storage after the rows are committed, never before, and never one a
+  signature or draft still names.
+- A new email from the customer takes a thread out of the Bin; never let the Bin hide it.
+
 ## MeroAI in Email (ADR-092)
 
 - Email text reaches the model only inside `dataBlock` fences with `DATA_RULE`. Never send a

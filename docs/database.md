@@ -1730,6 +1730,22 @@ messages, name, handle and picture.
 - `app.erase_contact_traces` also clears `participant_phone` and, on WhatsApp, replaces
   `participant_id` with `erased:<conversation id>`.
 
+**Bin and Important (migrations `0089`, `0090`, ADR-093).** Email threads only.
+- `social_conversations.deleted_at timestamptz`: in the Bin since then. Partial index
+  `social_conversations_bin_idx (tenant_id, deleted_at) where deleted_at is not null`. Every
+  Email folder but the Bin leaves these out, as do the unread counts and MeroAI.
+- `social_conversations.important boolean not null default false`, for the whole team.
+- Sessions may update both columns. Trigger `social_conversations_bin_guard` (before update of
+  either) needs `social.reply` and an email account for a session, sets `deleted_at` to `now()`
+  when a thread goes in and keeps it while it stays, so a session cannot shorten the 30 days.
+- A new inbound email (`recordMessage`) clears `deleted_at`.
+- `app.email_delete_thread_rows(tenant, conversation)` (not granted to sessions) deletes a binned
+  email thread's messages and the thread, unlinks tickets and tracked help links, and returns its
+  files (`attachments[].storagePath`, the avatar) except any a signature or draft still names.
+  `app.email_purge_thread(conversation)` calls it for a person with `social.manage`; the daily
+  sweep (`/api/cron/email-bin`, `bin-sweep.ts`) calls it for threads binned over 30 days ago and
+  writes a `system` audit row for each.
+
 **Workflow (migration `0075`, ADR-067).**
 - `social_conversations.assigned_user_id uuid`: composite foreign key
   `(tenant_id, assigned_user_id)` → `tenant_memberships (tenant_id, user_id)`, indexed

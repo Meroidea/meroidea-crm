@@ -94,6 +94,10 @@ export type InboxRow = {
   snoozedNow: boolean;
   assignedUserId: string | null;
   assigneeName: string | null;
+  /** Email only (ADR-093). */
+  important: boolean;
+  /** Email only: when it went in the Bin, or null. */
+  deletedAt: Date | null;
 };
 
 const snoozedNow = sql<boolean>`(${socialConversations.status} = 'snoozed' and ${socialConversations.snoozedUntil} > now())`;
@@ -133,12 +137,17 @@ const nothingReceived = sql`not exists (select 1 from public.social_messages m
  */
 export function emailFolderCondition(folder: EmailFolder): SQL {
   const linked = sql`social_conversations.contact_id is not null`;
-  if (folder === 'sent') return nothingReceived;
-  if (folder === 'customers') return sql`(${linked} and not ${automatedOnly})`;
+  // The Bin (ADR-093) holds deleted threads; every other folder leaves them out. Important is a
+  // flag across the four folders above, so an important thread shows in both.
+  const live = sql`social_conversations.deleted_at is null`;
+  if (folder === 'bin') return sql`social_conversations.deleted_at is not null`;
+  if (folder === 'important') return sql`(${live} and social_conversations.important)`;
+  if (folder === 'sent') return sql`(${live} and ${nothingReceived})`;
+  if (folder === 'customers') return sql`(${live} and ${linked} and not ${automatedOnly})`;
   if (folder === 'review') {
-    return sql`(not ${linked} and not ${automatedOnly} and not ${markedNotCustomer})`;
+    return sql`(${live} and not ${linked} and not ${automatedOnly} and not ${markedNotCustomer})`;
   }
-  return sql`(not ${nothingReceived} and (${automatedOnly} or (not ${linked} and ${markedNotCustomer})))`;
+  return sql`(${live} and not ${nothingReceived} and (${automatedOnly} or (not ${linked} and ${markedNotCustomer})))`;
 }
 
 /** Only the channels of one area: the Social inbox, or Email (ADR-073). */
@@ -163,8 +172,11 @@ export async function listConversations(
     eq(socialConversations.tenantId, ctx.tenantId),
     mailboxCondition(mailbox),
   ];
-  if (mailbox === 'email') where.push(emailFolderCondition(filters.folder ?? 'customers'));
-  if (view === 'open') where.push(awake);
+  const folder = mailbox === 'email' ? (filters.folder ?? 'customers') : null;
+  if (folder) where.push(emailFolderCondition(folder));
+  // The Bin shows everything deleted, whatever its status (ADR-093).
+  const anyStatus = folder === 'bin';
+  if (view === 'open' && !anyStatus) where.push(awake);
   if (view === 'mine') where.push(awake, eq(socialConversations.assignedUserId, ctx.userId));
   if (view === 'snoozed') {
     where.push(
@@ -215,6 +227,8 @@ export async function listConversations(
         snoozedNow,
         assignedUserId: socialConversations.assignedUserId,
         assigneeName: assignees.fullName,
+        important: socialConversations.important,
+        deletedAt: socialConversations.deletedAt,
         sortAt,
       })
       .from(socialConversations)
@@ -257,6 +271,8 @@ export async function listConversations(
       snoozedNow: row.snoozedNow,
       assignedUserId: row.assignedUserId,
       assigneeName: row.assigneeName,
+      important: row.important,
+      deletedAt: row.deletedAt,
     })),
     nextCursor:
       rows.length > INBOX_PAGE_SIZE && last
@@ -307,6 +323,7 @@ export async function countEmailUnread(ctx: TenantContext): Promise<Record<Email
         customers: sql<number>`(count(*) filter (where ${emailFolderCondition('customers')}))::int`,
         review: sql<number>`(count(*) filter (where ${emailFolderCondition('review')}))::int`,
         filtered: sql<number>`(count(*) filter (where ${emailFolderCondition('filtered')}))::int`,
+        important: sql<number>`(count(*) filter (where ${emailFolderCondition('important')}))::int`,
       })
       .from(socialConversations)
       .innerJoin(
@@ -330,6 +347,9 @@ export async function countEmailUnread(ctx: TenantContext): Promise<Record<Email
     filtered: row?.filtered ?? 0,
     // Nothing unread can be in Sent: unread messages are received ones, which move a thread out.
     sent: 0,
+    important: row?.important ?? 0,
+    // The Bin shows no unread count: what is there was put away on purpose.
+    bin: 0,
   };
 }
 
@@ -862,7 +882,14 @@ export async function listEmailThreadsForAssistant(
       )
       .leftJoin(contacts, contactJoin(ctx))
       .leftJoin(assignees, eq(assignees.id, socialConversations.assignedUserId))
-      .where(and(eq(socialConversations.tenantId, ctx.tenantId), mailboxCondition('email')))
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          mailboxCondition('email'),
+          // Nothing in the Bin (ADR-093).
+          isNull(socialConversations.deletedAt),
+        ),
+      )
       .orderBy(desc(socialConversations.lastMessageAt))
       .limit(Math.min(Math.max(limit, 1), 60)),
   );
