@@ -202,7 +202,9 @@ export async function listReceivedAttachments(id: string): Promise<ReceivedAttac
 
 export type OutgoingEmail = {
   from: string;
-  to: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
   subject: string;
   text: string;
   html: string;
@@ -210,7 +212,8 @@ export type OutgoingEmail = {
   /** In-Reply-To and References, so the customer's mail program threads the reply. */
   headers: Record<string, string>;
   /** Files by a short-lived link Resend fetches while sending. */
-  attachments: { filename: string; path: string; content_type: string }[];
+  /** `content_id`: a picture shown in the HTML as `cid:<content_id>` (ADR-091). */
+  attachments: { filename: string; path: string; content_type: string; content_id?: string }[];
   /** Makes a retried send go once (Resend keeps the key 24 hours). */
   idempotencyKey: string;
 };
@@ -223,6 +226,8 @@ export async function sendResendEmail(email: OutgoingEmail): Promise<string> {
     body: JSON.stringify({
       from: email.from,
       to: email.to,
+      ...(email.cc.length > 0 ? { cc: email.cc } : {}),
+      ...(email.bcc.length > 0 ? { bcc: email.bcc } : {}),
       subject: email.subject,
       text: email.text,
       html: email.html,

@@ -5,7 +5,8 @@ import { mediaPath } from '@/modules/social/queries';
 
 const paramsSchema = z.object({
   messageId: z.uuid(),
-  index: z.coerce.number().int().min(0).max(9),
+  // A composed email carries up to 10 files and 20 pictures (ADR-090, ADR-091).
+  index: z.coerce.number().int().min(0).max(29),
 });
 
 /** A photo, video, voice note or file a customer sent, saved in our storage (ADR-065). */

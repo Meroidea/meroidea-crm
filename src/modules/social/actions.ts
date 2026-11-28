@@ -24,7 +24,14 @@ import {
   mediaReplySchema,
   mediaUploadSchema,
   messageIdSchema,
-  newEmailSchema,
+  composeEmailSchema,
+  composeUploadPathSchema,
+  addressQuerySchema,
+  composeUploadSchema,
+  draftIdSchema,
+  emailDraftSchema,
+  emailReplySchema,
+  emailSignatureSchema,
   noteSchema,
   replySchema,
   senderRuleSchema,
@@ -33,6 +40,7 @@ import {
   templateIdSchema,
   templateReplySchema,
 } from './schemas';
+import * as compose from './compose-service';
 import * as email from './email-service';
 import * as triage from './email-triage';
 import { chatWidgetSchema } from './livechat-schemas';
@@ -87,10 +95,52 @@ export const replyAction = authedAction(
   (ctx, input) => social.replyToConversation(ctx, input),
 );
 
-/** A new email from an inbox address to anyone (ADR-089); opens its own thread. */
-export const startEmailAction = authedAction(
-  { permission: 'social.reply', input: newEmailSchema, revalidate: paths },
+/** An email written in Compose (ADR-089, ADR-090); opens its own thread. */
+export const sendComposedEmailAction = authedAction(
+  { permission: 'social.reply', input: composeEmailSchema, revalidate: paths },
   (ctx, input) => social.startEmailConversation(ctx, input),
+);
+
+/** Saves the email being written as a draft (ADR-091): the writer's own, autosaved. */
+export const saveDraftAction = authedAction(
+  { permission: 'social.reply', input: emailDraftSchema },
+  (ctx, input) => compose.saveDraft(ctx, input),
+);
+
+/** Discards a draft and the files it held. */
+export const discardDraftAction = authedAction(
+  { permission: 'social.reply', input: draftIdSchema, revalidate: paths },
+  (ctx, input) => compose.deleteDraft(ctx, input.id, { removeFiles: true }),
+);
+
+/** Contacts matching what is typed in To, Cc or Bcc (ADR-091); within the person's scope. */
+export const suggestAddressesAction = authedAction(
+  { permission: 'social.reply', input: addressQuerySchema },
+  (ctx, input) => compose.suggestAddresses(ctx, input.q),
+);
+
+/** A formatted email reply, with Cc, Bcc, files and pictures (ADR-091). */
+export const emailReplyAction = authedAction(
+  { permission: 'social.reply', input: emailReplySchema, revalidate: paths },
+  (ctx, input) => social.replyWithEmail(ctx, input),
+);
+
+/** Saves the person's own email signature (ADR-091). */
+export const saveSignatureAction = authedAction(
+  { permission: 'social.reply', input: emailSignatureSchema, revalidate: paths },
+  (ctx, input) => compose.saveSignature(ctx, input),
+);
+
+/** A ticket to upload one file for an email being composed (ADR-090). */
+export const startComposeUploadAction = authedAction(
+  { permission: 'social.reply', input: composeUploadSchema },
+  (ctx, input) => social.startComposeUpload(ctx, input),
+);
+
+/** Takes a file off an email being composed, before it is sent. */
+export const removeComposeUploadAction = authedAction(
+  { permission: 'social.reply', input: composeUploadPathSchema },
+  (ctx, input) => social.removeComposeUpload(ctx, input.path),
 );
 
 export const retryReplyAction = authedAction(

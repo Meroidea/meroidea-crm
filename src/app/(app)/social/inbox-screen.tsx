@@ -13,7 +13,6 @@ import {
 import { EmailList } from '@/modules/social/components/email-list';
 import { InboxList } from '@/modules/social/components/inbox-list';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
-import { NewEmail } from '@/modules/social/components/new-email';
 import type { Mailbox } from '@/modules/social/providers/types';
 import { listConversations } from '@/modules/social/queries';
 import { inboxFiltersSchema } from '@/modules/social/schemas';
@@ -51,12 +50,9 @@ export async function InboxScreen({
         unread={area.area.unread}
         mailboxLabel={area.mailboxLabel}
         settings={settings}
-        actions={
-          <>
-            <InboxRealtime tenantId={ctx.tenantId} />
-            <NewEmail inboxes={area.newEmailFrom} />
-          </>
-        }
+        actions={<InboxRealtime tenantId={ctx.tenantId} />}
+        canCompose={area.newEmailFrom.length > 0}
+        drafts={area.drafts}
         list={
           <EmailList
             rows={rows}

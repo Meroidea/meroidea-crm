@@ -83,6 +83,9 @@ export async function destroyWorkspace(tenantId: string, userIds: string[]): Pro
     'social_messages',
     'livechat_visitors',
     'email_sender_rules',
+    // Drafts and signatures (ADR-091) point at inboxes and memberships.
+    'email_drafts',
+    'email_signatures',
     'social_conversations',
     'social_account_credentials',
     'social_message_templates',

@@ -110,18 +110,30 @@ In `/platform`, open the business and tick **Email inbox**. Its Admin then opens
   most 2,000 an hour; anything beyond is dropped.
 - **Tickets.** An email conversation can become a helpdesk ticket like any other (ADR-069).
   Replies written on the ticket are emailed on the thread.
-- **New emails (ADR-089).** **New email** on the Email area writes to any address from one of
-  the business's inbox addresses (needs `social.reply`).
-  - Each one opens its own thread, assigned to the writer, and waits in **Sent** until the person
-    answers; their answer comes back to the thread and moves it to Customers or To review.
+- **Compose (ADR-089, ADR-090).** **Compose**, at the top of the folders, writes a new email from
+  one of the business's inbox addresses (needs `social.reply`).
+  - To, Cc and Bcc (up to 50 people), a subject, formatted text (styles, sizes, bold, italic,
+    underline, colours, lists, alignment, links) and up to 10 files (images, PDF, Word, Excel,
+    PowerPoint; 10 MB each, 25 MB together).
+  - It opens its own thread, assigned to the writer, with the first To address as the thread's
+    person; it waits in **Sent** until they answer. Others who answer start their own threads.
   - The first email keeps its subject as written; follow-ups and replies are "Re: …".
-  - A person can start at most 100 a day, and an inbox 300; replies are not limited. Addresses at
-    the inbox domain are refused.
+  - A person can email at most 200 people a day from Compose, and an inbox 500; replies are not
+    limited. Addresses at the inbox domain are refused.
   - It is for one-to-one email. Marketing to many people belongs in campaigns, with consent.
+- **Writing like a mail client (ADR-091).**
+  - Fonts (email-safe families), tables, and pictures inside the text, sent as embedded pictures
+    that show without loading anything from the web.
+  - **Drafts** save as you write and wait in the Drafts folder; only you see yours.
+  - **My signature** (in Email's settings menu) is added to new emails and, if you choose,
+    replies and forwards; only you see and use yours.
+  - To, Cc and Bcc suggest contacts you may see as you type.
+  - The reply box has the same formatting, files, pictures, Cc and Bcc. **Reply all** copies in
+    everyone else the email went to; **Forward** opens Compose with the email and its files.
 
 ## 7. Not done yet
 
 - Sending from a business's own domain (e.g. `support@harbourcafe.com.au`). That needs the
   business's domain verified in Resend; replies come from the inbox address for now.
-- Several recipients, Cc or Bcc, and attachments on a new email.
+- Several signatures per person, scheduled sending, read receipts.
 - Keeping the original HTML of a received email.

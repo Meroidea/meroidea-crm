@@ -29,6 +29,7 @@ import type { StoredAttachment } from './media';
 import type { TimelineItem } from '@/modules/activities/types';
 
 import { PLATFORM_LABELS } from './format';
+import { readStoredCompose, type StoredCompose } from './email-doc';
 import type { EmailFolder, InboxFilters } from './schemas';
 import { readAccountSettings, type AccountSettings } from './settings';
 
@@ -362,7 +363,9 @@ export type ThreadMessage = {
   error: string | null;
   sentByName: string | null;
   /** Email: whether the sender passed DKIM or DMARC, and whether a machine sent it. */
-  emailMeta: { verified?: boolean; automated?: boolean } | null;
+  emailMeta: { verified?: boolean; automated?: boolean; to?: string[]; cc?: string[] } | null;
+  /** Email written in Compose (ADR-090): recipients and formatting, checked again here. */
+  composed: StoredCompose | null;
 };
 
 /** One conversation with its latest messages, oldest first, for the thread page. */
@@ -408,6 +411,7 @@ export async function getConversation(ctx: TenantContext, id: string) {
         error: socialMessages.error,
         sentByName: repliers.fullName,
         emailMeta: socialMessages.emailMeta,
+        emailOutbound: socialMessages.emailOutbound,
       })
       .from(socialMessages)
       .leftJoin(repliers, eq(repliers.id, socialMessages.sentByUserId))
@@ -439,7 +443,10 @@ export async function getConversation(ctx: TenantContext, id: string) {
     return {
       ...row,
       platform: row.platform as SocialPlatform,
-      messages: latest.reverse() as ThreadMessage[],
+      messages: latest.reverse().map(({ emailOutbound, ...message }) => ({
+        ...message,
+        composed: message.direction === 'outbound' ? readStoredCompose(emailOutbound) : null,
+      })) as ThreadMessage[],
       suggestions: suggestions.map((item) => ({ id: item.id, name: item.name ?? '' })),
     };
   });

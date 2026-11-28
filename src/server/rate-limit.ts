@@ -26,6 +26,8 @@ export type RateLimit = {
   subject: string | null;
   limit: number;
   windowSeconds: number;
+  /** How many this request counts as (an email to five people counts five); 1 when left out. */
+  weight?: number;
 };
 
 /** Expired windows are swept on roughly one call in this many, instead of by a scheduled job. */
@@ -47,6 +49,7 @@ export function hashSubject(subject: string | null): string {
 
 /** Counts this request and reports whether it is still within the limit. */
 export async function consumeRateLimit(limit: RateLimit): Promise<boolean> {
+  const weight = Math.max(1, Math.floor(limit.weight ?? 1));
   const db = adminDb();
   const rows = (await db.execute(sql`
     insert into public_rate_limits (bucket, subject_hash, window_start, hits)
@@ -54,10 +57,10 @@ export async function consumeRateLimit(limit: RateLimit): Promise<boolean> {
       ${limit.bucket},
       ${hashSubject(limit.subject)},
       to_timestamp(floor(extract(epoch from now()) / ${limit.windowSeconds}) * ${limit.windowSeconds}),
-      1
+      ${weight}
     )
     on conflict (bucket, subject_hash, window_start)
-      do update set hits = public_rate_limits.hits + 1
+      do update set hits = public_rate_limits.hits + ${weight}
     returning hits`)) as unknown as { hits: number }[];
 
   if (Math.floor(Math.random() * SWEEP_ONE_IN) === 0) {

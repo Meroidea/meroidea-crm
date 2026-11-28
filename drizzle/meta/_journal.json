@@ -603,6 +603,27 @@
       "when": 1795561774408,
       "tag": "0085_timesheets_paid_roster_time",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1795828066224,
+      "tag": "0086_email_compose",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1795828067466,
+      "tag": "0087_email_compose_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795832021337,
+      "tag": "0088_email_drafts_signatures",
+      "breakpoints": true
     }
   ]
 }

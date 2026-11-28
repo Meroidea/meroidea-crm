@@ -2651,3 +2651,114 @@ delivered.
   belongs in campaigns, with consent (Spam Act 2003), which are still to be built.
 - Not built: several recipients, Cc or Bcc, attachments on a new email (replies can attach one
   file), drafts, and sending from a business's own domain.
+
+## ADR-090 — Compose: a mail client's new email in the Email area, with formatting, Cc, Bcc and files
+
+**Status.** Accepted (2026-11-28). Changes ADR-089's side panel to a Compose page and widens what
+a new email can carry.
+
+**Context.** The owner asked, on 28 November 2026, for a **Compose** button in the Email area that
+opens the new email inside it, like the compose screen of a desktop mail client (they named
+Outlook), with To, Cc and Bcc, a subject, text formatting, links and files, instead of a side
+panel.
+
+**Decision.**
+1. *Where.* **Compose** heads the folder pane (and the header on a phone) for people with
+   `social.reply`. It opens `/email/compose` in the reading pane, with the folders and list beside
+   it, as ADR-087 laid out. The page has Send, Attach and Discard at the top, then From (a choice
+   when the business has several inbox addresses), To with Cc and Bcc switches, the subject, a
+   formatting toolbar and the text, with attached files below. Leaving with an unsent email asks
+   first.
+2. *Formatting without trusting HTML.* The editor is the browser's own editing surface with a
+   toolbar: undo and redo, style (normal, three headings, quote), size (four), bold, italic,
+   underline, strikethrough, text colour and highlight (fixed palettes), bulleted and numbered
+   lists, alignment, links, a horizontal line and clear formatting. What is typed is read back
+   into an **email document** (`email-doc.ts`, `email-editor-dom.ts`): paragraphs, headings,
+   quotes, one-level lists and lines, with only those formats. The server checks the document with
+   Zod and builds the HTML and the text part itself, escaping everything, so no markup, script,
+   picture or form typed or pasted can reach an email. Pasting keeps the words only. Links must be
+   `https://`, `http://` or `mailto:`. Sent emails show in the thread as React elements from the
+   same document, never as HTML.
+3. *Recipients.* Up to 50 people across To, Cc and Bcc, each address once. The first To address
+   is the thread's person: their answer joins the thread. Anyone else who answers starts a thread
+   of their own, because a message joins a thread only from that thread's person (ADR-070). Bcc is
+   shown to colleagues in the thread, as a sender's mail program shows it.
+4. *Files.* Up to 10 images, PDFs or Office files, 10 MB each and 25 MB together, the types email
+   replies take. Each uploads as soon as it is chosen, by a ticket for a path the server picks
+   under the writer's own `{tenant}/social/compose/{user}/` folder. On Send every file is read
+   back, its leading bytes matched to its type, and its size checked again; a file from anyone
+   else's folder is refused. Resend fetches each by a ten-minute link.
+5. *Limits.* The daily limits now count recipients: 200 a day per person and 500 per inbox,
+   so Bcc cannot get round them (`consumeRateLimit` gained a weight). Replies are not limited.
+6. *A refused send* is returned with its thread rather than thrown, so Compose opens the thread,
+   where Retry sends the same email (recipients, formatting and files), instead of leaving the
+   writer to send a second copy.
+7. *Security fix found on the way.* The table-wide insert grant on `social_messages` let a
+   signed-in person set `email_meta` (with `verified`) and `email_message_id` through the REST
+   API, so someone in a business could plant a "verified" customer email in its own inbox. A
+   restrictive policy now refuses both from sessions; only the verified webhook writes them.
+
+**Consequences.**
+- No new dependency: the editor uses the browser's editing commands, which are old but supported
+  everywhere. A richer editor library would be a separate decision with the owner's approval.
+- Erasing a person removes the addresses from the composed emails in their threads; the business's
+  own words stay, as for replies.
+- Files attached and then abandoned (a closed tab) stay in the Compose folder until a sweep is
+  added.
+- Not built: drafts, signatures, pictures inside the text, tables, fonts, nested lists, address
+  suggestions from contacts, scheduled sending, Reply all and Forward, and formatting in the reply
+  box (replies stay plain text).
+
+## ADR-091 — Email like a mail client: drafts, signatures, fonts, tables, pictures, suggestions, Reply all, Forward and formatted replies
+
+**Status.** Accepted (2026-11-28). Completes ADR-090's "not built" list.
+
+**Context.** The owner asked, on 28 November 2026, for the rest of a desktop mail client's
+writing tools: drafts, signatures, pictures inside the text, tables, fonts, address suggestions
+from contacts, Reply all and Forward, and formatting in the reply box.
+
+**Decision.**
+1. *Fonts, tables and pictures* join the email document (ADR-090), which stays the only thing
+   the HTML is built from.
+   - Fonts are the email-safe families (Arial, Verdana, Tahoma, Trebuchet MS, Georgia, Times New
+     Roman, Courier New), with fallbacks, since mail programs drop web fonts.
+   - Tables: up to 50 rows of 10 cells, an optional header row, rows and columns added or deleted
+     from the caret's cell.
+   - A picture block holds only a path in the writer's own Compose folder (`COMPOSE_PATH`). The
+     editor shows it through `/api/social/compose-file/<file>`: only the name comes from the
+     address, and the folder is always the signed-in person's.
+   - On send each picture is read back, must be an image of the sender's own, and goes as an
+     embedded attachment with a Content-ID (`cid:`). Nothing loads from the web, so pictures show
+     without prompts and cannot track opens. At most 20 pictures; files and pictures together at
+     most 25 MB.
+2. *Drafts* (`email_drafts`): Compose saves a moment after each change.
+   - Private to the writer, by RLS (`email_drafts_own`) and in every query.
+   - A Drafts folder lists them; one reopens in Compose.
+   - Sending deletes the draft in the same transaction; its files become the email's.
+   - Discarding deletes it with its files, except a picture the signature still uses.
+   - Autosaves are not audited: a draft is the writer's working copy, not a business record.
+3. *Signatures* (`email_signatures`): one per person per business, private like a draft, written
+   with the same editor (pictures included, such as a logo).
+   - Added below two empty lines to new emails and, as chosen, to replies and forwards.
+   - Saving is audited without the words.
+4. *Address suggestions*: contacts whose name or email starts with what is typed in To, Cc or
+   Bcc. Only within `contacts.view` and its record scope (`scopeFilter`), at most eight.
+5. *Formatted replies*: the email thread's Reply tab is the same editor (`EmailReplyBox`), with
+   Cc, Bcc, files, pictures, the signature, saved replies and help article links.
+   `replyWithEmail` checks files and pictures as Compose does. Cc and Bcc count against the daily
+   recipient limits, so replies cannot get round them; the thread's person does not count.
+6. *Reply all* copies in everyone an email went to, less the thread's person and the business's
+   own inbox addresses. Their answers start their own threads (ADR-070).
+7. *Forward* opens Compose with "Fwd:", who the email was from and to, and its text and
+   formatting.
+   - Only a message the person may read, never a private note.
+   - Its files and pictures are copied into the forwarder's own Compose folder, so the forward
+     passes the same ownership checks and the original never changes.
+   - Files Compose cannot send are named in a notice.
+
+**Consequences.**
+- Migration `0088` creates both tables with RLS, grants, the `email_channel` feature switch and
+  the `inbox_channel` rule. `deleteBusiness` finds them through their foreign keys.
+- Abandoned uploads (a closed tab before a draft saved) still wait for a sweep.
+- Not built: several signatures, draft sharing, scheduled sending, read receipts, nested lists,
+  and pasting formatted text (pasting keeps the words only, by design).

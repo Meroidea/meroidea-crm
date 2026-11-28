@@ -234,10 +234,29 @@ change as touching sensitive personal data.
 - Attachment links are fetched only through `media.ts`, from `inbound-cdn.resend.com`; a file
   from anywhere else is refused.
 - Nothing an email says goes into logs, audit rows or error messages.
-- A new email to any address (ADR-089) goes only through `startEmailConversation`: `social.reply`,
-  a live inbox of the person's own business, the per-person and per-inbox daily limits, and never
-  an address at the inbox domain. It never links a contact (RLS may hide other matches); the
-  answer does, from the webhook.
+- A new email to any address (ADR-089, ADR-090) goes only through `startEmailConversation`:
+  `social.reply`, a live inbox of the person's own business, the recipient-weighted daily limits,
+  and never an address at the inbox domain. It never links a contact (RLS may hide other
+  matches); the answer does, from the webhook.
+- Composed HTML is built only by `emailDocHtml` from a document that passed `emailDocSchema`.
+  Never accept HTML from the browser, never widen the schema with raw styles, classes or
+  attributes, and render stored documents only through `EmailDocView` (React elements).
+- Compose files only through `startComposeUpload` (a path under
+  `{tenant}/social/compose/{user}/` the server chose) and `checkComposeFiles` on send, which
+  re-checks the prefix, the leading bytes, the type and the sizes. Never send a path the browser
+  made up.
+- Sessions never write `social_messages.email_meta` or `email_message_id` (restrictive policy
+  `social_messages_email_columns`); keep it whenever the insert grant or policies change.
+- Pictures in an email (ADR-091) are only paths matching `COMPOSE_PATH`, re-checked on send by
+  `prepareComposedFiles` as the sender's own images, and sent as `cid:` attachments. Never let a
+  picture be a web address, and serve unsent ones only through `/api/social/compose-file/<file>`,
+  which builds the folder from the signed-in person, never from the request.
+- Drafts and signatures are their owner's alone (`email_drafts_own`, `email_signatures_own`);
+  keep `user_id = auth.uid()` in the policies and in every query. Never audit a draft's or a
+  signature's words.
+- Forwarding copies the original's files into the forwarder's own folder (`prepareForward`); it
+  reads the message under RLS and never a note. Address suggestions stay within `contacts.view`
+  and `scopeFilter`.
 - The Email area's "Not a customer" rules (ADR-073) only sort threads into Filtered; they never
   stop an email being received or stored. Keep `created_by = auth.uid()` on insert and no update
   grant, and never put the address in an audit row.
