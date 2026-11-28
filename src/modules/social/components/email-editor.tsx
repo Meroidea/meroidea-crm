@@ -459,7 +459,17 @@ export const EmailEditor = forwardRef<
         )}
         onInput={() => onInput?.()}
         onKeyDown={(event) => {
-          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+          if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+          // Handled here rather than left to the browser, which does not map them everywhere.
+          const shortcut = { b: 'bold', i: 'italic', u: 'underline' }[event.key.toLowerCase()];
+          if (shortcut && !event.shiftKey) {
+            event.preventDefault();
+            document.execCommand(shortcut);
+            setActive(new Set(TOGGLES.filter((name) => document.queryCommandState(name))));
+            onInput?.();
+            return;
+          }
+          if (event.key.toLowerCase() === 'k') {
             event.preventDefault();
             openLink();
           }
