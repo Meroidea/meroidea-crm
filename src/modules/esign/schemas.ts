@@ -103,7 +103,7 @@ export const requestFiltersSchema = z.object({
   cursor: z.string().max(500).optional().catch(undefined),
 });
 
-// Signer side: the link's secret is the credential (ADR-089).
+// Signer side: the link's secret is the credential (ADR-094).
 const linkToken = z.string().regex(/^[A-Za-z0-9_-]{40,50}$/);
 
 export const signerTokenSchema = z.object({ token: linkToken });

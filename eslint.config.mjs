@@ -44,7 +44,7 @@ const eslintConfig = defineConfig([
       // The new hire's one-time link: no session exists, the link's secret is the credential.
       'src/modules/hiring/public.ts',
       // A signer's link for a signature request: no session; the link's hash (plus an emailed code
-      // when asked for) is the credential, and only that signer and request are touched (ADR-089).
+      // when asked for) is the credential, and only that signer and request are touched (ADR-094).
       'src/modules/esign/public.ts',
       // Their login, created right after that link's acceptance is committed (ADR-048).
       'src/modules/access/hire-login.ts',

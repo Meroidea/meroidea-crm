@@ -254,7 +254,7 @@ change as touching sensitive personal data.
 - The portal's public routes keep their size caps, Zod parsing, honeypot and per-sender limits.
 - Erasing a person deletes their `kb_article_views` and `kb_article_links`.
 
-## Electronic signatures (ADR-089)
+## Electronic signatures (ADR-094)
 
 - `src/modules/esign/public.ts` is the only esign code that may use `adminDb`. It starts from the
   signer's link hash and never takes a tenant, request or signer id from the caller; field ids are

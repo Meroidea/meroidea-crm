@@ -17,7 +17,7 @@ import { AppError } from '@/lib/errors';
 import { pointInBox, toPdfBox, type Box, type FieldKind, type PageGeometry } from './geometry';
 
 /**
- * Builds the signed file on the server (ADR-089). The browser only ever sends the values a signer
+ * Builds the signed file on the server (ADR-094). The browser only ever sends the values a signer
  * typed or drew; it never sends a PDF. The original is read from storage, checked against the
  * hash recorded when the request was sent, and every value is drawn onto it here. A completion
  * certificate is appended, and the finished file's hash is what /verify checks.

@@ -1,4 +1,4 @@
--- Signature requests from 0086 (ADR-089): tenant isolation, who may write what, a guard on status
+-- Signature requests from 0086 (ADR-094): tenant isolation, who may write what, a guard on status
 -- changes, the feature switch, and the new permission for existing workspaces.
 -- See docs/database.md §7f (Signature requests) and docs/permissions.md.
 --

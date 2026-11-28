@@ -1229,7 +1229,7 @@ size_bytes   bigint not null
 created_at, created_by                 -- created_by is null when the editor names no member
 ```
 
-### Signature requests (ADR-089)
+### Signature requests (ADR-094)
 
 A PDF from the library sent out for electronic signature. Staff with `files.request_signatures`
 read and write these through RLS; signers have no login and act only through

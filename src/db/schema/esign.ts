@@ -18,7 +18,7 @@ import { libraryDocuments } from './files';
 import { tenantMemberships, tenants } from './tenancy';
 
 /**
- * A request for people to sign a PDF from the document library (ADR-089). It pins the exact
+ * A request for people to sign a PDF from the document library (ADR-094). It pins the exact
  * stored version and, once sent, that version's SHA-256, so the file the signers saw is the file
  * that is stamped, whatever happens to the library document afterwards.
  */
@@ -106,7 +106,7 @@ export const signRequests = pgTable(
 /**
  * One person asked to sign. They have no account: their link's secret is the credential, stored
  * only as a hash, plus an emailed code when the request asks for one. The credential columns are
- * never granted to signed-in people (ADR-089).
+ * never granted to signed-in people (ADR-094).
  */
 export const signRequestSigners = pgTable(
   'sign_request_signers',

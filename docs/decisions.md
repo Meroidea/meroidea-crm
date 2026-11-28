@@ -2613,7 +2613,7 @@ which are service and sales as much as marketing.
 - Lead sources named "Marketing", "Marketing consent" and WhatsApp's "Marketing" template category
   are different things and keep their names.
 
-## ADR-089 — Electronic signatures for library PDFs, modelled on OpenSign and stamped on the server
+## ADR-094 — Electronic signatures for library PDFs, modelled on OpenSign and stamped on the server
 
 **Status.** Accepted (2026-11-27). Part of the Documents feature (ADR-030); adds two runtime
 dependencies the owner approved on 27 November 2026: `pdf-lib` (MIT) and `pdfjs-dist`

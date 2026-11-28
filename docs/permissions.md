@@ -102,7 +102,7 @@ and work in `/platform`; inside a business they hold a temporary Admin seat mark
 | `files.view` | | See the document library, open documents read-only, download any version |
 | `files.edit` | | Edit documents in the browser editor |
 | `files.manage` | | Upload, rename, move and delete documents. Enforced again by RLS on `library_documents` |
-| `files.request_signatures` | | Send library PDFs for electronic signature, place fields, resend links, void requests and download signed copies (ADR-089). Enforced again by RLS on `sign_requests`, `sign_request_signers`, `sign_request_fields`, `sign_request_events`. Signers need no permission: their link is the credential |
+| `files.request_signatures` | | Send library PDFs for electronic signature, place fields, resend links, void requests and download signed copies (ADR-094). Enforced again by RLS on `sign_requests`, `sign_request_signers`, `sign_request_fields`, `sign_request_events`. Signers need no permission: their link is the credential |
 | `invoices.manage` | | Create, edit, send and void invoices; record and void payments (part payments, one payment across several invoices) and credit notes (ADR-061). Enforced again by RLS on `invoices`, `invoice_lines`, `invoice_payments`, `invoice_payment_allocations`, `invoice_credit_notes` |
 | `timeoff.request` | | Ask for leave, see and withdraw your own requests |
 | `timeoff.manage` | | See everyone's requests, approve or decline, cancel approved leave, enter leave for someone else, manage leave types. Enforced again by RLS on `leave_requests` |

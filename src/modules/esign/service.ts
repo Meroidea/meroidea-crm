@@ -27,7 +27,7 @@ import type { SaveDraftInput } from './schemas';
 import { inspectPdf, sha256Hex } from './stamp';
 
 /**
- * Staff side of signature requests (ADR-089): drafting, sending, reminding, voiding and
+ * Staff side of signature requests (ADR-094): drafting, sending, reminding, voiding and
  * downloading. Everything runs as the signed-in person through RLS. What signers do is in
  * ./public.ts.
  */

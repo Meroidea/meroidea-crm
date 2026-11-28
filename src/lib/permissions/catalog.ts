@@ -45,7 +45,7 @@ export const PERMISSIONS = {
   'files.view': { scoped: false },
   'files.edit': { scoped: false },
   'files.manage': { scoped: false },
-  /** Send library PDFs out for electronic signature and follow them (ADR-089). */
+  /** Send library PDFs out for electronic signature and follow them (ADR-094). */
   'files.request_signatures': { scoped: false },
   'invoices.manage': { scoped: false },
   'payroll.manage': { scoped: false },

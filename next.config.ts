@@ -74,7 +74,7 @@ const nextConfig: NextConfig = {
         // A website form's key is what lets anyone post to it.
         /^\/f\//,
         /^\/api\/forms\//,
-        // A signing link is the signer's credential (ADR-089).
+        // A signing link is the signer's credential (ADR-094).
         /^\/sign\//,
         /^\/api\/esign\/sign\//,
       ],

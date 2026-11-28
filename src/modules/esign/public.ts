@@ -37,7 +37,7 @@ import { pngSize, stampSignedPdf, type CertificateEvent } from './stamp';
 import type { SignerStatus, SignRequestStatus, SigningView } from './types';
 
 /**
- * The signer's side of a signature request (ADR-089). Signers have no account, so there is no
+ * The signer's side of a signature request (ADR-094). Signers have no account, so there is no
  * session for RLS to match: this file uses the privileged connection, and the link's secret is the
  * credential, with an emailed code on top when the request asks for one. Every function starts
  * from the link's hash and touches only the one signer and request it names. Nothing here takes a
