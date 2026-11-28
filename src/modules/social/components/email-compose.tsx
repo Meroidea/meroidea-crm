@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { publicEnv } from '@/lib/env.public';
 import { cn } from '@/lib/utils';
+import { MeroAIWriter } from '@/modules/ai/components/meroai-email';
 import {
   discardDraftAction,
   removeComposeUploadAction,
@@ -72,6 +73,8 @@ export type ComposeStart = {
   attachments?: { path: string; fileName: string; mimeType: string; size: number }[];
   /** Shown above the form, e.g. files a forward could not carry. */
   notice?: string;
+  /** The signature in the text, which MeroAI writes above and keeps (ADR-092). */
+  signature?: EmailDoc | null;
 };
 
 /** How long after the last change a draft is saved. */
@@ -81,10 +84,13 @@ export function EmailCompose({
   inboxes,
   start = {},
   timeZone,
+  meroAI = false,
 }: {
   inboxes: EmailInboxOption[];
   start?: ComposeStart;
   timeZone: string;
+  /** MeroAI may help write (ADR-092). */
+  meroAI?: boolean;
 }) {
   const router = useRouter();
   const editor = useRef<EmailEditorHandle>(null);
@@ -447,6 +453,18 @@ export function EmailCompose({
         />
       </div>
 
+      {meroAI && (
+        <MeroAIWriter
+          mode="compose"
+          editor={editor}
+          signature={start.signature ?? null}
+          disabled={sending}
+          getTo={() => to}
+          getSubject={() => subject}
+          onSubject={setSubject}
+          onChange={touch}
+        />
+      )}
       <span id="compose-body-label" className="sr-only">
         Message
       </span>

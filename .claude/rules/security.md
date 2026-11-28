@@ -261,6 +261,17 @@ change as touching sensitive personal data.
   stop an email being received or stored. Keep `created_by = auth.uid()` on insert and no update
   grant, and never put the address in an audit row.
 
+## MeroAI in Email (ADR-092)
+
+- Email text reaches the model only inside `dataBlock` fences with `DATA_RULE`. Never send a
+  private note, an inbox or contact address, or an email address in the text (`withoutAddresses`).
+- A model answer becomes an email only through `blocksToEmailDoc` and `emailDocDraftSchema`:
+  plain paragraphs and lists. Never let it carry links, pictures, styles or HTML.
+- MeroAI never sends, saves a note or creates a task. Those stay the person's clicks, through
+  the modules' own actions and permissions.
+- Thread refs (T1..Tn) are mapped to links in code; drop any ref the model was not given.
+- Audit rows say `surface: 'email'`, the action and counts or ids only.
+
 ## Knowledge base (ADR-071)
 
 - `src/modules/kb/public.ts` is the only knowledge base code that may use `adminDb`. It starts

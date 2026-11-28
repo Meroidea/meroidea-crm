@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { InboxArea } from '@/modules/social/components/inbox-list';
+import { meroAIEmailAvailable } from '@/modules/ai/meroai-email';
 import { countDrafts } from '@/modules/social/compose-service';
 import type { EmailInboxOption } from '@/modules/social/components/email-compose';
 import { emailInboxConfigured } from '@/modules/social/providers/resend';
@@ -20,6 +21,8 @@ export async function loadInboxArea(
   newEmailFrom: EmailInboxOption[];
   /** How many drafts they have (ADR-091); null when they cannot write emails. */
   drafts: number | null;
+  /** MeroAI may be offered in Email to this person (ADR-092). */
+  meroAI: boolean;
 }> {
   const { accounts } = await listAccounts(ctx);
   const own = accounts.filter((account) => mailboxOf(account.platform) === mailbox);
@@ -37,6 +40,7 @@ export async function loadInboxArea(
           }))
         : [],
       drafts: canWrite ? await countDrafts(ctx) : null,
+      meroAI: meroAIEmailAvailable(ctx),
     };
   }
   return {
@@ -49,6 +53,7 @@ export async function loadInboxArea(
     mailboxLabel: null,
     newEmailFrom: [],
     drafts: null,
+    meroAI: false,
   };
 }
 

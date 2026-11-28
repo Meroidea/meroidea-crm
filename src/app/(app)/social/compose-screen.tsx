@@ -43,6 +43,7 @@ export async function ComposeScreen({
       actions={<InboxRealtime tenantId={ctx.tenantId} />}
       canCompose={canCompose}
       drafts={area.drafts}
+      meroAI={area.meroAI}
       reading
       list={
         <EmailList
@@ -68,6 +69,7 @@ export async function ComposeScreen({
           inboxes={area.newEmailFrom}
           start={start}
           timeZone={ctx.tenant.timezone}
+          meroAI={area.meroAI}
         />
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-card/50 p-6 text-center text-sm text-muted-foreground">
@@ -93,9 +95,10 @@ async function composeStart(
 ): Promise<ComposeStart> {
   const draftId = typeof query.draft === 'string' ? query.draft : null;
   if (draftId && /^[0-9a-f-]{36}$/.test(draftId)) {
-    const draft = await getDraft(ctx, draftId);
+    const [draft, signature] = await Promise.all([getDraft(ctx, draftId), getSignature(ctx)]);
     if (!draft) notFound();
     return {
+      signature: signature?.useOnNew ? signature.doc : null,
       draftId: draft.id,
       accountId: draft.accountId,
       to: draft.to,
@@ -114,6 +117,7 @@ async function composeStart(
     // As a mail program forwards: room to write, the signature, then the forwarded email.
     const signed = signature?.useOnReplies ? [BLANK_LINE, ...signature.doc] : [];
     return {
+      signature: signature?.useOnReplies ? signature.doc : null,
       subject: forward.subject,
       doc: [BLANK_LINE, ...signed, ...forward.doc],
       attachments: forward.attachments,
@@ -123,5 +127,7 @@ async function composeStart(
           : undefined,
     };
   }
-  return signature?.useOnNew ? { doc: [BLANK_LINE, BLANK_LINE, ...signature.doc] } : {};
+  return signature?.useOnNew
+    ? { doc: [BLANK_LINE, BLANK_LINE, ...signature.doc], signature: signature.doc }
+    : {};
 }

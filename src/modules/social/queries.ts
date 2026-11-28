@@ -806,3 +806,75 @@ export async function getConversationForTicket(
     accountName: row.accountName,
   };
 }
+
+/** One email thread as MeroAI sees it when asked about the inbox (ADR-092). */
+export type AssistantThread = {
+  id: string;
+  name: string;
+  subject: string | null;
+  status: string;
+  unread: number;
+  lastMessageAt: Date | null;
+  /** Who wrote last: the customer (`inbound`) or the business (`outbound`). */
+  lastFrom: 'inbound' | 'outbound' | null;
+  /** The customer's last words, cut short; never a private note, never an address. */
+  lastCustomerText: string | null;
+  assignee: string | null;
+};
+
+/**
+ * The person's most recent email threads, for MeroAI's answers about the inbox (ADR-092): only
+ * what they may read (RLS, social.view), names but no email addresses, and the customer's last
+ * words cut to 400 characters. Private notes are never included.
+ */
+export async function listEmailThreadsForAssistant(
+  ctx: TenantContext,
+  limit = 40,
+): Promise<AssistantThread[]> {
+  requirePermission(ctx, 'social.view');
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: socialConversations.id,
+        participantName: socialConversations.participantName,
+        contactName: contacts.fullName,
+        subject: socialConversations.subject,
+        status: socialConversations.status,
+        unread: socialConversations.unreadCount,
+        lastMessageAt: socialConversations.lastMessageAt,
+        assignee: assignees.fullName,
+        lastFrom: sql<string | null>`(select m.direction from public.social_messages m
+          where m.tenant_id = social_conversations.tenant_id
+            and m.conversation_id = social_conversations.id and m.direction <> 'note'
+          order by m.sent_at desc limit 1)`,
+        lastCustomerText: sql<string | null>`(select left(m.body, 400) from public.social_messages m
+          where m.tenant_id = social_conversations.tenant_id
+            and m.conversation_id = social_conversations.id and m.direction = 'inbound'
+          order by m.sent_at desc limit 1)`,
+      })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .leftJoin(contacts, contactJoin(ctx))
+      .leftJoin(assignees, eq(assignees.id, socialConversations.assignedUserId))
+      .where(and(eq(socialConversations.tenantId, ctx.tenantId), mailboxCondition('email')))
+      .orderBy(desc(socialConversations.lastMessageAt))
+      .limit(Math.min(Math.max(limit, 1), 60)),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.contactName ?? row.participantName ?? 'Unknown sender',
+    subject: row.subject,
+    status: row.status,
+    unread: row.unread,
+    lastMessageAt: row.lastMessageAt,
+    lastFrom: row.lastFrom === 'inbound' || row.lastFrom === 'outbound' ? row.lastFrom : null,
+    lastCustomerText: row.lastCustomerText,
+    assignee: row.assignee,
+  }));
+}

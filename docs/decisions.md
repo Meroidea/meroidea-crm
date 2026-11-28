@@ -2762,3 +2762,61 @@ from contacts, Reply all and Forward, and formatting in the reply box.
 - Abandoned uploads (a closed tab before a draft saved) still wait for a sweep.
 - Not built: several signatures, draft sharing, scheduled sending, read receipts, nested lists,
   and pasting formatted text (pasting keeps the words only, by design).
+
+## ADR-092 — MeroAI in Email: write, reply, rewrite, summarise and answer questions
+
+**Status.** Accepted (2026-11-28).
+
+**Context.** The owner asked, on 28 November 2026, for MeroAI to help in the Email area: write
+new emails, reply, summarise, and answer questions about any email, and whatever else is useful
+there. Email is written by outsiders, so anything it says may try to steer a model (a prompt
+injection), and threads carry personal details.
+
+**Decision.**
+1. *Where.* Only with `ai.use` and `social.view` (and `social.reply` to write), the
+   `ai_assistant` feature and a Gemini key (`meroAIEmailAvailable`, `loadInboxArea().meroAI`).
+   - Compose: "Write with MeroAI" (what to say and a tone gives a subject and a body) and
+     "Rewrite…" (improve, shorter, friendlier, more formal, fix spelling and grammar, translate).
+   - The reply box: "Reply with MeroAI" (answer, say yes, decline politely, ask for details, thank
+     them, plus optional instructions) and the same rewrites.
+   - An email thread: "Ask MeroAI about this email", with a summary (what it is about, what the
+     customer asks, key points, dates, a sentiment, the next step, follow-ups) and questions
+     answered only from the thread, with up to four earlier questions for follow-ups.
+   - The folders: "Ask MeroAI" (`/email/meroai`), questions about the 40 most recent threads the
+     person can see ("which emails need a reply?"), with links to the threads it names.
+2. *MeroAI writes, people act.* Writing goes into the editor with Undo, never out. The model
+   answers with paragraphs and lists of plain text only; `blocksToEmailDoc` builds the email
+   document and checks it with `emailDocDraftSchema`, so a model answer cannot carry a link, a
+   picture, a style or markup. A summary becomes a private note (`noteAction`), a follow-up a
+   task (`createTaskAction`), and a next step a drafted reply, each only on the person's click and
+   with those actions' own permissions.
+3. *What the model sees.*
+   - Email text goes only inside `dataBlock` fences with `DATA_RULE`: at worst an injected email
+     produces a draft or summary the person reads.
+   - Private notes are never sent. Email addresses are blanked (`withoutAddresses`) in names,
+     subjects and text; inbox and contact addresses are never sent at all.
+   - A thread sends at most its last 20 emails (12 for a reply), each up to 4,000 characters,
+     dropping the oldest until it fits 14,000; the inbox sends each thread's last customer words
+     up to 400 characters.
+   - Threads reach the model as T1..Tn. Links are built in code from those refs; a ref the model
+     invents is dropped, never linked.
+   - The thread and the inbox are read through `getConversation` and `listEmailThreadsForAssistant`
+     under RLS, so MeroAI sees only what the person can.
+4. *Models.* The fast model writes, replies and rewrites; the reasoning model (low thinking)
+   summarises and answers.
+5. *Signature.* The editor's words are split at the person's signature (`splitAtSignature`):
+   MeroAI writes above it and keeps it, and anything after it (a forwarded email), unchanged. When
+   a signature follows, the model writes a closing line without a name.
+6. *Limits and audit.* Every request counts against MeroAI's limits (`enforceLimits`) and writes
+   an `ai_assist` row with `surface: 'email'`, the action and counts or ids only.
+
+**Consequences.**
+- On Google's unpaid Gemini tier, Google may use prompts to improve its products (ADR-074). Email
+  text is sent to Google when someone uses these tools; a business that cannot accept that should
+  use a paid key or leave `ai_assistant` off.
+- Rewriting keeps words only: pictures and tables in the rewritten part are not kept (Undo brings
+  them back), and formatting becomes plain paragraphs and lists.
+- The inbox answers cover the 40 most recent threads, not a search of everything; older questions
+  need the email list's search.
+- Not built: answers grounded in the business's own knowledge base or price list, scheduled
+  digests, and automatic triage or replies without a person.

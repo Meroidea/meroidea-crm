@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { withParams } from '@/components/data/url';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { MeroAIThreadPanel } from '@/modules/ai/components/meroai-email';
 import { ConversationDetails } from '@/modules/social/components/conversation-details';
 import { DetailsSheet } from '@/modules/social/components/details-sheet';
 import { EmailList } from '@/modules/social/components/email-list';
@@ -238,6 +239,7 @@ export async function ConversationScreen({
         actions={<InboxRealtime tenantId={ctx.tenantId} />}
         canCompose={area.newEmailFrom.length > 0}
         drafts={area.drafts}
+        meroAI={area.meroAI}
         list={
           <EmailList
             rows={list.rows}
@@ -302,6 +304,16 @@ export async function ConversationScreen({
             </div>
           </header>
 
+          {area.meroAI && (
+            <MeroAIThreadPanel
+              conversationId={conversation.id}
+              contactId={conversation.contactId}
+              canNote={canReply}
+              canTask={hasPermission(ctx, 'tasks.manage')}
+              canReply={canReply && emailInboxConfigured()}
+            />
+          )}
+
           <ThreadView
             conversationId={conversation.id}
             platform={platform}
@@ -336,6 +348,7 @@ export async function ConversationScreen({
                   signature={signature?.useOnReplies ? signature.doc : null}
                   canned={canned}
                   articles={ctx.tenant.features.includes('knowledge_base')}
+                  meroAI={area.meroAI}
                 />
               ) : null
             }

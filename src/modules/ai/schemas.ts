@@ -208,3 +208,64 @@ export const meroAIInvoiceDraftSchema = z.object({
 });
 
 export type MeroAIInvoiceDraftInput = z.output<typeof meroAIInvoiceDraftSchema>;
+
+/* ------------------------------------------------------------- MeroAI in Email (ADR-092) */
+
+export const EMAIL_TONES = ['friendly', 'professional', 'brief', 'formal'] as const;
+export const EMAIL_REWRITES = [
+  'improve',
+  'shorter',
+  'friendlier',
+  'formal',
+  'fix',
+  'translate',
+] as const;
+export const REPLY_INTENTS = ['reply', 'accept', 'decline', 'more_info', 'thanks'] as const;
+
+/** Write a new email from a description (Compose). */
+export const meroAIWriteEmailSchema = z.object({
+  instruction: z.string().trim().min(3, 'Say what the email should say').max(2000),
+  tone: z.enum(EMAIL_TONES).default('friendly'),
+  /** The To addresses typed so far: matched to contacts the person may see, for names only. */
+  to: z.array(z.string().trim().toLowerCase().max(254)).max(10).default([]),
+  /** Whether a signature follows, so MeroAI leaves the sign-off name to it. */
+  signed: z.boolean().default(false),
+});
+export type MeroAIWriteEmailInput = z.output<typeof meroAIWriteEmailSchema>;
+
+/** Rewrite what has been written (Compose or the reply box). */
+export const meroAIRewriteEmailSchema = z.object({
+  text: z.string().trim().min(1, 'Write something first').max(20000),
+  kind: z.enum(EMAIL_REWRITES),
+  /** For `translate`: the language to write in. */
+  language: z.string().trim().max(40).optional(),
+});
+export type MeroAIRewriteEmailInput = z.output<typeof meroAIRewriteEmailSchema>;
+
+/** Draft a reply on an email thread. */
+export const meroAIDraftReplySchema = z.object({
+  conversationId: z.uuid(),
+  intent: z.enum(REPLY_INTENTS).default('reply'),
+  instruction: z.string().trim().max(1000).optional(),
+  tone: z.enum(EMAIL_TONES).default('friendly'),
+  signed: z.boolean().default(false),
+});
+export type MeroAIDraftReplyInput = z.output<typeof meroAIDraftReplySchema>;
+
+export const meroAIThreadSchema = z.object({ conversationId: z.uuid() });
+
+/** A question about one thread, with the last few questions and answers for follow-ups. */
+export const meroAIAskThreadSchema = z.object({
+  conversationId: z.uuid(),
+  question: z.string().trim().min(2, 'Ask a question').max(1000),
+  history: z
+    .array(z.object({ question: z.string().max(1000), answer: z.string().max(2000) }))
+    .max(4)
+    .default([]),
+});
+export type MeroAIAskThreadInput = z.output<typeof meroAIAskThreadSchema>;
+
+/** A question about the inbox as a whole. */
+export const meroAIAskInboxSchema = z.object({
+  question: z.string().trim().min(2, 'Ask a question').max(1000),
+});

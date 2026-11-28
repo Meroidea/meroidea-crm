@@ -9,6 +9,7 @@ import {
   MailOpen,
   Send,
   Settings2,
+  Sparkles,
   SquarePen,
   User,
   UserSearch,
@@ -68,6 +69,8 @@ export function EmailFolders({
   canCompose = false,
   drafts = null,
   inDrafts = false,
+  meroAI = false,
+  inMeroAI = false,
 }: {
   filters: InboxFilters;
   unread: Record<EmailFolder, number>;
@@ -82,8 +85,12 @@ export function EmailFolders({
   drafts?: number | null;
   /** The Drafts list is open: no conversation folder is current. */
   inDrafts?: boolean;
+  /** MeroAI may be offered (ADR-092). */
+  meroAI?: boolean;
+  /** The Ask MeroAI page is open: no folder is current. */
+  inMeroAI?: boolean;
 }) {
-  const folder = inDrafts ? null : (filters.folder ?? 'customers');
+  const folder = inDrafts || inMeroAI ? null : (filters.folder ?? 'customers');
   const view = filters.view ?? 'open';
   const current = { view: filters.view, folder: filters.folder, q: filters.q };
   const item = (active: boolean) =>
@@ -147,6 +154,18 @@ export function EmailFolders({
               )}
             </Link>
           )}
+          {meroAI && (
+            <Link
+              href="/email/meroai"
+              aria-current={inMeroAI ? 'page' : undefined}
+              className={item(inMeroAI)}
+            >
+              <Sparkles aria-hidden className="size-4 shrink-0" />
+              <span className="flex-1 truncate">
+                Ask <span className="meroai-text">MeroAI</span>
+              </span>
+            </Link>
+          )}
         </div>
         <div className="flex flex-col gap-0.5">
           <p className="px-2.5 pb-1.5 text-xs font-semibold text-muted-foreground">Show</p>
@@ -205,6 +224,18 @@ export function EmailFolders({
             )}
           >
             Drafts{drafts > 0 && <span className="ml-1 tabular-nums">{drafts}</span>}
+          </Link>
+        )}
+        {meroAI && (
+          <Link
+            href="/email/meroai"
+            aria-current={inMeroAI ? 'page' : undefined}
+            className={cn(
+              'shrink-0 rounded-full border px-3 py-1 text-sm whitespace-nowrap text-muted-foreground',
+              inMeroAI && 'border-primary bg-accent font-medium text-foreground',
+            )}
+          >
+            Ask MeroAI
           </Link>
         )}
       </nav>

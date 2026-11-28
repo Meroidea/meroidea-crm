@@ -31,6 +31,7 @@ export async function DraftsScreen() {
       actions={<InboxRealtime tenantId={ctx.tenantId} />}
       canCompose={area.newEmailFrom.length > 0}
       drafts={area.drafts}
+      meroAI={area.meroAI}
       inDrafts
       list={
         <section
