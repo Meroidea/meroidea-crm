@@ -2,5 +2,15 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["syd1"],
-  "crons": [{ "path": "/api/cron/lead-alerts", "schedule": "40 20 * * *" }]
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/lead-alerts",
+      "schedule": "40 20 * * *"
+    }
+  ]
 }

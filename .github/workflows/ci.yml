@@ -104,15 +104,18 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-  # Production migrations (ADR-075): once every check has passed on main, apply the pending
-  # migrations to the production database, here and never from a laptop (docs/architecture.md
-  # §12). Drizzle applies them all in one transaction, so a failure leaves production as it was.
+  # Production release (ADR-075, ADR-092): once every check has passed on main, build the new
+  # version on Vercel without giving it the production domains, apply the pending migrations to
+  # the production database (here and never from a laptop, docs/architecture.md §12), and only
+  # then point production at the new version. Vercel's Git integration does not deploy main
+  # (`git.deploymentEnabled` in vercel.json), so this job is the only way a commit reaches
+  # production. Any failed step stops the job, and production keeps serving the version it had.
   migrate-production:
-    name: Migrate production database
+    name: Migrate production database and deploy
     needs: [checks, database, e2e]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    # The secret lives in the `production` environment, which can require an approval and be
+    # The secrets live in the `production` environment, which can require an approval and be
     # limited to main in the repository's settings.
     environment: production
     # One at a time, and never cancelled part-way.
@@ -121,17 +124,50 @@ jobs:
       cancel-in-progress: false
     env:
       DATABASE_URL_DIRECT: ${{ secrets.PRODUCTION_DATABASE_URL_DIRECT }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # Identifiers, not credentials: the Vercel team and the meroidea-crm project.
+      VERCEL_ORG_ID: team_KTdY5BzOCgvjfQXT1923d7Jt
+      VERCEL_PROJECT_ID: prj_BM8wShwpHAKYM16smOnMZ1ZNw8E5
+      # Pinned like any other tool; run through npx, so it is not a dependency of the app.
+      VERCEL_CLI: vercel@65.15.0
     steps:
-      - name: Check the production database is configured
+      - name: Check production is configured
         run: |
+          missing=0
           if [ -z "$DATABASE_URL_DIRECT" ]; then
-            echo "::error title=Production not migrated::Add the secret PRODUCTION_DATABASE_URL_DIRECT to the production environment: the Supabase session pooler URL (port 5432). See ADR-075."
-            exit 1
+            echo "::error title=Production not released::Add the secret PRODUCTION_DATABASE_URL_DIRECT to the production environment: the Supabase session pooler URL (port 5432). See ADR-075."
+            missing=1
           fi
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error title=Production not released::Add the secret VERCEL_TOKEN to the production environment: a Vercel access token for the team that owns meroidea-crm. See ADR-092."
+            missing=1
+          fi
+          exit "$missing"
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: npm
+      # 1. Build. A production deployment with the production environment variables, built by
+      #    Vercel as before, but `--skip-domain` keeps crm.meroidea.com on the current version.
+      #    The command waits for the build and fails if it fails, so nothing is migrated for a
+      #    version that cannot be served.
+      - name: Build the new version on Vercel (not live yet)
+        id: build
+        run: |
+          url="$(npx --yes "$VERCEL_CLI" deploy --prod --skip-domain --yes --token "$VERCEL_TOKEN")"
+          case "$url" in
+            https://*) echo "Built $url" ;;
+            *) echo "::error::Vercel did not return a deployment URL: $url"; exit 1 ;;
+          esac
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      # 2. Migrate. Drizzle applies every pending migration in one transaction with its journal
+      #    row, so a failure leaves the database as it was, and step 3 never runs.
       - run: npm ci
-      - run: npm run db:migrate
+      - name: Migrate the production database
+        run: npm run db:migrate
+      # 3. Release. Production starts serving the new version only now that its schema exists.
+      - name: Point production at the new version
+        env:
+          DEPLOYMENT_URL: ${{ steps.build.outputs.url }}
+        run: npx --yes "$VERCEL_CLI" promote "$DEPLOYMENT_URL" --yes --timeout 5m --token "$VERCEL_TOKEN"

@@ -282,13 +282,26 @@ CSV export streams from the same query functions, is permission-gated, and audit
   `syd1`. Keeps personal data stored in Australia and puts functions next to the database
   (Vercel's default US East region would add a Pacific round trip to every query).
 - Connection: Supavisor transaction pooler (port 6543), postgres.js with `prepare: false`.
-- Migrations: `drizzle-kit migrate` in CI — never from a laptop to prod. The `Migrate production
-  database` job in `.github/workflows/ci.yml` runs on every push to `main` after lint, types, unit,
-  database and browser tests have all passed, with the `PRODUCTION_DATABASE_URL_DIRECT` secret of
-  the `production` environment (the Supabase **session pooler** URL, port 5432: GitHub's runners
-  have no IPv6, which the direct connection needs). Migrations must keep working with the code
-  already live (expand, then contract, in two releases), because Vercel may serve the new build
-  before the migration finishes unless its Deployment Checks wait for the job (ADR-075).
+- Migrations: `drizzle-kit migrate` in CI — never from a laptop to prod (ADR-075).
+- **Deploy flow for `main` (ADR-092): migrate before promote.** Vercel's Git integration builds
+  previews for every other branch but not `main` (`git.deploymentEnabled` in `vercel.json`). A
+  push to `main` runs `.github/workflows/ci.yml`; when lint, types, unit, database and browser
+  tests have all passed, the `Migrate production database and deploy` job, in the `production`
+  environment and never two at a time:
+  1. builds the commit on Vercel as a production deployment with `--skip-domain`, so it is not
+     served on the production domains yet (a failed build stops here);
+  2. runs `npm run db:migrate` against `PRODUCTION_DATABASE_URL_DIRECT` (the Supabase **session
+     pooler** URL, port 5432: GitHub's runners have no IPv6, which the direct connection needs).
+     All pending migrations apply in one transaction, so a failure changes nothing;
+  3. promotes that deployment (`vercel promote`), so production serves the new code only once its
+     schema exists.
+
+  A failure at any step leaves production on the version it was serving. New code therefore never
+  meets an old schema. The reverse still happens for the seconds between step 2 and step 3, so a
+  migration must keep working with the code already live: add freely; drop or rename only in a
+  later release, once no live code uses the old shape (expand, then contract).
+  Never promote or redeploy `main` from the Vercel dashboard: that skips the migration. A rollback
+  (Instant Rollback) is fine for code, but the database stays migrated.
 - Node: use the current LTS (Node 24). Node 20 reached end-of-life in April 2026.
 
 ### Environment variables (`.env.example`)

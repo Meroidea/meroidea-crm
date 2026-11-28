@@ -2116,7 +2116,8 @@ record. The project rules forbid changing the cloud database by hand or from a l
    migration in one transaction with its journal row, so a failure changes nothing.
 
 **Consequences.**
-- Vercel deploys `main` through its Git integration, independently of CI, so a new build can go
+- *(Replaced by ADR-092: production is now promoted by this job, after the migration.)* Vercel
+  deploys `main` through its Git integration, independently of CI, so a new build can go
   live minutes before its migration. Until Vercel's Deployment Checks are set to wait for this
   job, every migration must work with the code already live (expand first; contract in a later
   release), as `rules/database.md` already asks for destructive changes.
@@ -2762,3 +2763,71 @@ from contacts, Reply all and Forward, and formatting in the reply box.
 - Abandoned uploads (a closed tab before a draft saved) still wait for a sweep.
 - Not built: several signatures, draft sharing, scheduled sending, read receipts, nested lists,
   and pasting formatted text (pasting keeps the words only, by design).
+
+## ADR-092 — Production is promoted from CI, after its migration
+
+**Context.** Merging to `main` started two independent things: Vercel's Git integration built and
+served the commit in about 3 minutes, and CI applied its migrations about 10 minutes later
+(ADR-075). After the merge of migrations `0086`–`0088`, `/email` failed with
+`relation "email_drafts" does not exist` from 04:48:16 to 04:48:25 UTC on 2026-11-28, until the
+migration job finished. Every migration that new code relies on has the same window.
+
+**Options considered.**
+1. *Deploy production from CI after the migration.* Turn off Git deployments for `main` and let
+   the CI job deploy. Order and failure handling are written in the workflow, reviewed like code,
+   and GitHub's own rule (a failed step stops the job) guarantees nothing after a failure runs.
+   Costs a Vercel token in GitHub's secrets.
+2. *Vercel Deployment Checks*, requiring the GitHub check for the migration job before Vercel
+   promotes a production build. No token. Rejected because:
+   - Vercel's documentation describes only what happens when the checks pass. It does not say how
+     a *skipped* check counts. The migration job is skipped, not failed, whenever a test job
+     fails (`needs`). GitHub itself counts a skipped required check as passed, so if Vercel did
+     the same, untested code would go live without its migration.
+   - The rule lives in the Vercel dashboard, outside review. Renaming the job silently changes
+     which check it waits for.
+   - Which plans include it is not stated on the page.
+3. *Expand/contract only* (code tolerates the old schema for one release). Necessary but not
+   sufficient. ADR-075 already asked for it, and the `email_drafts` outage happened anyway:
+   nothing enforces it. Code that *needs* a new table cannot tolerate its absence without a
+   runtime check in every query that touches it, which is cost and risk in every module, forever.
+
+**Decision.** Option 1, with build and release separated so the new code goes live seconds, not
+minutes, after the migration:
+1. `vercel.json` sets `git.deploymentEnabled: { "main": false }`. Every other branch still gets
+   a Vercel preview from the Git integration, as before.
+2. The CI job `Migrate production database and deploy` (formerly `Migrate production database`)
+   keeps ADR-075's place and guarantees: after every check passes, in the `production`
+   environment, one at a time, never cancelled part-way. It:
+   1. builds the commit on Vercel: `vercel deploy --prod --skip-domain`. Vercel builds it with
+      the production environment variables, but the production domains stay on the current
+      version;
+   2. runs `npm run db:migrate`;
+   3. runs `vercel promote <that deployment>`.
+3. The Vercel CLI runs through `npx` at a pinned version. It is a CI tool, not a dependency of
+   the app. The team and project IDs are written in the workflow: they are identifiers, not
+   credentials. The token is the secret `VERCEL_TOKEN` in the `production` environment.
+
+**Why a failure leaves the old version live.**
+- Tests fail: the job is skipped. Nothing is built or migrated.
+- Build fails: `vercel deploy` waits for the build and exits non-zero. The job stops before the
+  migration.
+- Migration fails: Drizzle rolls back the whole batch. The job stops before `promote`, so the new
+  deployment stays staged and is never served.
+- A secret is missing: the first step fails with a message naming it.
+- Promote fails (rare): the schema is new and the code is old. That is the case expand/contract
+  still has to cover. Re-run the job, or promote that deployment by hand.
+
+**Consequences.**
+- Merge to live takes about 3 minutes longer: the Vercel build now runs after the tests instead
+  of alongside them.
+- Expand/contract stays a rule, for one direction only. Old code meets the new schema for the
+  seconds between migration and promote. Adding tables, columns with defaults or nullable columns
+  is always safe; drops and renames still take two releases (`.claude/rules/database.md`).
+- Production is released only by this job. Promoting or redeploying a `main` deployment from the
+  dashboard skips the migration. Instant Rollback still works for code (the database stays
+  migrated), and the next push to `main` promotes again.
+- The owner adds `VERCEL_TOKEN` (a Vercel access token for the team, with an expiry) to the
+  `production` environment before this change is merged. Without it, that merge and every later
+  one fail at the first step, and production stays on the version before this change: safe, but
+  frozen. The token can deploy any project in the team. Keep the environment limited to `main`.
+- Preview deployments still have no migrated database of their own (unchanged from ADR-075).
