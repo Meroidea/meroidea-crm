@@ -7,12 +7,19 @@ import { z } from 'zod';
 import { withParams } from '@/components/data/url';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { MeroAIThreadPanel } from '@/modules/ai/components/meroai-email';
+import { purgeDate } from '@/modules/social/bin-service';
 import { ConversationDetails } from '@/modules/social/components/conversation-details';
+import { ThreadBinControls } from '@/modules/social/components/email-bin-controls';
 import { DetailsSheet } from '@/modules/social/components/details-sheet';
 import { EmailList } from '@/modules/social/components/email-list';
 import { EmailSenderControls } from '@/modules/social/components/email-sender-controls';
 import { InboxList } from '@/modules/social/components/inbox-list';
+import { getSignature } from '@/modules/social/compose-service';
+import { EmailReplyBox } from '@/modules/social/components/email-reply-box';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
+import { parseAddress } from '@/modules/social/email-parse';
+import { emailInboxConfigured, inboxDomain } from '@/modules/social/providers/resend';
 import {
   CHANNEL_BORDER,
   CustomerAvatar,
@@ -95,13 +102,17 @@ export async function ConversationScreen({
   const canReply = hasPermission(ctx, 'social.reply');
   const window = replyWindow(platform, conversation.lastInboundAt);
   const accountLive = !thread.accountDisconnectedAt && thread.accountStatus === 'active';
-  const blockedReason = !accountLive
-    ? thread.accountDisconnectedAt
-      ? 'This account is disconnected. Connect it again to reply.'
-      : 'This account needs to be connected again before you can reply.'
-    : window.ok
-      ? null
-      : window.reason;
+  // A thread in the Bin is read-only until restored (ADR-093).
+  const inBin = mailbox === 'email' && conversation.deletedAt !== null;
+  const blockedReason = inBin
+    ? 'This email is in the Bin. Restore it to reply.'
+    : !accountLive
+      ? thread.accountDisconnectedAt
+        ? 'This account is disconnected. Connect it again to reply.'
+        : 'This account needs to be connected again before you can reply.'
+      : window.ok
+        ? null
+        : window.reason;
   // WhatsApp: an approved template may be sent at any time, the only option after 24 hours.
   const templates =
     platform === 'whatsapp' && canReply && accountLive
@@ -188,6 +199,26 @@ export async function ConversationScreen({
     />
   );
 
+  // Reply all (ADR-091): everyone an email went to, less the thread's person and our inboxes.
+  const domain = inboxDomain();
+  const replyAllCc = (message: (typeof thread.messages)[number]): string[] => {
+    if (mailbox !== 'email' || message.direction === 'note') return [];
+    const listed =
+      message.direction === 'inbound'
+        ? [...(message.emailMeta?.to ?? []), ...(message.emailMeta?.cc ?? [])]
+        : [...(message.composed?.to ?? []), ...(message.composed?.cc ?? [])];
+    const addresses = listed
+      .map((raw) => parseAddress(raw).email)
+      .filter((email): email is string => Boolean(email))
+      .filter(
+        (email) =>
+          email !== conversation.participantEmail && !(domain && email.endsWith(`@${domain}`)),
+      );
+    return [...new Set(addresses)];
+  };
+  const signature =
+    mailbox === 'email' && canReply && emailInboxConfigured() ? await getSignature(ctx) : null;
+
   const threadItems = thread.messages.map((message) => ({
     id: message.id,
     direction: message.direction,
@@ -199,6 +230,8 @@ export async function ConversationScreen({
     sentByName: message.sentByName,
     unverified: message.direction === 'inbound' && message.emailMeta?.verified === false,
     automated: message.emailMeta?.automated === true,
+    composed: message.composed,
+    replyAllCc: replyAllCc(message),
   }));
 
   if (mailbox === 'email' && area.area.kind === 'email') {
@@ -210,6 +243,9 @@ export async function ConversationScreen({
         settings={areaSettings(ctx, mailbox, area.area)}
         reading
         actions={<InboxRealtime tenantId={ctx.tenantId} />}
+        canCompose={area.newEmailFrom.length > 0}
+        drafts={area.drafts}
+        meroAI={area.meroAI}
         list={
           <EmailList
             rows={list.rows}
@@ -218,6 +254,7 @@ export async function ConversationScreen({
             activeId={conversation.id}
             hasAccounts={area.hasAccounts}
             canManage={hasPermission(ctx, 'social.manage')}
+            canReply={hasPermission(ctx, 'social.reply')}
             timeZone={ctx.tenant.timezone}
           />
         }
@@ -262,7 +299,16 @@ export async function ConversationScreen({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {canReply && !conversation.contactId && (
+              {canReply && (
+                <ThreadBinControls
+                  conversationId={conversation.id}
+                  important={conversation.important}
+                  inBin={inBin}
+                  canManage={hasPermission(ctx, 'social.manage')}
+                  backHref={back}
+                />
+              )}
+              {canReply && !inBin && !conversation.contactId && (
                 <EmailSenderControls
                   conversationId={conversation.id}
                   markedNotCustomer={notCustomer}
@@ -273,6 +319,27 @@ export async function ConversationScreen({
               </DetailsSheet>
             </div>
           </header>
+
+          {inBin && conversation.deletedAt && (
+            <p
+              role="status"
+              className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-text"
+            >
+              In the Bin since {formatDateTime(ctx, conversation.deletedAt)}. It will be deleted
+              forever on {formatDateTime(ctx, purgeDate(conversation.deletedAt))} unless it is
+              restored, or the customer writes again.
+            </p>
+          )}
+
+          {area.meroAI && !inBin && (
+            <MeroAIThreadPanel
+              conversationId={conversation.id}
+              contactId={conversation.contactId}
+              canNote={canReply}
+              canTask={hasPermission(ctx, 'tasks.manage')}
+              canReply={canReply && emailInboxConfigured()}
+            />
+          )}
 
           <ThreadView
             conversationId={conversation.id}
@@ -300,6 +367,18 @@ export async function ConversationScreen({
               accountName: thread.accountName,
               accountAddress: thread.accountUsername,
             }}
+            emailReply={
+              canReply && !inBin && emailInboxConfigured() ? (
+                <EmailReplyBox
+                  conversationId={conversation.id}
+                  accountId={thread.accountId}
+                  signature={signature?.useOnReplies ? signature.doc : null}
+                  canned={canned}
+                  articles={ctx.tenant.features.includes('knowledge_base')}
+                  meroAI={area.meroAI}
+                />
+              ) : null
+            }
             messages={threadItems}
           />
           <p className="text-xs text-muted-foreground">

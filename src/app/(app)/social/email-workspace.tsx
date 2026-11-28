@@ -1,4 +1,8 @@
+import { SquarePen } from 'lucide-react';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
+
+import { Button } from '@/components/ui/button';
 
 import { EmailFolders } from '@/modules/social/components/email-folders';
 import type { EmailFolder, InboxFilters } from '@/modules/social/schemas';
@@ -16,6 +20,11 @@ export function EmailWorkspace({
   actions,
   list,
   reading = false,
+  canCompose = false,
+  drafts = null,
+  inDrafts = false,
+  meroAI = false,
+  inMeroAI = false,
   children,
 }: {
   filters: InboxFilters;
@@ -26,13 +35,32 @@ export function EmailWorkspace({
   list: ReactNode;
   /** An email is open: on a phone show it instead of the list. */
   reading?: boolean;
+  /** The person may write a new email (ADR-090). */
+  canCompose?: boolean;
+  /** How many drafts the person has (ADR-091), or null. */
+  drafts?: number | null;
+  /** The Drafts list is open. */
+  inDrafts?: boolean;
+  /** MeroAI may be offered (ADR-092): "Ask MeroAI" joins the folders. */
+  meroAI?: boolean;
+  /** The Ask MeroAI page is open. */
+  inMeroAI?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="flex w-full max-w-screen-2xl flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold tracking-tight">Email</h1>
-        <div className="flex items-center gap-2">{actions}</div>
+        <div className="flex items-center gap-2">
+          {actions}
+          {canCompose && (
+            <Button asChild size="sm" className="lg:hidden">
+              <Link href="/email/compose">
+                <SquarePen aria-hidden /> Compose
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
       <div className="grid gap-3 lg:h-[calc(100dvh-9rem)] lg:min-h-[32rem] lg:grid-cols-[13rem_20rem_1fr] xl:grid-cols-[14rem_24rem_1fr]">
         <EmailFolders
@@ -41,6 +69,11 @@ export function EmailWorkspace({
           mailboxLabel={mailboxLabel}
           settings={settings}
           phoneRow={!reading}
+          canCompose={canCompose}
+          drafts={drafts}
+          inDrafts={inDrafts}
+          meroAI={meroAI}
+          inMeroAI={inMeroAI}
         />
         <div
           className={

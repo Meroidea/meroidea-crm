@@ -113,3 +113,12 @@ export async function removeSocialMedia(paths: string[]): Promise<number> {
   }
   return removed;
 }
+
+/**
+ * Copies a saved file to another path in the social bucket (forwarding an email, ADR-091), so
+ * the forwarded copy is the writer's own and the original is never changed. False on failure.
+ */
+export async function copySocialMedia(from: string, to: string): Promise<boolean> {
+  const { error } = await socialBucket().copy(from, to);
+  return !error;
+}

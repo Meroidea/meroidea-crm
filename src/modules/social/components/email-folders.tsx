@@ -1,12 +1,18 @@
 import {
   AlarmClock,
   CircleCheck,
+  FilePenLine,
   Filter,
   Inbox,
   Layers,
   Mail,
   MailOpen,
+  Send,
   Settings2,
+  Sparkles,
+  SquarePen,
+  Star,
+  Trash2,
   User,
   UserSearch,
   type LucideIcon,
@@ -14,6 +20,7 @@ import {
 import Link from 'next/link';
 
 import { withParams } from '@/components/data/url';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { EMAIL_FOLDERS, INBOX_VIEWS, type EmailFolder, type InboxFilters } from '../schemas';
@@ -22,12 +29,18 @@ export const FOLDER_LABELS: Record<EmailFolder, string> = {
   customers: 'Customers',
   review: 'To review',
   filtered: 'Filtered',
+  sent: 'Sent',
+  important: 'Important',
+  bin: 'Bin',
 };
 
 const FOLDER_ICONS: Record<EmailFolder, LucideIcon> = {
   customers: Inbox,
   review: UserSearch,
   filtered: Filter,
+  sent: Send,
+  important: Star,
+  bin: Trash2,
 };
 
 export const VIEW_LABELS: Record<(typeof INBOX_VIEWS)[number], string> = {
@@ -49,7 +62,7 @@ const VIEW_ICONS: Record<(typeof INBOX_VIEWS)[number], LucideIcon> = {
 };
 
 /**
- * The Email area's folder pane (ADR-087): the inbox address, its three folders with unread
+ * The Email area's folder pane (ADR-087): Compose (ADR-090), the inbox address, its four folders with unread
  * counts, the views, and the area's settings. A column on a wide screen; on a phone the same
  * links as a scrolling row above the list.
  */
@@ -59,6 +72,11 @@ export function EmailFolders({
   mailboxLabel,
   settings,
   phoneRow = true,
+  canCompose = false,
+  drafts = null,
+  inDrafts = false,
+  meroAI = false,
+  inMeroAI = false,
 }: {
   filters: InboxFilters;
   unread: Record<EmailFolder, number>;
@@ -67,8 +85,18 @@ export function EmailFolders({
   settings: { href: string; label: string }[];
   /** Show the folders as a row on a phone (the list page, not an open email). */
   phoneRow?: boolean;
+  /** The person may write a new email (ADR-090): Compose heads the folders. */
+  canCompose?: boolean;
+  /** How many drafts the person has (ADR-091); null when they cannot write emails. */
+  drafts?: number | null;
+  /** The Drafts list is open: no conversation folder is current. */
+  inDrafts?: boolean;
+  /** MeroAI may be offered (ADR-092). */
+  meroAI?: boolean;
+  /** The Ask MeroAI page is open: no folder is current. */
+  inMeroAI?: boolean;
 }) {
-  const folder = filters.folder ?? 'customers';
+  const folder = inDrafts || inMeroAI ? null : (filters.folder ?? 'customers');
   const view = filters.view ?? 'open';
   const current = { view: filters.view, folder: filters.folder, q: filters.q };
   const item = (active: boolean) =>
@@ -83,6 +111,13 @@ export function EmailFolders({
         aria-label="Email folders"
         className="hidden min-h-0 flex-col gap-4 overflow-y-auto rounded-xl border bg-card p-2 lg:flex"
       >
+        {canCompose && (
+          <Button asChild className="w-full justify-start">
+            <Link href="/email/compose">
+              <SquarePen aria-hidden /> Compose
+            </Link>
+          </Button>
+        )}
         <div className="flex flex-col gap-0.5">
           <p
             className="truncate px-2.5 pt-1 pb-1.5 text-xs font-semibold"
@@ -90,7 +125,7 @@ export function EmailFolders({
           >
             {mailboxLabel ?? 'Email'}
           </p>
-          {EMAIL_FOLDERS.map((key) => {
+          {EMAIL_FOLDERS.filter((key) => key !== 'bin').map((key) => {
             const Icon = FOLDER_ICONS[key];
             return (
               <Link
@@ -112,6 +147,39 @@ export function EmailFolders({
               </Link>
             );
           })}
+          {drafts !== null && (
+            <Link
+              href="/email/drafts"
+              aria-current={inDrafts ? 'page' : undefined}
+              className={item(inDrafts)}
+            >
+              <FilePenLine aria-hidden className="size-4 shrink-0" />
+              <span className="flex-1 truncate">Drafts</span>
+              {drafts > 0 && (
+                <span className="text-xs text-muted-foreground tabular-nums">{drafts}</span>
+              )}
+            </Link>
+          )}
+          <Link
+            href={withParams('/email', current, { folder: 'bin' })}
+            aria-current={folder === 'bin' ? 'page' : undefined}
+            className={item(folder === 'bin')}
+          >
+            <Trash2 aria-hidden className="size-4 shrink-0" />
+            <span className="flex-1 truncate">{FOLDER_LABELS.bin}</span>
+          </Link>
+          {meroAI && (
+            <Link
+              href="/email/meroai"
+              aria-current={inMeroAI ? 'page' : undefined}
+              className={item(inMeroAI)}
+            >
+              <Sparkles aria-hidden className="size-4 shrink-0" />
+              <span className="flex-1 truncate">
+                Ask <span className="meroai-text">MeroAI</span>
+              </span>
+            </Link>
+          )}
         </div>
         <div className="flex flex-col gap-0.5">
           <p className="px-2.5 pb-1.5 text-xs font-semibold text-muted-foreground">Show</p>
@@ -146,7 +214,7 @@ export function EmailFolders({
         aria-label="Email folders"
         className={cn('-mx-1 gap-1.5 overflow-x-auto px-1 lg:hidden', phoneRow ? 'flex' : 'hidden')}
       >
-        {EMAIL_FOLDERS.map((key) => (
+        {EMAIL_FOLDERS.filter((key) => key !== 'bin').map((key) => (
           <Link
             key={key}
             href={withParams('/email', current, { folder: key === 'customers' ? undefined : key })}
@@ -160,6 +228,40 @@ export function EmailFolders({
             {unread[key] > 0 && <span className="ml-1 tabular-nums">{unread[key]}</span>}
           </Link>
         ))}
+        {drafts !== null && (
+          <Link
+            href="/email/drafts"
+            aria-current={inDrafts ? 'page' : undefined}
+            className={cn(
+              'shrink-0 rounded-full border px-3 py-1 text-sm whitespace-nowrap text-muted-foreground',
+              inDrafts && 'border-primary bg-accent font-medium text-foreground',
+            )}
+          >
+            Drafts{drafts > 0 && <span className="ml-1 tabular-nums">{drafts}</span>}
+          </Link>
+        )}
+        <Link
+          href={withParams('/email', current, { folder: 'bin' })}
+          aria-current={folder === 'bin' ? 'page' : undefined}
+          className={cn(
+            'shrink-0 rounded-full border px-3 py-1 text-sm whitespace-nowrap text-muted-foreground',
+            folder === 'bin' && 'border-primary bg-accent font-medium text-foreground',
+          )}
+        >
+          {FOLDER_LABELS.bin}
+        </Link>
+        {meroAI && (
+          <Link
+            href="/email/meroai"
+            aria-current={inMeroAI ? 'page' : undefined}
+            className={cn(
+              'shrink-0 rounded-full border px-3 py-1 text-sm whitespace-nowrap text-muted-foreground',
+              inMeroAI && 'border-primary bg-accent font-medium text-foreground',
+            )}
+          >
+            Ask MeroAI
+          </Link>
+        )}
       </nav>
     </>
   );

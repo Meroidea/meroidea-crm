@@ -20,6 +20,7 @@ import { notify } from '@/modules/notifications/service';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
+import { enforceRateLimit } from '@/server/rate-limit';
 import {
   createSocialUploadTicket,
   readSocialMedia,
@@ -27,9 +28,18 @@ import {
   socialMediaLinkForPlatform,
 } from '@/server/storage';
 
+import { deleteSentDraft } from './compose-service';
 import { readCredentials, storeCredentials, usableToken, type Credentials } from './credentials';
-import { sendEmailReply } from './email-service';
-import { emailInboxConfigured } from './providers/resend';
+import {
+  COMPOSE_PATH,
+  emailDocImagePaths,
+  emailDocText,
+  readStoredCompose,
+  type EmailDoc,
+} from './email-doc';
+import { newReplyToken } from './email-parse';
+import { sendEmailReply, type ComposedEmail } from './email-service';
+import { emailInboxConfigured, inboxDomain } from './providers/resend';
 import { recordImportedConversation } from './ingest';
 import {
   acceptedType,
@@ -74,11 +84,14 @@ import {
 } from './providers/types';
 import type {
   AssignInput,
+  ComposeEmailInput,
+  EmailReplyInput,
   MediaReplyInput,
   ReplyInput,
   SnoozeInput,
   TemplateReplyInput,
 } from './schemas';
+import { MAX_COMPOSE_BYTES } from './schemas';
 
 const HOUR = 3_600_000;
 
@@ -113,6 +126,9 @@ export function replyWindow(
   now = new Date(),
 ): { ok: true; humanAgent: boolean } | { ok: false; reason: string } {
   if (!lastInboundAt) {
+    // Email has no reply window, and a thread the business started may take a follow-up before
+    // anyone answers (ADR-089). The other channels only allow replies.
+    if (platform === 'email') return { ok: true, humanAgent: false };
     return { ok: false, reason: 'You can reply once the customer has written to you.' };
   }
   const rules = REPLY_RULES[platform];
@@ -470,6 +486,8 @@ type Prepared = {
   template: TemplateSend | null;
   /** A photo, video, voice note or file from the private bucket; `body` is its caption. */
   media: OutboundMedia | null;
+  /** An email written in Compose (ADR-090): its other recipients, formatting and files. */
+  composed?: ComposedEmail | null;
 };
 
 type OutboundMedia = { path: string; mimeType: string; size: number; fileName: string };
@@ -610,6 +628,429 @@ export async function replyToConversation(
   return deliver(ctx, prepared, now, 'create');
 }
 
+/**
+ * Recipients one person may email from Compose in a day, and one inbox may, To, Cc and Bcc
+ * counted one each (ADR-089, ADR-090). Replies are not limited.
+ */
+export const NEW_EMAIL_RECIPIENTS_PER_PERSON_DAILY = 200;
+export const NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY = 500;
+
+/** Where one person's Compose files wait until the email is sent: theirs alone. */
+const composePrefix = (tenantId: string, userId: string) => `${tenantId}/social/compose/${userId}/`;
+
+/**
+ * The writer's own Compose file by its name (ADR-091), for showing a picture in the editor, if
+ * it exists. Needs `social.reply`, as writing does.
+ */
+export async function composeFilePath(ctx: TenantContext, file: string): Promise<string | null> {
+  if (!hasPermission(ctx, 'social.reply')) return null;
+  const path = `${composePrefix(ctx.tenantId, ctx.userId)}${file}`;
+  return COMPOSE_PATH.test(path) ? path : null;
+}
+
+/** A live email inbox of this business, or NOT_FOUND. */
+async function liveInbox(ctx: TenantContext, accountId: string): Promise<{ id: string }> {
+  const inbox = await withRls(ctx, async (tx) => {
+    const [row] = await tx
+      .select({ id: socialAccounts.id })
+      .from(socialAccounts)
+      .where(
+        and(
+          eq(socialAccounts.tenantId, ctx.tenantId),
+          eq(socialAccounts.id, accountId),
+          eq(socialAccounts.platform, 'email'),
+          isNull(socialAccounts.disconnectedAt),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  });
+  if (!inbox) throw new AppError('NOT_FOUND', 'That inbox was not found.');
+  return inbox;
+}
+
+/**
+ * A ticket to upload one file for an email being composed (ADR-090), to a path the server
+ * chooses under the writer's own Compose folder. The file is checked again when it is sent.
+ */
+export async function startComposeUpload(
+  ctx: TenantContext,
+  input: { accountId: string; fileName: string; mimeType: string; size: number },
+): Promise<{ path: string; token: string }> {
+  requirePermission(ctx, 'social.reply');
+  if (!emailInboxConfigured()) {
+    throw new AppError('CONFLICT', 'Email is not set up on this platform yet.');
+  }
+  await liveInbox(ctx, input.accountId);
+  const refusal = mediaRefusal('email', input.mimeType, input.size);
+  if (refusal) throw new AppError('VALIDATION', refusal);
+  const ext =
+    (input.fileName.split('.').pop() ?? 'bin')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 8) || 'bin';
+  return createSocialUploadTicket(
+    `${composePrefix(ctx.tenantId, ctx.userId)}${randomUUID()}.${ext}`,
+  );
+}
+
+/** Removes a file the writer took off an email before sending it. Only their own. */
+export async function removeComposeUpload(ctx: TenantContext, path: string): Promise<void> {
+  requirePermission(ctx, 'social.reply');
+  if (!path.startsWith(composePrefix(ctx.tenantId, ctx.userId)) || path.includes('..')) {
+    throw new AppError('NOT_FOUND', 'That file was not found.');
+  }
+  await removeSocialMedia([path]);
+}
+
+/** Every Compose file, re-checked from its bytes: the writer's own, the right type and size. */
+async function checkComposeFiles(
+  ctx: TenantContext,
+  files: { path: string; fileName: string; mimeType: string }[],
+): Promise<OutboundMedia[]> {
+  const prefix = composePrefix(ctx.tenantId, ctx.userId);
+  const checked: OutboundMedia[] = [];
+  let total = 0;
+  for (const file of files) {
+    if (!file.path.startsWith(prefix) || file.path.includes('..')) {
+      throw new AppError('VALIDATION', 'That file does not belong to this email.');
+    }
+    const bytes = await readSocialMedia(file.path);
+    if (!bytes) {
+      throw new AppError(
+        'VALIDATION',
+        `${file.fileName} did not finish uploading. Attach it again.`,
+      );
+    }
+    const type = acceptedType(file.mimeType, bytes);
+    const refusal = !type
+      ? `${file.fileName} is not the kind of file it says it is.`
+      : mediaRefusal('email', type.mimeType, bytes.byteLength);
+    if (refusal) {
+      await removeSocialMedia([file.path]);
+      throw new AppError('VALIDATION', refusal);
+    }
+    total += bytes.byteLength;
+    checked.push({
+      path: file.path,
+      mimeType: type!.mimeType,
+      size: bytes.byteLength,
+      fileName: file.fileName,
+    });
+  }
+  if (total > MAX_COMPOSE_BYTES) {
+    throw new AppError(
+      'VALIDATION',
+      `Files on one email can be at most ${MAX_COMPOSE_BYTES / 1024 / 1024} MB together.`,
+    );
+  }
+  return checked;
+}
+
+/** A picture in a composed email's text, carried as an embedded attachment (ADR-091). */
+type InlineImage = OutboundMedia & { contentId: string };
+
+/**
+ * A composed email's files and pictures, every one re-checked from its bytes (ADR-090, ADR-091):
+ * the writer's own Compose folder, an accepted type (pictures: images only), and the sizes,
+ * files and pictures together. Each picture gets its own Content-ID for the email's HTML.
+ */
+async function prepareComposedFiles(
+  ctx: TenantContext,
+  input: { doc: EmailDoc; attachments: { path: string; fileName: string; mimeType: string }[] },
+): Promise<{ attachments: OutboundMedia[]; images: InlineImage[] }> {
+  const attachments = await checkComposeFiles(ctx, input.attachments);
+  const prefix = composePrefix(ctx.tenantId, ctx.userId);
+  const images: InlineImage[] = [];
+  let total = attachments.reduce((sum, file) => sum + file.size, 0);
+  for (const [index, path] of emailDocImagePaths(input.doc).entries()) {
+    if (!path.startsWith(prefix) || path.includes('..')) {
+      throw new AppError('VALIDATION', 'A picture in the email belongs to someone else.');
+    }
+    const bytes = await readSocialMedia(path);
+    const type = bytes ? acceptedType(null, bytes) : null;
+    if (!bytes || !type || !type.mimeType.startsWith('image/')) {
+      throw new AppError('VALIDATION', 'A picture in the email did not upload. Insert it again.');
+    }
+    const refusal = mediaRefusal('email', type.mimeType, bytes.byteLength);
+    if (refusal) throw new AppError('VALIDATION', refusal);
+    total += bytes.byteLength;
+    images.push({
+      path,
+      mimeType: type.mimeType,
+      size: bytes.byteLength,
+      fileName: `picture-${index + 1}.${type.ext}`,
+      contentId: `picture-${index + 1}-${randomUUID().slice(0, 8)}@meroidea`,
+    });
+  }
+  if (total > MAX_COMPOSE_BYTES) {
+    throw new AppError(
+      'VALIDATION',
+      `Files and pictures on one email can be at most ${MAX_COMPOSE_BYTES / 1024 / 1024} MB together.`,
+    );
+  }
+  return { attachments, images };
+}
+
+/** How a composed email's files and pictures are stored on its message. */
+function storedComposedFiles(files: { attachments: OutboundMedia[]; images: InlineImage[] }) {
+  return [
+    ...files.attachments.map((file) => ({
+      type: mediaKind(file.mimeType),
+      state: 'stored' as const,
+      storagePath: file.path,
+      mimeType: file.mimeType,
+      size: file.size,
+      fileName: file.fileName,
+    })),
+    ...files.images.map((image) => ({
+      type: 'image',
+      state: 'stored' as const,
+      storagePath: image.path,
+      mimeType: image.mimeType,
+      size: image.size,
+      fileName: image.fileName,
+      inline: true,
+      contentId: image.contentId,
+    })),
+  ];
+}
+
+/**
+ * Sends an email written in Compose from one of the business's inbox addresses to anyone
+ * (ADR-089, ADR-090): To, Cc and Bcc, formatted text and files. It opens its own thread with the
+ * first To address as the thread's person, assigned to the writer, and waits in Sent until they
+ * answer. It goes out like a reply: stored as "sending", sent through Resend with the thread's
+ * own reply address, then sent or failed. A failure is returned with the thread, not thrown, so
+ * the writer lands on it and Retry sends the same email.
+ *
+ * The contact is not linked here: under RLS a person may see only some of the contacts with that
+ * address, so "exactly one match" cannot be told. The answer links it, from the webhook, as for
+ * any received email (ADR-070).
+ */
+export async function startEmailConversation(
+  ctx: TenantContext,
+  input: ComposeEmailInput,
+  now = new Date(),
+): Promise<{ conversationId: string; messageId: string; failed: string | null }> {
+  requirePermission(ctx, 'social.reply');
+  const domain = inboxDomain();
+  if (!domain || !emailInboxConfigured()) {
+    throw new AppError('CONFLICT', 'Email is not set up on this platform yet.');
+  }
+  // Each address once, To before Cc before Bcc, as a mail program would send it.
+  const seen = new Set<string>();
+  const once = (list: string[]) =>
+    list.filter((address) => (seen.has(address) ? false : (seen.add(address), true)));
+  const to = once(input.to);
+  const cc = once(input.cc);
+  const bcc = once(input.bcc);
+  // Every address at the inbox domain is a Meroidea inbox or a thread's reply address: writing
+  // to one from here would only loop back into Meroidea.
+  if ([...to, ...cc, ...bcc].some((address) => address.endsWith(`@${domain}`))) {
+    throw new AppError('VALIDATION', 'Choose addresses outside the inbox.', {
+      to: ['Choose addresses outside the inbox.'],
+    });
+  }
+  // The inbox must be a live one of this business before anything is counted against it, so
+  // nobody outside the business can use up its daily limit.
+  const inbox = await liveInbox(ctx, input.accountId);
+  const recipients = to.length + cc.length + bcc.length;
+  // A brake on misuse that also protects the shared inbox domain's reputation, which every
+  // business's email depends on. The counters store only a keyed hash of who they count.
+  await enforceRateLimit(
+    {
+      bucket: 'email-new:person',
+      subject: `${ctx.tenantId}:${ctx.userId}`,
+      limit: NEW_EMAIL_RECIPIENTS_PER_PERSON_DAILY,
+      windowSeconds: 86_400,
+      weight: recipients,
+    },
+    `You can email at most ${NEW_EMAIL_RECIPIENTS_PER_PERSON_DAILY} people a day from Compose. Replies are not limited.`,
+  );
+  await enforceRateLimit(
+    {
+      bucket: 'email-new:inbox',
+      subject: inbox.id,
+      limit: NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY,
+      windowSeconds: 86_400,
+      weight: recipients,
+    },
+    `This inbox has emailed ${NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY} people from Compose today, its daily limit.`,
+  );
+  const files = await prepareComposedFiles(ctx, input);
+  const body = emailDocText(input.doc);
+  const composed: ComposedEmail = { to, cc, bcc, doc: input.doc, ...files };
+
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const [conversation] = await tx
+      .insert(socialConversations)
+      .values({
+        tenantId: ctx.tenantId,
+        accountId: inbox.id,
+        participantId: `email:${randomUUID()}`,
+        participantEmail: to[0]!,
+        subject: input.subject,
+        replyToken: newReplyToken(),
+        assignedUserId: ctx.userId,
+      })
+      .returning({ id: socialConversations.id });
+    const checked = await checkReply(tx, ctx, conversation!.id, body, now);
+    const [pending] = await tx
+      .insert(socialMessages)
+      .values({
+        tenantId: ctx.tenantId,
+        conversationId: conversation!.id,
+        accountId: inbox.id,
+        direction: 'outbound',
+        body,
+        attachments: storedComposedFiles(files),
+        emailOutbound: { to, cc, bcc, doc: input.doc },
+        sentAt: now,
+        sentByUserId: ctx.userId,
+        status: 'sending',
+      })
+      .returning({ id: socialMessages.id });
+    // The draft it was written in has become this email (its files are the email's now).
+    if (input.draftId) await deleteSentDraft(tx, ctx, input.draftId);
+    // Never an address or the words (rules/security.md): the thread names the person.
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'social_conversation',
+      entityId: conversation!.id,
+      context: {
+        platform: 'email',
+        startedBy: 'business',
+        recipients,
+        files: files.attachments.length,
+        pictures: files.images.length,
+      },
+    });
+    return {
+      ...checked,
+      messageId: pending!.id,
+      body,
+      template: null,
+      media: null,
+      composed,
+    };
+  });
+  try {
+    const { messageId } = await deliver(ctx, prepared, now, 'create');
+    return { conversationId: prepared.conversation.id, messageId, failed: null };
+  } catch (error) {
+    // The thread and the email are stored, marked failed with the reason: open the thread, where
+    // Retry sends the same email, rather than leave Compose to send a second copy.
+    if (error instanceof AppError) {
+      return {
+        conversationId: prepared.conversation.id,
+        messageId: prepared.messageId,
+        failed: error.message,
+      };
+    }
+    throw error;
+  }
+}
+
+/**
+ * A formatted email reply on a thread (ADR-091): to the thread's person, with Cc, Bcc, formatted
+ * text, files and pictures, checked as Compose's are. Cc and Bcc count against the daily
+ * recipient limits, so a reply cannot become a way round them; the thread's person does not.
+ */
+export async function replyWithEmail(
+  ctx: TenantContext,
+  input: EmailReplyInput,
+  now = new Date(),
+): Promise<{ messageId: string }> {
+  requirePermission(ctx, 'social.reply');
+  const domain = inboxDomain();
+  if (!domain || !emailInboxConfigured()) {
+    throw new AppError('CONFLICT', 'Email is not set up on this platform yet.');
+  }
+  const [thread] = await withRls(ctx, (tx) =>
+    tx
+      .select({ email: socialConversations.participantEmail, accountId: socialAccounts.id })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          eq(socialConversations.id, input.conversationId),
+          eq(socialAccounts.platform, 'email'),
+        ),
+      )
+      .limit(1),
+  );
+  if (!thread?.email) throw new AppError('NOT_FOUND', 'That conversation was not found.');
+  const seen = new Set<string>([thread.email]);
+  const once = (list: string[]) =>
+    list.filter((address) => (seen.has(address) ? false : (seen.add(address), true)));
+  const cc = once(input.cc);
+  const bcc = once(input.bcc);
+  if ([...cc, ...bcc].some((address) => address.endsWith(`@${domain}`))) {
+    throw new AppError('VALIDATION', 'Choose addresses outside the inbox.');
+  }
+  const copies = cc.length + bcc.length;
+  if (copies > 0) {
+    await enforceRateLimit(
+      {
+        bucket: 'email-new:person',
+        subject: `${ctx.tenantId}:${ctx.userId}`,
+        limit: NEW_EMAIL_RECIPIENTS_PER_PERSON_DAILY,
+        windowSeconds: 86_400,
+        weight: copies,
+      },
+      `You can copy at most ${NEW_EMAIL_RECIPIENTS_PER_PERSON_DAILY} people a day into emails.`,
+    );
+    await enforceRateLimit(
+      {
+        bucket: 'email-new:inbox',
+        subject: thread.accountId,
+        limit: NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY,
+        windowSeconds: 86_400,
+        weight: copies,
+      },
+      `This inbox has emailed ${NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY} people today, its daily limit.`,
+    );
+  }
+  const files = await prepareComposedFiles(ctx, input);
+  const body = emailDocText(input.doc);
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const checked = await checkReply(tx, ctx, input.conversationId, body, now);
+    const to = [checked.conversation.participantEmail!];
+    const [pending] = await tx
+      .insert(socialMessages)
+      .values({
+        tenantId: ctx.tenantId,
+        conversationId: checked.conversation.id,
+        accountId: checked.account.id,
+        direction: 'outbound',
+        body,
+        attachments: storedComposedFiles(files),
+        emailOutbound: { to, cc, bcc, doc: input.doc },
+        sentAt: now,
+        sentByUserId: ctx.userId,
+        status: 'sending',
+      })
+      .returning({ id: socialMessages.id });
+    return {
+      ...checked,
+      messageId: pending!.id,
+      body,
+      template: null,
+      media: null,
+      composed: { to, cc, bcc, doc: input.doc, ...files },
+    };
+  });
+  return deliver(ctx, prepared, now, 'create');
+}
+
 /** A template's body with the values in place of its placeholders, as the customer sees it. */
 export function renderTemplate(body: string, parameters: string[], values: string[]): string {
   return body.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (whole, name: string) => {
@@ -697,6 +1138,7 @@ export async function retryReply(
         body: socialMessages.body,
         template: socialMessages.template,
         attachments: socialMessages.attachments,
+        emailOutbound: socialMessages.emailOutbound,
       })
       .from(socialMessages)
       .where(
@@ -727,7 +1169,14 @@ export async function retryReply(
       .update(socialMessages)
       .set({ status: 'sending', error: null })
       .where(and(eq(socialMessages.tenantId, ctx.tenantId), eq(socialMessages.id, failed.id)));
-    return { ...checked, messageId: failed.id, body: failed.body ?? '', template, media };
+    return {
+      ...checked,
+      messageId: failed.id,
+      body: failed.body ?? '',
+      template,
+      media: failed.emailOutbound ? null : media,
+      composed: composedOf(failed.emailOutbound, failed.attachments),
+    };
   });
   return deliver(ctx, prepared, now, 'update');
 }
@@ -1192,6 +1641,28 @@ async function sendReadReceipt(ctx: TenantContext, conversationId: string): Prom
 }
 
 /** A failed reply's own file, from its stored attachment. */
+/** A composed email as it was stored (ADR-090), to send again on Retry; null for a reply. */
+function composedOf(stored: unknown, attachments: unknown): ComposedEmail | null {
+  const parsed = readStoredCompose(stored);
+  if (!parsed) return null;
+  const kept = (Array.isArray(attachments) ? (attachments as StoredAttachment[]) : []).filter(
+    (file) => file.state === 'stored' && file.storagePath && file.mimeType,
+  );
+  const fileOf = (file: StoredAttachment) => ({
+    path: file.storagePath!,
+    mimeType: file.mimeType!,
+    size: file.size ?? 0,
+    fileName: file.fileName ?? file.storagePath!.split('/').pop() ?? 'file',
+  });
+  return {
+    ...parsed,
+    attachments: kept.filter((file) => !file.inline).map(fileOf),
+    images: kept
+      .filter((file) => file.inline && file.contentId)
+      .map((file) => ({ ...fileOf(file), contentId: file.contentId! })),
+  };
+}
+
 function outboundMediaOf(attachments: unknown): OutboundMedia | null {
   const first = Array.isArray(attachments)
     ? (attachments[0] as StoredAttachment | undefined)

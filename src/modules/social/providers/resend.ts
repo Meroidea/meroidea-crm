@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
 
+import { providerError } from '@/server/email';
 import { serverEnv } from '@/server/env';
 
 import { ProviderError } from './types';
@@ -165,17 +166,14 @@ async function call(path: string, init: RequestInit = {}): Promise<unknown> {
     });
   }
   if (!response.ok) {
-    // Resend's reason is about the request (an address, a domain), never a message's words.
-    const reason = await response
-      .json()
-      .then((body: unknown) => {
-        const message = (body as { message?: unknown } | null)?.message;
-        return typeof message === 'string' ? message.slice(0, 200) : null;
-      })
-      .catch(() => null);
+    // Resend's reason is about the request (an address, a domain), never a message's words;
+    // addresses in it are blanked. Its error name ("restricted_api_key") becomes the code, so
+    // a refusal can be told apart from an outage in the logs.
+    const { error, detail } = await providerError(response);
     throw new ProviderError(
       'email',
-      reason ? `The email service refused it: ${reason}` : 'The email service refused it.',
+      detail ? `The email service refused it: ${detail}` : 'The email service refused it.',
+      { code: error ?? response.status },
     );
   }
   return response.json();
@@ -186,8 +184,11 @@ export async function fetchReceivedEmail(id: string): Promise<ReceivedEmail> {
   const parsed = receivedSchema.safeParse(
     await call(`/emails/receiving/${encodeURIComponent(id)}`),
   );
-  if (!parsed.success)
-    throw new ProviderError('email', 'The email service sent something unexpected.');
+  if (!parsed.success) {
+    throw new ProviderError('email', 'The email service sent something unexpected.', {
+      code: 'unexpected_response',
+    });
+  }
   return parsed.data;
 }
 
@@ -201,7 +202,9 @@ export async function listReceivedAttachments(id: string): Promise<ReceivedAttac
 
 export type OutgoingEmail = {
   from: string;
-  to: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
   subject: string;
   text: string;
   html: string;
@@ -209,7 +212,8 @@ export type OutgoingEmail = {
   /** In-Reply-To and References, so the customer's mail program threads the reply. */
   headers: Record<string, string>;
   /** Files by a short-lived link Resend fetches while sending. */
-  attachments: { filename: string; path: string; content_type: string }[];
+  /** `content_id`: a picture shown in the HTML as `cid:<content_id>` (ADR-091). */
+  attachments: { filename: string; path: string; content_type: string; content_id?: string }[];
   /** Makes a retried send go once (Resend keeps the key 24 hours). */
   idempotencyKey: string;
 };
@@ -222,6 +226,8 @@ export async function sendResendEmail(email: OutgoingEmail): Promise<string> {
     body: JSON.stringify({
       from: email.from,
       to: email.to,
+      ...(email.cc.length > 0 ? { cc: email.cc } : {}),
+      ...(email.bcc.length > 0 ? { bcc: email.bcc } : {}),
       subject: email.subject,
       text: email.text,
       html: email.html,

@@ -234,9 +234,54 @@ change as touching sensitive personal data.
 - Attachment links are fetched only through `media.ts`, from `inbound-cdn.resend.com`; a file
   from anywhere else is refused.
 - Nothing an email says goes into logs, audit rows or error messages.
+- A new email to any address (ADR-089, ADR-090) goes only through `startEmailConversation`:
+  `social.reply`, a live inbox of the person's own business, the recipient-weighted daily limits,
+  and never an address at the inbox domain. It never links a contact (RLS may hide other
+  matches); the answer does, from the webhook.
+- Composed HTML is built only by `emailDocHtml` from a document that passed `emailDocSchema`.
+  Never accept HTML from the browser, never widen the schema with raw styles, classes or
+  attributes, and render stored documents only through `EmailDocView` (React elements).
+- Compose files only through `startComposeUpload` (a path under
+  `{tenant}/social/compose/{user}/` the server chose) and `checkComposeFiles` on send, which
+  re-checks the prefix, the leading bytes, the type and the sizes. Never send a path the browser
+  made up.
+- Sessions never write `social_messages.email_meta` or `email_message_id` (restrictive policy
+  `social_messages_email_columns`); keep it whenever the insert grant or policies change.
+- Pictures in an email (ADR-091) are only paths matching `COMPOSE_PATH`, re-checked on send by
+  `prepareComposedFiles` as the sender's own images, and sent as `cid:` attachments. Never let a
+  picture be a web address, and serve unsent ones only through `/api/social/compose-file/<file>`,
+  which builds the folder from the signed-in person, never from the request.
+- Drafts and signatures are their owner's alone (`email_drafts_own`, `email_signatures_own`);
+  keep `user_id = auth.uid()` in the policies and in every query. Never audit a draft's or a
+  signature's words.
+- Forwarding copies the original's files into the forwarder's own folder (`prepareForward`); it
+  reads the message under RLS and never a note. Address suggestions stay within `contacts.view`
+  and `scopeFilter`.
 - The Email area's "Not a customer" rules (ADR-073) only sort threads into Filtered; they never
   stop an email being received or stored. Keep `created_by = auth.uid()` on insert and no update
   grant, and never put the address in an audit row.
+
+## Email Bin and Important (ADR-093)
+
+- Only email threads go in the Bin or are marked important. Keep `social_conversations_bin_guard`:
+  sessions need `social.reply`, and the database sets the Bin time, so 30 days cannot be shortened.
+- Deleting forever runs only through `app.email_purge_thread` (`social.manage`, only from the Bin)
+  and the daily sweep in `bin-sweep.ts` (the only Bin code that may use `adminDb`, called only by
+  `/api/cron/email-bin` with `CRON_SECRET`). Keep `app.email_delete_thread_rows` ungranted.
+- Files are removed from storage after the rows are committed, never before, and never one a
+  signature or draft still names.
+- A new email from the customer takes a thread out of the Bin; never let the Bin hide it.
+
+## MeroAI in Email (ADR-092)
+
+- Email text reaches the model only inside `dataBlock` fences with `DATA_RULE`. Never send a
+  private note, an inbox or contact address, or an email address in the text (`withoutAddresses`).
+- A model answer becomes an email only through `blocksToEmailDoc` and `emailDocDraftSchema`:
+  plain paragraphs and lists. Never let it carry links, pictures, styles or HTML.
+- MeroAI never sends, saves a note or creates a task. Those stay the person's clicks, through
+  the modules' own actions and permissions.
+- Thread refs (T1..Tn) are mapped to links in code; drop any ref the model was not given.
+- Audit rows say `surface: 'email'`, the action and counts or ids only.
 
 ## Knowledge base (ADR-071)
 

@@ -51,6 +51,9 @@ export async function InboxScreen({
         mailboxLabel={area.mailboxLabel}
         settings={settings}
         actions={<InboxRealtime tenantId={ctx.tenantId} />}
+        canCompose={area.newEmailFrom.length > 0}
+        drafts={area.drafts}
+        meroAI={area.meroAI}
         list={
           <EmailList
             rows={rows}
@@ -58,6 +61,7 @@ export async function InboxScreen({
             nextCursor={nextCursor}
             hasAccounts={area.hasAccounts}
             canManage={canManage}
+            canReply={hasPermission(ctx, 'social.reply')}
             timeZone={ctx.tenant.timezone}
           />
         }

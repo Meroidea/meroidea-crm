@@ -177,6 +177,13 @@ export const socialConversations = pgTable(
     status: text().notNull().default('open'),
     /** Until when it is set aside (ADR-067); a customer writing again reopens it at once. */
     snoozedUntil: timestamp({ withTimezone: true }),
+    /**
+     * Email only (ADR-093): put in the Bin at this moment. Restorable; permanently deleted with its
+     * messages and files 30 days later. A new email from the customer takes it out of the Bin.
+     */
+    deletedAt: timestamp({ withTimezone: true }),
+    /** Email only (ADR-093): marked important, for the whole team. */
+    important: boolean().notNull().default(false),
     /** The colleague looking after it (ADR-067); empty for the whole team. */
     assignedUserId: uuid(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -202,6 +209,9 @@ export const socialConversations = pgTable(
     }),
     index('social_conversations_inbox_idx').on(table.tenantId, table.lastMessageAt, table.id),
     index('social_conversations_assignee_idx').on(table.tenantId, table.assignedUserId),
+    index('social_conversations_bin_idx')
+      .on(table.tenantId, table.deletedAt)
+      .where(sql`${table.deletedAt} is not null`),
     uniqueIndex('social_conversations_reply_token_key')
       .on(table.replyToken)
       .where(sql`${table.replyToken} is not null`),
@@ -268,6 +278,12 @@ export const socialMessages = pgTable(
      * `verified` is whether the sender passed DKIM or DMARC when it was received.
      */
     emailMeta: jsonb(),
+    /**
+     * Email the business wrote in Compose (ADR-090): `{ to: [], cc: [], bcc: [], doc }`, where
+     * `doc` is the checked formatted document the HTML is built from. Written by the sender's
+     * own session; `emailMeta` and `emailMessageId` never are.
+     */
+    emailOutbound: jsonb(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -490,5 +506,72 @@ export const emailSenderRules = pgTable(
       'email_sender_rules_email_check',
       sql`char_length(${table.email}) between 3 and 200 and ${table.email} = lower(${table.email})`,
     ),
+  ],
+);
+
+/**
+ * An email being written in Compose (ADR-091), saved as the writer types. Private to its writer:
+ * RLS lets only them read or change it. `content` is `{ to, cc, bcc, subject, doc, attachments }`
+ * as Compose holds it, checked again by the service when it is saved and when it is sent.
+ */
+export const emailDrafts = pgTable(
+  'email_drafts',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    userId: uuid().notNull(),
+    accountId: uuid().notNull(),
+    /** For the Drafts list. */
+    subject: text().notNull().default(''),
+    content: jsonb().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('email_drafts_tenant_id_id_key').on(table.tenantId, table.id),
+    index('email_drafts_user_idx').on(table.tenantId, table.userId, table.updatedAt),
+    foreignKey({
+      name: 'email_drafts_user_fkey',
+      columns: [table.tenantId, table.userId],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+    }),
+    foreignKey({
+      name: 'email_drafts_account_fkey',
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [socialAccounts.tenantId, socialAccounts.id],
+    }),
+    check('email_drafts_subject_check', sql`char_length(${table.subject}) <= 200`),
+    check('email_drafts_content_check', sql`octet_length(${table.content}::text) <= 1000000`),
+  ],
+);
+
+/**
+ * A person's email signature in one business (ADR-091): a formatted document added to new emails
+ * and replies when they choose. Private to its owner, like a draft.
+ */
+export const emailSignatures = pgTable(
+  'email_signatures',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    userId: uuid().notNull(),
+    doc: jsonb().notNull(),
+    useOnNew: boolean().notNull().default(true),
+    useOnReplies: boolean().notNull().default(true),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('email_signatures_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('email_signatures_user_key').on(table.tenantId, table.userId),
+    foreignKey({
+      name: 'email_signatures_user_fkey',
+      columns: [table.tenantId, table.userId],
+      foreignColumns: [tenantMemberships.tenantId, tenantMemberships.userId],
+    }),
+    check('email_signatures_doc_check', sql`octet_length(${table.doc}::text) <= 200000`),
   ],
 );

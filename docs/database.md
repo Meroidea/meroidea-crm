@@ -1833,6 +1833,22 @@ messages, name, handle and picture.
 - `app.erase_contact_traces` also clears `participant_phone` and, on WhatsApp, replaces
   `participant_id` with `erased:<conversation id>`.
 
+**Bin and Important (migrations `0089`, `0090`, ADR-093).** Email threads only.
+- `social_conversations.deleted_at timestamptz`: in the Bin since then. Partial index
+  `social_conversations_bin_idx (tenant_id, deleted_at) where deleted_at is not null`. Every
+  Email folder but the Bin leaves these out, as do the unread counts and MeroAI.
+- `social_conversations.important boolean not null default false`, for the whole team.
+- Sessions may update both columns. Trigger `social_conversations_bin_guard` (before update of
+  either) needs `social.reply` and an email account for a session, sets `deleted_at` to `now()`
+  when a thread goes in and keeps it while it stays, so a session cannot shorten the 30 days.
+- A new inbound email (`recordMessage`) clears `deleted_at`.
+- `app.email_delete_thread_rows(tenant, conversation)` (not granted to sessions) deletes a binned
+  email thread's messages and the thread, unlinks tickets and tracked help links, and returns its
+  files (`attachments[].storagePath`, the avatar) except any a signature or draft still names.
+  `app.email_purge_thread(conversation)` calls it for a person with `social.manage`; the daily
+  sweep (`/api/cron/email-bin`, `bin-sweep.ts`) calls it for threads binned over 30 days ago and
+  writes a `system` audit row for each.
+
 **Workflow (migration `0075`, ADR-067).**
 - `social_conversations.assigned_user_id uuid`: composite foreign key
   `(tenant_id, assigned_user_id)` → `tenant_memberships (tenant_id, user_id)`, indexed
@@ -1930,6 +1946,39 @@ email_sender_rules  id, tenant_id, email (lower case, 3-200), kind 'not_customer
 - RLS: read with `social.view`; insert (as yourself, `created_by = auth.uid()`) and delete with
   `social.reply`; restrictive `feature_switch` on `email_channel`. No update grant.
 - `app.erase_contact_traces` also deletes a rule naming the person's email address.
+
+**Compose (migrations `0086`–`0087`, ADR-089, ADR-090).**
+- `social_messages.email_outbound jsonb`: an email the business wrote in Compose,
+  `{ to: [], cc: [], bcc: [], doc }`. `doc` is the checked email document (`email-doc.ts`) the
+  HTML is built from; `body` holds its plain text. Written by the sender's own session on an
+  outgoing message only, never updated.
+- A thread started from Compose has `participant_email` = the first To address. Its files are
+  ordinary `attachments` entries (`fileName` added), stored under
+  `{tenant}/social/compose/{user}/` in the `social-media` bucket.
+- Restrictive insert policy `social_messages_email_columns`: a session may never set `email_meta`
+  or `email_message_id` (only the verified webhook writes them, through the privileged client),
+  and may set `email_outbound` only on an outgoing message. Until `0087` the table-wide insert
+  grant let a session set them through the REST API.
+- The Email area's **Sent** folder (ADR-089) = threads with no inbound message; the other three
+  folders now require at least one.
+- `app.erase_contact_traces` also removes `to`, `cc` and `bcc` from `email_outbound` in the
+  person's threads.
+
+**Drafts and signatures (migration `0088`, ADR-091).**
+```sql
+email_drafts      id, tenant_id, user_id (composite FK → tenant_memberships), account_id (composite
+                  FK → social_accounts), subject (<= 200), content jsonb ({to, cc, bcc, subject,
+                  doc, attachments}, <= 1 MB as text), created_at, updated_at
+                  unique (tenant_id, id); index (tenant_id, user_id, updated_at)
+email_signatures  id, tenant_id, user_id (composite FK), doc jsonb (<= 200 KB as text),
+                  use_on_new bool default true, use_on_replies bool default true, updated_at
+                  unique (tenant_id, id); unique (tenant_id, user_id)
+```
+- RLS: `email_drafts_own` / `email_signatures_own`: all actions only where `user_id = auth.uid()`
+  and the person has `social.reply`. Restrictive `feature_switch` on `email_channel`; drafts also
+  carry the `inbox_channel` rule on their inbox.
+- Composed messages' `attachments` entries may carry `inline: true` and `contentId` (pictures in
+  the text, ADR-091).
 
 ### social_canned_responses
 A saved reply (ADR-068). Shared with the team when `owner_user_id` is empty, else one person's.

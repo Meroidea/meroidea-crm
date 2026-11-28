@@ -29,6 +29,7 @@ import type { StoredAttachment } from './media';
 import type { TimelineItem } from '@/modules/activities/types';
 
 import { PLATFORM_LABELS } from './format';
+import { readStoredCompose, type StoredCompose } from './email-doc';
 import type { EmailFolder, InboxFilters } from './schemas';
 import { readAccountSettings, type AccountSettings } from './settings';
 
@@ -93,6 +94,10 @@ export type InboxRow = {
   snoozedNow: boolean;
   assignedUserId: string | null;
   assigneeName: string | null;
+  /** Email only (ADR-093). */
+  important: boolean;
+  /** Email only: when it went in the Bin, or null. */
+  deletedAt: Date | null;
 };
 
 const snoozedNow = sql<boolean>`(${socialConversations.status} = 'snoozed' and ${socialConversations.snoozedUntil} > now())`;
@@ -117,18 +122,32 @@ const markedNotCustomer = sql`exists (select 1 from public.email_sender_rules r
   where r.tenant_id = social_conversations.tenant_id
     and r.email = social_conversations.participant_email and r.kind = 'not_customer')`;
 
+/** Nothing has come in yet: a thread the business started (ADR-089). */
+const nothingReceived = sql`not exists (select 1 from public.social_messages m
+  where m.tenant_id = social_conversations.tenant_id and m.conversation_id = social_conversations.id
+    and m.direction = 'inbound')`;
+
 /**
  * Which email threads a folder holds. Customers: linked to a contact. To review: not linked yet.
  * Filtered: machines' mail, and senders marked "Not a customer" who are not linked to a contact.
- * Every thread is in exactly one folder, so nothing received is ever out of sight for good.
+ * Sent: started by the business and not answered yet; the first reply moves it to one of the
+ * others. Every thread is in exactly one folder, so nothing received is ever out of sight for
+ * good. (A thread with nothing received counts as `automatedOnly`, so Customers and To review
+ * already leave it out.)
  */
 export function emailFolderCondition(folder: EmailFolder): SQL {
   const linked = sql`social_conversations.contact_id is not null`;
-  if (folder === 'customers') return sql`(${linked} and not ${automatedOnly})`;
+  // The Bin (ADR-093) holds deleted threads; every other folder leaves them out. Important is a
+  // flag across the four folders above, so an important thread shows in both.
+  const live = sql`social_conversations.deleted_at is null`;
+  if (folder === 'bin') return sql`social_conversations.deleted_at is not null`;
+  if (folder === 'important') return sql`(${live} and social_conversations.important)`;
+  if (folder === 'sent') return sql`(${live} and ${nothingReceived})`;
+  if (folder === 'customers') return sql`(${live} and ${linked} and not ${automatedOnly})`;
   if (folder === 'review') {
-    return sql`(not ${linked} and not ${automatedOnly} and not ${markedNotCustomer})`;
+    return sql`(${live} and not ${linked} and not ${automatedOnly} and not ${markedNotCustomer})`;
   }
-  return sql`(${automatedOnly} or (not ${linked} and ${markedNotCustomer}))`;
+  return sql`(${live} and not ${nothingReceived} and (${automatedOnly} or (not ${linked} and ${markedNotCustomer})))`;
 }
 
 /** Only the channels of one area: the Social inbox, or Email (ADR-073). */
@@ -153,8 +172,11 @@ export async function listConversations(
     eq(socialConversations.tenantId, ctx.tenantId),
     mailboxCondition(mailbox),
   ];
-  if (mailbox === 'email') where.push(emailFolderCondition(filters.folder ?? 'customers'));
-  if (view === 'open') where.push(awake);
+  const folder = mailbox === 'email' ? (filters.folder ?? 'customers') : null;
+  if (folder) where.push(emailFolderCondition(folder));
+  // The Bin shows everything deleted, whatever its status (ADR-093).
+  const anyStatus = folder === 'bin';
+  if (view === 'open' && !anyStatus) where.push(awake);
   if (view === 'mine') where.push(awake, eq(socialConversations.assignedUserId, ctx.userId));
   if (view === 'snoozed') {
     where.push(
@@ -205,6 +227,8 @@ export async function listConversations(
         snoozedNow,
         assignedUserId: socialConversations.assignedUserId,
         assigneeName: assignees.fullName,
+        important: socialConversations.important,
+        deletedAt: socialConversations.deletedAt,
         sortAt,
       })
       .from(socialConversations)
@@ -247,6 +271,8 @@ export async function listConversations(
       snoozedNow: row.snoozedNow,
       assignedUserId: row.assignedUserId,
       assigneeName: row.assigneeName,
+      important: row.important,
+      deletedAt: row.deletedAt,
     })),
     nextCursor:
       rows.length > INBOX_PAGE_SIZE && last
@@ -288,7 +314,7 @@ export async function countUnread(
   return { total: rows.reduce((sum, row) => sum + row.n, 0), byPlatform };
 }
 
-/** Unread email threads per folder, for the Email area's tabs (ADR-073). */
+/** Unread email threads per folder, for the Email area's tabs (ADR-073, ADR-089). */
 export async function countEmailUnread(ctx: TenantContext): Promise<Record<EmailFolder, number>> {
   requirePermission(ctx, 'social.view');
   const [row] = await withRls(ctx, (tx) =>
@@ -297,6 +323,7 @@ export async function countEmailUnread(ctx: TenantContext): Promise<Record<Email
         customers: sql<number>`(count(*) filter (where ${emailFolderCondition('customers')}))::int`,
         review: sql<number>`(count(*) filter (where ${emailFolderCondition('review')}))::int`,
         filtered: sql<number>`(count(*) filter (where ${emailFolderCondition('filtered')}))::int`,
+        important: sql<number>`(count(*) filter (where ${emailFolderCondition('important')}))::int`,
       })
       .from(socialConversations)
       .innerJoin(
@@ -314,7 +341,16 @@ export async function countEmailUnread(ctx: TenantContext): Promise<Record<Email
         ),
       ),
   );
-  return { customers: row?.customers ?? 0, review: row?.review ?? 0, filtered: row?.filtered ?? 0 };
+  return {
+    customers: row?.customers ?? 0,
+    review: row?.review ?? 0,
+    filtered: row?.filtered ?? 0,
+    // Nothing unread can be in Sent: unread messages are received ones, which move a thread out.
+    sent: 0,
+    important: row?.important ?? 0,
+    // The Bin shows no unread count: what is there was put away on purpose.
+    bin: 0,
+  };
 }
 
 /** Whether an email thread's sender is marked "Not a customer", for the thread's controls. */
@@ -347,7 +383,9 @@ export type ThreadMessage = {
   error: string | null;
   sentByName: string | null;
   /** Email: whether the sender passed DKIM or DMARC, and whether a machine sent it. */
-  emailMeta: { verified?: boolean; automated?: boolean } | null;
+  emailMeta: { verified?: boolean; automated?: boolean; to?: string[]; cc?: string[] } | null;
+  /** Email written in Compose (ADR-090): recipients and formatting, checked again here. */
+  composed: StoredCompose | null;
 };
 
 /** One conversation with its latest messages, oldest first, for the thread page. */
@@ -393,6 +431,7 @@ export async function getConversation(ctx: TenantContext, id: string) {
         error: socialMessages.error,
         sentByName: repliers.fullName,
         emailMeta: socialMessages.emailMeta,
+        emailOutbound: socialMessages.emailOutbound,
       })
       .from(socialMessages)
       .leftJoin(repliers, eq(repliers.id, socialMessages.sentByUserId))
@@ -424,7 +463,10 @@ export async function getConversation(ctx: TenantContext, id: string) {
     return {
       ...row,
       platform: row.platform as SocialPlatform,
-      messages: latest.reverse() as ThreadMessage[],
+      messages: latest.reverse().map(({ emailOutbound, ...message }) => ({
+        ...message,
+        composed: message.direction === 'outbound' ? readStoredCompose(emailOutbound) : null,
+      })) as ThreadMessage[],
       suggestions: suggestions.map((item) => ({ id: item.id, name: item.name ?? '' })),
     };
   });
@@ -783,4 +825,83 @@ export async function getConversationForTicket(
     platform,
     accountName: row.accountName,
   };
+}
+
+/** One email thread as MeroAI sees it when asked about the inbox (ADR-092). */
+export type AssistantThread = {
+  id: string;
+  name: string;
+  subject: string | null;
+  status: string;
+  unread: number;
+  lastMessageAt: Date | null;
+  /** Who wrote last: the customer (`inbound`) or the business (`outbound`). */
+  lastFrom: 'inbound' | 'outbound' | null;
+  /** The customer's last words, cut short; never a private note, never an address. */
+  lastCustomerText: string | null;
+  assignee: string | null;
+};
+
+/**
+ * The person's most recent email threads, for MeroAI's answers about the inbox (ADR-092): only
+ * what they may read (RLS, social.view), names but no email addresses, and the customer's last
+ * words cut to 400 characters. Private notes are never included.
+ */
+export async function listEmailThreadsForAssistant(
+  ctx: TenantContext,
+  limit = 40,
+): Promise<AssistantThread[]> {
+  requirePermission(ctx, 'social.view');
+  const rows = await withRls(ctx, (tx) =>
+    tx
+      .select({
+        id: socialConversations.id,
+        participantName: socialConversations.participantName,
+        contactName: contacts.fullName,
+        subject: socialConversations.subject,
+        status: socialConversations.status,
+        unread: socialConversations.unreadCount,
+        lastMessageAt: socialConversations.lastMessageAt,
+        assignee: assignees.fullName,
+        lastFrom: sql<string | null>`(select m.direction from public.social_messages m
+          where m.tenant_id = social_conversations.tenant_id
+            and m.conversation_id = social_conversations.id and m.direction <> 'note'
+          order by m.sent_at desc limit 1)`,
+        lastCustomerText: sql<string | null>`(select left(m.body, 400) from public.social_messages m
+          where m.tenant_id = social_conversations.tenant_id
+            and m.conversation_id = social_conversations.id and m.direction = 'inbound'
+          order by m.sent_at desc limit 1)`,
+      })
+      .from(socialConversations)
+      .innerJoin(
+        socialAccounts,
+        and(
+          eq(socialAccounts.tenantId, socialConversations.tenantId),
+          eq(socialAccounts.id, socialConversations.accountId),
+        ),
+      )
+      .leftJoin(contacts, contactJoin(ctx))
+      .leftJoin(assignees, eq(assignees.id, socialConversations.assignedUserId))
+      .where(
+        and(
+          eq(socialConversations.tenantId, ctx.tenantId),
+          mailboxCondition('email'),
+          // Nothing in the Bin (ADR-093).
+          isNull(socialConversations.deletedAt),
+        ),
+      )
+      .orderBy(desc(socialConversations.lastMessageAt))
+      .limit(Math.min(Math.max(limit, 1), 60)),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.contactName ?? row.participantName ?? 'Unknown sender',
+    subject: row.subject,
+    status: row.status,
+    unread: row.unread,
+    lastMessageAt: row.lastMessageAt,
+    lastFrom: row.lastFrom === 'inbound' || row.lastFrom === 'outbound' ? row.lastFrom : null,
+    lastCustomerText: row.lastCustomerText,
+    assignee: row.assignee,
+  }));
 }

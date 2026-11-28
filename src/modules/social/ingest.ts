@@ -178,6 +178,8 @@ export async function recordMessage(
       // A customer writing again reopens a conversation marked done or snoozed.
       status: counts ? 'open' : sql`${socialConversations.status}`,
       snoozedUntil: counts ? null : sql`${socialConversations.snoozedUntil}`,
+      // ...and takes an email thread out of the Bin (ADR-093): nothing they send is hidden.
+      deletedAt: counts ? null : sql`${socialConversations.deletedAt}`,
       updatedAt: new Date(),
     })
     .where(

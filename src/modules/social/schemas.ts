@@ -1,15 +1,24 @@
 import { z } from 'zod';
 
+import { emailDocDraftSchema, emailDocSchema } from './email-doc';
 import { OAUTH_PROVIDERS } from './oauth-state-keys';
 import { SOCIAL_PLATFORMS } from './providers/types';
 
 export const INBOX_VIEWS = ['open', 'mine', 'unread', 'snoozed', 'done', 'all'] as const;
 
 /**
- * The Email area's folders (ADR-073): threads linked to a contact; people who are not contacts
- * yet; and machines' mail and senders marked "Not a customer".
+ * The Email area's folders (ADR-073, ADR-089): threads linked to a contact; people who are not
+ * contacts yet; machines' mail and senders marked "Not a customer"; and emails the business
+ * started that nobody has answered yet.
  */
-export const EMAIL_FOLDERS = ['customers', 'review', 'filtered'] as const;
+export const EMAIL_FOLDERS = [
+  'customers',
+  'review',
+  'important',
+  'filtered',
+  'sent',
+  'bin',
+] as const;
 export type EmailFolder = (typeof EMAIL_FOLDERS)[number];
 
 export const inboxFiltersSchema = z.object({
@@ -41,6 +50,78 @@ export const replySchema = z.object({
   body: z.string().trim().min(1, 'Write a reply first').max(6000, 'That reply is too long'),
 });
 export type ReplyInput = z.output<typeof replySchema>;
+
+/** One email address as typed: trimmed and in lower case. */
+const emailAddress = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254, 'That address is too long')
+  .pipe(z.email('Check the email addresses'));
+
+/** Recipients one email can have, To, Cc and Bcc together (Resend takes up to 50 in each). */
+export const MAX_EMAIL_RECIPIENTS = 50;
+/** Files one composed email can carry, and their total size. */
+export const MAX_COMPOSE_FILES = 10;
+export const MAX_COMPOSE_BYTES = 25 * 1024 * 1024;
+/** The files Compose takes, as email replies do (MEDIA_RULES.email): up to 10 MB each. */
+export const COMPOSE_FILE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+] as const;
+export const MAX_COMPOSE_FILE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * An email written in Compose (ADR-089, ADR-090), from one of the business's inbox addresses to
+ * anyone. The first To address is the thread's person: their reply comes back to the thread.
+ * Everyone else gets the email too, and their replies start threads of their own (ADR-070: a
+ * message joins a thread only from that thread's person).
+ */
+export const composeEmailSchema = z
+  .object({
+    accountId: z.uuid(),
+    /** The draft this email was written in: deleted once it is sent (ADR-091). */
+    draftId: z.uuid().optional(),
+    to: z.array(emailAddress).min(1, 'Add someone to send it to').max(MAX_EMAIL_RECIPIENTS),
+    cc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+    bcc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+    subject: z.string().trim().min(1, 'Add a subject').max(200, 'That subject is too long'),
+    doc: emailDocSchema,
+    attachments: z
+      .array(
+        z.object({
+          path: z.string().min(1).max(500),
+          fileName: z.string().trim().min(1).max(200),
+          mimeType: z.string().max(200),
+        }),
+      )
+      .max(MAX_COMPOSE_FILES, `Attach at most ${MAX_COMPOSE_FILES} files`)
+      .default([]),
+  })
+  .refine(
+    (value) => new Set([...value.to, ...value.cc, ...value.bcc]).size <= MAX_EMAIL_RECIPIENTS,
+    {
+      message: `An email can go to at most ${MAX_EMAIL_RECIPIENTS} people`,
+      path: ['to'],
+    },
+  );
+export type ComposeEmailInput = z.output<typeof composeEmailSchema>;
+
+/** A file chosen in Compose, before the email exists: checked again when it is sent. */
+export const composeUploadSchema = z.object({
+  accountId: z.uuid(),
+  fileName: z.string().trim().min(1).max(200),
+  mimeType: z.string().max(200),
+  size: z.number().int().positive().max(MAX_COMPOSE_BYTES, 'That file is too large'),
+});
+
+export const composeUploadPathSchema = z.object({ path: z.string().min(1).max(500) });
 
 export const messageIdSchema = z.object({ messageId: z.uuid() });
 
@@ -280,3 +361,79 @@ export type EmailInboxInput = z.output<typeof emailInboxSchema>;
 
 /** Marking an email thread's sender "Not a customer", or moving them back (ADR-073). */
 export const senderRuleSchema = z.object({ conversationId: z.uuid() });
+
+/** A file or picture on a draft, as Compose holds it. */
+const draftFile = z.object({
+  path: z.string().min(1).max(500),
+  fileName: z.string().trim().min(1).max(200),
+  mimeType: z.string().max(200),
+  size: z.number().int().min(0).max(MAX_COMPOSE_BYTES),
+});
+
+/**
+ * An email being written, saved as a draft (ADR-091). Lenient where writing is unfinished: the
+ * addresses are kept as typed and the text may be empty. Sending checks it all properly.
+ */
+export const emailDraftSchema = z.object({
+  id: z.uuid().optional(),
+  accountId: z.uuid(),
+  to: z.array(z.string().trim().max(254)).max(MAX_EMAIL_RECIPIENTS).default([]),
+  cc: z.array(z.string().trim().max(254)).max(MAX_EMAIL_RECIPIENTS).default([]),
+  bcc: z.array(z.string().trim().max(254)).max(MAX_EMAIL_RECIPIENTS).default([]),
+  subject: z.string().max(200).default(''),
+  doc: emailDocDraftSchema.default([]),
+  attachments: z.array(draftFile).max(MAX_COMPOSE_FILES).default([]),
+});
+export type EmailDraftInput = z.output<typeof emailDraftSchema>;
+
+export const draftIdSchema = z.object({ id: z.uuid() });
+
+/** A person's own email signature (ADR-091); an empty document removes it. */
+export const emailSignatureSchema = z.object({
+  doc: emailDocDraftSchema,
+  useOnNew: z.boolean(),
+  useOnReplies: z.boolean(),
+});
+export type EmailSignatureInput = z.output<typeof emailSignatureSchema>;
+
+/** What is being typed in To, Cc or Bcc, for address suggestions (ADR-091). */
+export const addressQuerySchema = z.object({ q: z.string().trim().max(100) });
+
+/**
+ * A formatted email reply on a thread (ADR-091): to the thread's person, with Cc and Bcc, text
+ * and files as Compose writes them.
+ */
+export const emailReplySchema = z.object({
+  conversationId: z.uuid(),
+  cc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+  bcc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+  doc: emailDocSchema,
+  attachments: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(500),
+        fileName: z.string().trim().min(1).max(200),
+        mimeType: z.string().max(200),
+      }),
+    )
+    .max(MAX_COMPOSE_FILES)
+    .default([]),
+});
+export type EmailReplyInput = z.output<typeof emailReplySchema>;
+
+/* ------------------------------------------------------------- Bin and Important (ADR-093) */
+
+/** How long an email thread stays in the Bin before it is deleted for good. */
+export const EMAIL_BIN_DAYS = 30;
+
+/** One or more email threads, as chosen in the list. */
+export const emailThreadsSchema = z.object({
+  conversationIds: z.array(z.uuid()).min(1, 'Choose an email first').max(100),
+});
+export type EmailThreadsInput = z.output<typeof emailThreadsSchema>;
+
+export const emailImportantSchema = z.object({
+  conversationIds: z.array(z.uuid()).min(1).max(100),
+  important: z.boolean(),
+});
+export type EmailImportantInput = z.output<typeof emailImportantSchema>;

@@ -21,6 +21,7 @@ import { ErrorNote } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { publicEnv } from '@/lib/env.public';
+import type { StoredCompose } from '@/modules/social/email-doc';
 import { cn } from '@/lib/utils';
 import {
   mediaReplyAction,
@@ -37,6 +38,7 @@ import { receiptLabel } from '../channel-conventions';
 import type { StoredAttachment } from '../media';
 import type { SocialPlatform } from '../providers/types';
 import { EmailMessage, type EmailParties } from './email-message';
+import { requestEmailReply } from './email-reply-box';
 import { Attachment } from './message-attachment';
 import { CHANNEL_TINT } from './platform-badge';
 import { PresenceNote, useConversationPresence, type PresenceSetup } from './conversation-presence';
@@ -56,6 +58,10 @@ export type ThreadItem = {
   unverified?: boolean;
   /** Email: sent by a machine (an auto-reply or a bounce). */
   automated?: boolean;
+  /** Email written in Compose (ADR-090): recipients and formatting. */
+  composed?: StoredCompose | null;
+  /** Email (ADR-091): who else Reply all copies in, the thread's person and the inbox left out. */
+  replyAllCc?: string[];
 };
 
 const STATUS_ICONS: Record<string, typeof Check> = {
@@ -86,6 +92,7 @@ export function ThreadView({
   presence = null,
   articles = false,
   email = null,
+  emailReply = null,
 }: {
   conversationId: string;
   messages: ThreadItem[];
@@ -113,6 +120,8 @@ export function ThreadView({
   articles?: boolean;
   /** Email (ADR-087): show each message as an email between these two, not as a bubble. */
   email?: EmailParties | null;
+  /** Email (ADR-091): the formatted reply box, in place of the plain one. */
+  emailReply?: ReactNode;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<'reply' | 'note'>('reply');
@@ -133,6 +142,11 @@ export function ThreadView({
   const fileInput = useRef<HTMLInputElement>(null);
   const replyBox = useRef<HTMLTextAreaElement>(null);
   const focusReply = () => {
+    if (emailReply) {
+      setMode('reply');
+      requestEmailReply({ cc: [] });
+      return;
+    }
     setMode('reply');
     setPicker(null);
     // The box exists once the reply tab is shown; wait a frame for it.
@@ -350,9 +364,18 @@ export function ThreadView({
                   parties={email}
                   // A long thread opens at its last three emails; older ones start folded.
                   folded={index < shown.length - 3}
-                  canReply={canReply}
+                  // No reply box (a thread in the Bin, email not set up): nothing to reply with.
+                  canReply={canReply && Boolean(emailReply)}
                   busy={isPending}
                   onReply={focusReply}
+                  onReplyAll={
+                    emailReply && message.replyAllCc && message.replyAllCc.length > 0
+                      ? () => {
+                          setMode('reply');
+                          requestEmailReply({ cc: message.replyAllCc ?? [] });
+                        }
+                      : undefined
+                  }
                   onRetry={retry}
                 />
               </li>
@@ -466,7 +489,13 @@ export function ThreadView({
 
       {canReply && <PresenceNote others={others} members={presence?.members ?? []} />}
       {canReply && (
-        <div className="flex flex-col gap-2 rounded-xl border bg-card p-3">
+        <div
+          className={cn(
+            'flex flex-col gap-2 rounded-xl border bg-card p-3',
+            // A long reply (MeroAI open, Cc, files) scrolls inside its box, not over the page.
+            email && 'lg:min-h-0 lg:overflow-y-auto',
+          )}
+        >
           <div role="tablist" aria-label="What to write" className="flex gap-1">
             <Button
               type="button"
@@ -495,7 +524,9 @@ export function ThreadView({
               <Lock aria-hidden /> Private note
             </Button>
           </div>
-          {mode === 'reply' && !replyOpen ? (
+          {mode === 'reply' && replyOpen && emailReply ? (
+            emailReply
+          ) : mode === 'reply' && !replyOpen ? (
             <p className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
               {blockedReason ?? 'Send an approved template below.'} You can still leave a private
               note for colleagues.

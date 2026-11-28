@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { and, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 
@@ -21,6 +21,7 @@ import {
   htmlToText,
   isAutomated,
   messageIds,
+  newReplyToken,
   parseAddress,
   replyTokenIn,
   stripQuotedReply,
@@ -654,12 +655,6 @@ async function applyWhatsAppStatuses(cache: AccountCache, statuses: WhatsAppStat
 }
 
 /* ------------------------------------------------------------------------------- email */
-
-const TOKEN_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
-/** A thread's secret reply-address token: 24 characters, about 124 bits. */
-export function newReplyToken(): string {
-  return Array.from(randomBytes(24), (byte) => TOKEN_ALPHABET[byte % 36]).join('');
-}
 
 /** How many messages one sender may put into one inbox an hour, and an inbox may take an hour. */
 const EMAIL_SENDER_HOURLY = 60;

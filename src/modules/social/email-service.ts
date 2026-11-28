@@ -10,6 +10,7 @@ import { requirePermission, type TenantContext } from '@/server/context';
 import { withRls } from '@/server/db/with-rls';
 import { socialMediaLinkForPlatform } from '@/server/storage';
 
+import { emailDocHtml, type EmailDoc } from './email-doc';
 import { INBOX_LOCAL_PART, replyAddress, replySubject, reservedLocalPart } from './email-parse';
 import { emailInboxConfigured, inboxDomain, sendResendEmail } from './providers/resend';
 import type { EmailInboxInput } from './schemas';
@@ -25,12 +26,27 @@ import { ProviderError } from './providers/types';
 /** How many earlier Message-IDs a reply's References names at most. */
 const MAX_REFERENCES = 20;
 
+type OutboundFile = { path: string; mimeType: string; size: number; fileName: string };
+
+/** What Compose adds to an email beyond its words and its thread's person (ADR-090). */
+export type ComposedEmail = {
+  /** Every To address; the first is the thread's person. */
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  doc: EmailDoc;
+  attachments: OutboundFile[];
+  /** Pictures in the text, sent as embedded attachments with these Content-IDs (ADR-091). */
+  images: (OutboundFile & { contentId: string })[];
+};
+
 type EmailReply = {
   conversation: typeof socialConversations.$inferSelect;
   account: typeof socialAccounts.$inferSelect;
   messageId: string;
   body: string;
-  media: { path: string; mimeType: string; size: number; fileName: string } | null;
+  media: OutboundFile | null;
+  composed?: ComposedEmail | null;
 };
 
 /** A display name safe inside a From header: no quotes, angle brackets or line breaks. */
@@ -83,25 +99,41 @@ export async function sendEmailReply(
     headers['In-Reply-To'] = inReplyTo;
     headers.References = ids.slice(-MAX_REFERENCES).join(' ');
   }
-  const subject = replySubject(conversation.subject);
-  const attachments = reply.media
-    ? [
-        {
-          filename: reply.media.fileName.slice(0, 120),
-          // Resend fetches the file while sending: a ten-minute link to that one object.
-          path: await socialMediaLinkForPlatform(reply.media.path),
-          content_type: reply.media.mimeType,
-        },
-      ]
-    : [];
+  // The first email of a thread the business started goes with its subject as written; anything
+  // after a message in the thread (received, or sent and given a Message-ID) is a reply.
+  const answering = Boolean(conversation.lastInboundAt) || ids.length > 0;
+  const subject = answering
+    ? replySubject(conversation.subject)
+    : (conversation.subject ?? replySubject(null));
+  const composed = reply.composed ?? null;
+  const files: (OutboundFile & { contentId?: string })[] = composed
+    ? [...composed.attachments, ...composed.images]
+    : reply.media
+      ? [reply.media]
+      : [];
+  const attachments = await Promise.all(
+    files.map(async (file) => ({
+      filename: file.fileName.slice(0, 120),
+      // Resend fetches the file while sending: a ten-minute link to that one object.
+      path: await socialMediaLinkForPlatform(file.path),
+      content_type: file.mimeType,
+      ...(file.contentId ? { content_id: file.contentId } : {}),
+    })),
+  );
+  const cid = new Map(composed?.images.map((image) => [image.path, `cid:${image.contentId}`]));
   // Its Message-ID is recorded from Resend's "sent" event (webhooks.ts): sessions never write
   // email details, so an inbound message's sender checks cannot be altered.
   return sendResendEmail({
     from: `"${headerName(account.name)}" <${account.externalId}>`,
-    to: conversation.participantEmail,
+    to: composed && composed.to.length > 0 ? composed.to : [conversation.participantEmail],
+    cc: composed?.cc ?? [],
+    bcc: composed?.bcc ?? [],
     subject,
     text: reply.body,
-    html: emailHtml(reply.body),
+    // Composed HTML is built here from the checked document, never taken from the browser.
+    html: composed
+      ? emailDocHtml(composed.doc, { imageSrc: (path) => cid.get(path) ?? null })
+      : emailHtml(reply.body),
     replyTo: replyAddress(conversation.replyToken, domain),
     headers,
     attachments,

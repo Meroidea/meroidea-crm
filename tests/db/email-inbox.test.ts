@@ -6,13 +6,31 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { POST as resendWebhook } from '@/app/api/webhooks/resend/route';
 import { AppError } from '@/lib/errors';
 import { anonymizeContact } from '@/modules/contacts/privacy';
+import { textToEmailDoc, type EmailDoc } from '@/modules/social/email-doc';
 import { createEmailInbox } from '@/modules/social/email-service';
 import { getConversation, listAccounts, listConversations } from '@/modules/social/queries';
-import { replyToConversation } from '@/modules/social/service';
+import {
+  deleteDraft,
+  getDraft,
+  getSignature,
+  listDrafts,
+  prepareForward,
+  saveDraft,
+  saveSignature,
+  suggestAddresses,
+} from '@/modules/social/compose-service';
+import {
+  replyToConversation,
+  replyWithEmail,
+  retryReply,
+  startComposeUpload,
+  startEmailConversation,
+} from '@/modules/social/service';
 import { setAccountSettings } from '@/modules/social/team-service';
 import type { TenantContext } from '@/server/context';
 import { adminDb } from '@/server/db/admin';
 import { withRls } from '@/server/db/with-rls';
+import { createSupabaseAdminClient } from '@/server/supabase/admin';
 
 import { addMember, contextFor, createWorkspace, destroyWorkspace } from '../support/workspaces';
 
@@ -34,6 +52,7 @@ const LOCAL = `harbour-${stamp}`;
 const INBOX = `${LOCAL}@${DOMAIN}`;
 const KNOWN = `kim-${stamp}@example.com`;
 const STRANGER = `lee-${stamp}@example.com`;
+const RECIPIENT_COMPOSE = `kim-${stamp}@example.com`;
 
 let tenantId: string;
 let otherTenant: string;
@@ -70,6 +89,8 @@ type Received = {
 };
 const received = new Map<string, Received>();
 const sends: { body: Record<string, unknown>; idempotency: string | null }[] = [];
+/** The next send is refused by the simulated Resend, as a real refusal would be. */
+let refuseNextSend = false;
 const realFetch = globalThis.fetch;
 
 beforeAll(async () => {
@@ -102,6 +123,10 @@ beforeAll(async () => {
       });
     }
     if (url === 'https://api.resend.com/emails' && init?.method === 'POST') {
+      if (refuseNextSend) {
+        refuseNextSend = false;
+        return json({ name: 'application_error', message: 'Try again later' }, 500);
+      }
       const headers = new Headers(init.headers);
       sends.push({
         body: JSON.parse(String(init.body)) as Record<string, unknown>,
@@ -209,6 +234,27 @@ async function conversation(id: string) {
          from social_conversations where id = ${id}`);
   return row!;
 }
+
+/** A Compose input with plain words, as the editor would send them. */
+const compose = (input: {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  body?: string;
+  doc?: EmailDoc;
+  attachments?: { path: string; fileName: string; mimeType: string }[];
+  draftId?: string;
+}) => ({
+  accountId,
+  ...(input.draftId ? { draftId: input.draftId } : {}),
+  to: input.to,
+  cc: input.cc ?? [],
+  bcc: input.bcc ?? [],
+  subject: input.subject,
+  doc: input.doc ?? textToEmailDoc(input.body ?? ''),
+  attachments: input.attachments ?? [],
+});
 
 /* -------------------------------------------------------------------------- tests */
 
@@ -438,7 +484,7 @@ describe('replying by email', () => {
     const { reply_token } = await conversation(threadId);
     expect(sent.body).toMatchObject({
       from: `"Harbour Cafe" <${INBOX}>`,
-      to: KNOWN,
+      to: [KNOWN],
       subject: 'Re: Order 1042 arrived cold',
       reply_to: `r-${reply_token}@${DOMAIN}`,
       text: 'Sorry about that. <b>Refund</b> on its way.',
@@ -503,6 +549,495 @@ describe('replying by email', () => {
   });
 });
 
+describe('starting a new email (ADR-089)', () => {
+  const RECIPIENT = `kim-${stamp}@example.com`; // Kim is a contact: her answer links the thread.
+  let memberCtx: TenantContext;
+  let threadId: string;
+
+  beforeAll(async () => {
+    const memberId = await addMember(tenantId, mail('em-member'), 'Mel Member', 'member');
+    users.push(memberId);
+    memberCtx = await contextFor(memberId, tenantId);
+  });
+
+  const sentFolder = async (ctx: TenantContext) =>
+    (await listConversations(ctx, { view: 'all', folder: 'sent' }, 'email')).rows.map(
+      (row) => row.id,
+    );
+
+  it('needs social.reply', async () => {
+    const before = sends.length;
+    await expectCode(
+      () =>
+        startEmailConversation(
+          memberCtx,
+          compose({ to: [RECIPIENT], subject: 'Hello', body: 'Hi' }),
+        ),
+      'FORBIDDEN',
+    );
+    expect(sends.length).toBe(before);
+  });
+
+  it('cannot send from another business’s inbox', async () => {
+    const before = sends.length;
+    await expectCode(
+      () =>
+        startEmailConversation(
+          outsider,
+          compose({ to: [RECIPIENT], subject: 'Hello', body: 'Hi' }),
+        ),
+      'NOT_FOUND',
+    );
+    expect(sends.length).toBe(before);
+    const [count] = await rows<{ n: number }>(sql`
+      select count(*)::int as n from social_conversations where tenant_id = ${otherTenant}`);
+    expect(count?.n).toBe(0);
+  });
+
+  it('refuses an address at the inbox domain, which would loop back', async () => {
+    await expectCode(
+      () =>
+        startEmailConversation(
+          manager,
+          compose({ to: [`someone@${DOMAIN}`], subject: 'Loop', body: 'Hi' }),
+        ),
+      'VALIDATION',
+    );
+  });
+
+  it('sends to anyone from the inbox, with the subject as written, as a new thread in Sent', async () => {
+    const result = await startEmailConversation(
+      manager,
+      compose({
+        to: [RECIPIENT],
+        subject: 'Your catering quote',
+        body: 'Hi Kim, here is the quote we discussed.',
+      }),
+    );
+    threadId = result.conversationId;
+    const sent = sends.at(-1)!;
+    const thread = await conversation(threadId);
+    expect(sent.body).toMatchObject({
+      from: `"Harbour Cafe" <${INBOX}>`,
+      to: [RECIPIENT],
+      subject: 'Your catering quote',
+      reply_to: `r-${thread.reply_token}@${DOMAIN}`,
+      text: 'Hi Kim, here is the quote we discussed.',
+    });
+    expect((sent.body.headers as Record<string, string>)['In-Reply-To']).toBeUndefined();
+    expect(thread.participant_email).toBe(RECIPIENT);
+    expect(thread.reply_token).toMatch(/^[a-z0-9]{24}$/);
+    // Not linked when sent: the writer may not see every contact with that address.
+    expect(thread.contact_id).toBeNull();
+    const [row] = await rows<{ assigned_user_id: string; status: string }>(sql`
+      select c.assigned_user_id, m.status from social_conversations c
+      join social_messages m on m.conversation_id = c.id where c.id = ${threadId}`);
+    expect(row).toEqual({ assigned_user_id: manager.userId, status: 'sent' });
+    expect(await sentFolder(owner)).toContain(threadId);
+    for (const folder of ['customers', 'review', 'filtered'] as const) {
+      const { rows: listed } = await listConversations(owner, { view: 'all', folder }, 'email');
+      expect(listed.map((item) => item.id)).not.toContain(threadId);
+    }
+    expect(await sentFolder(outsider)).not.toContain(threadId);
+  });
+
+  it('a follow-up before any answer is a reply on the same thread', async () => {
+    const [first] = await rows<{ external_id: string }>(sql`
+      select external_id from social_messages where conversation_id = ${threadId}`);
+    const response = await resendWebhook(
+      signedEvent({
+        type: 'email.sent',
+        created_at: new Date().toISOString(),
+        data: { email_id: first!.external_id, message_id: `<quote-${stamp}@resend.example>` },
+      }),
+    );
+    expect(response.status).toBe(200);
+    await replyToConversation(manager, { conversationId: threadId, body: 'Also attaching menu.' });
+    const sent = sends.at(-1)!;
+    expect(sent.body.subject).toBe('Re: Your catering quote');
+    expect((sent.body.headers as Record<string, string>)['In-Reply-To']).toBe(
+      `<quote-${stamp}@resend.example>`,
+    );
+  });
+
+  it('their answer joins the thread, links the contact and moves it out of Sent', async () => {
+    const { reply_token } = await conversation(threadId);
+    const id = await arrives({
+      from: RECIPIENT,
+      to: [`r-${reply_token}@${DOMAIN}`],
+      subject: 'Re: Your catering quote',
+      text: 'Looks good, book it.',
+      messageId: `<kim-answer-${stamp}@mail.example.com>`,
+    });
+    expect((await conversationOf(id))?.conversation_id).toBe(threadId);
+    expect((await conversation(threadId)).contact_id).toBe(knownContactId);
+    expect(await sentFolder(owner)).not.toContain(threadId);
+    const customers = await listConversations(owner, { view: 'all', folder: 'customers' }, 'email');
+    expect(customers.rows.map((row) => row.id)).toContain(threadId);
+  });
+});
+
+describe('composing with Cc, Bcc, formatting and files (ADR-090)', () => {
+  const PDF = new TextEncoder().encode('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n');
+  const CC = `cc-${stamp}@example.com`;
+  const BCC = `bcc-${stamp}@example.com`;
+  const OTHER_TO = `also-${stamp}@example.com`;
+  const formatted: EmailDoc = [
+    {
+      type: 'paragraph',
+      content: [
+        { text: 'Hi, ' },
+        { text: 'see the quote', b: true },
+        { text: ' and ' },
+        { text: '<b>this</b>', href: 'https://example.com/menu' },
+      ],
+    },
+    { type: 'list', ordered: false, items: [[{ text: 'Soup' }], [{ text: 'Bread' }]] },
+  ];
+
+  /** A file put where Compose uploads it for this person, as the browser would. */
+  async function uploaded(ctx: TenantContext, name: string, bytes = PDF) {
+    const ticket = await startComposeUpload(ctx, {
+      accountId,
+      fileName: name,
+      mimeType: 'application/pdf',
+      size: bytes.byteLength,
+    });
+    const { error } = await createSupabaseAdminClient()
+      .storage.from('social-media')
+      .uploadToSignedUrl(ticket.path, ticket.token, new Blob([bytes]), {
+        contentType: 'application/pdf',
+      });
+    expect(error).toBeNull();
+    return { path: ticket.path, fileName: name, mimeType: 'application/pdf' };
+  }
+
+  it('sends To, Cc and Bcc, with HTML built from the document and files attached', async () => {
+    const file = await uploaded(manager, 'quote.pdf');
+    const { conversationId, messageId } = await startEmailConversation(
+      manager,
+      compose({
+        to: [RECIPIENT_COMPOSE, OTHER_TO],
+        cc: [CC, RECIPIENT_COMPOSE],
+        bcc: [BCC],
+        subject: 'Quote and menu',
+        doc: formatted,
+        attachments: [file],
+      }),
+    );
+    const sent = sends.at(-1)!;
+    expect(sent.body.to).toEqual([RECIPIENT_COMPOSE, OTHER_TO]);
+    // Each address once: the To address listed again under Cc is left out there.
+    expect(sent.body.cc).toEqual([CC]);
+    expect(sent.body.bcc).toEqual([BCC]);
+    const html = String(sent.body.html);
+    expect(html).toContain('<strong>see the quote</strong>');
+    expect(html).toContain('href="https://example.com/menu"');
+    expect(html).toContain('&lt;b&gt;this&lt;/b&gt;');
+    expect(html).toContain('<ul');
+    expect(sent.body.text).toBe(
+      'Hi, see the quote and <b>this</b> (https://example.com/menu)\n\n- Soup\n- Bread',
+    );
+    const attachments = sent.body.attachments as { filename: string; path: string }[];
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]!.filename).toBe('quote.pdf');
+    // The thread's person is the first To address.
+    expect((await conversation(conversationId)).participant_email).toBe(RECIPIENT_COMPOSE);
+    const [stored] = await rows<{ email_outbound: unknown; attachments: unknown[] }>(sql`
+      select email_outbound, attachments from social_messages where id = ${messageId}`);
+    expect(stored?.email_outbound).toEqual({
+      to: [RECIPIENT_COMPOSE, OTHER_TO],
+      cc: [CC],
+      bcc: [BCC],
+      doc: formatted,
+    });
+    expect(stored?.attachments).toEqual([
+      expect.objectContaining({ fileName: 'quote.pdf', mimeType: 'application/pdf' }),
+    ]);
+    // The thread shows the email as sent, recipients and formatting included.
+    const thread = await getConversation(manager, conversationId);
+    expect(thread?.messages.at(-1)?.composed).toMatchObject({ cc: [CC], bcc: [BCC] });
+  });
+
+  it('refuses a file another person uploaded, or one that is not what it says', async () => {
+    const theirs = await uploaded(owner, 'theirs.pdf');
+    await expectCode(
+      () =>
+        startEmailConversation(
+          manager,
+          compose({ to: [RECIPIENT_COMPOSE], subject: 'x', body: 'x', attachments: [theirs] }),
+        ),
+      'VALIDATION',
+    );
+    const fake = await uploaded(manager, 'fake.pdf', new TextEncoder().encode('<html>not a pdf'));
+    await expectCode(
+      () =>
+        startEmailConversation(
+          manager,
+          compose({ to: [RECIPIENT_COMPOSE], subject: 'x', body: 'x', attachments: [fake] }),
+        ),
+      'VALIDATION',
+    );
+  });
+
+  it('a refused send is retried as the same email: recipients, formatting and files', async () => {
+    const file = await uploaded(manager, 'menu.pdf');
+    refuseNextSend = true;
+    const { messageId, failed: reason } = await startEmailConversation(
+      manager,
+      compose({
+        to: [RECIPIENT_COMPOSE],
+        cc: [CC],
+        subject: 'Retry me',
+        doc: formatted,
+        attachments: [file],
+      }),
+    );
+    const [failed] = await rows<{ status: string }>(
+      sql`select status from social_messages where id = ${messageId}`,
+    );
+    expect(failed?.status).toBe('failed');
+    // Returned with the thread, not thrown: Compose opens the thread, where Retry is.
+    expect(reason).toContain('Not sent');
+    await retryReply(manager, messageId);
+    const sent = sends.at(-1)!;
+    expect(sent.body).toMatchObject({ to: [RECIPIENT_COMPOSE], cc: [CC], subject: 'Retry me' });
+    expect(String(sent.body.html)).toContain('<strong>see the quote</strong>');
+    expect((sent.body.attachments as { filename: string }[])[0]?.filename).toBe('menu.pdf');
+  });
+
+  it('counts every recipient against the daily limit', async () => {
+    const many = Array.from({ length: 50 }, (_, index) => `bulk-${index}-${stamp}@example.com`);
+    let refused = false;
+    for (let round = 0; round < 6 && !refused; round += 1) {
+      refused = await startEmailConversation(
+        owner,
+        compose({ to: many.slice(0, 25), bcc: many.slice(25), subject: 'Bulk', body: 'x' }),
+      ).then(
+        () => false,
+        (error: unknown) => error instanceof AppError && error.code === 'RATE_LIMITED',
+      );
+    }
+    // 200 recipients a day per person: the fifth email of 50 is refused.
+    expect(refused).toBe(true);
+  });
+
+  it('a signed-in person can never write a received email’s sender checks', async () => {
+    const [thread] = await rows<{ id: string }>(sql`
+      select id from social_conversations where account_id = ${accountId} limit 1`);
+    const insert = (values: Record<string, unknown>) =>
+      withRls(manager, (tx) =>
+        tx.execute(sql`
+          insert into social_messages (tenant_id, conversation_id, account_id, direction, body,
+            sent_at, status, email_meta, email_message_id, email_outbound)
+          values (${tenantId}, ${thread!.id}, ${accountId}, ${String(values.direction)}, 'forged',
+            now(), 'received', ${values.meta ?? null}::jsonb, ${values.messageId ?? null},
+            ${values.outbound ?? null}::jsonb)`),
+      ).then(
+        () => 'stored',
+        () => 'refused',
+      );
+    expect(await insert({ direction: 'inbound', meta: JSON.stringify({ verified: true }) })).toBe(
+      'refused',
+    );
+    expect(await insert({ direction: 'inbound', messageId: `<forged-${stamp}@x>` })).toBe(
+      'refused',
+    );
+    expect(
+      await insert({ direction: 'inbound', outbound: JSON.stringify({ to: [], doc: [] }) }),
+    ).toBe('refused');
+  });
+});
+
+describe('drafts, signatures, suggestions, formatted replies and forwards (ADR-091)', () => {
+  const PDF = new TextEncoder().encode('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n');
+  const PNG = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1,
+    0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+  ]);
+  const storage = () => createSupabaseAdminClient().storage.from('social-media');
+
+  async function put(ctx: TenantContext, name: string, bytes: Uint8Array, mimeType: string) {
+    const ticket = await startComposeUpload(ctx, {
+      accountId,
+      fileName: name,
+      mimeType,
+      size: bytes.byteLength,
+    });
+    const { error } = await storage().uploadToSignedUrl(
+      ticket.path,
+      ticket.token,
+      new Blob([new Uint8Array(bytes)]),
+      {
+        contentType: mimeType,
+      },
+    );
+    expect(error).toBeNull();
+    return ticket.path;
+  }
+  const exists = async (path: string) => {
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    const { data } = await storage().list(folder, { search: path.split('/').pop() });
+    return (data ?? []).length > 0;
+  };
+
+  it('a draft is its writer’s alone, and sending it deletes it', async () => {
+    const saved = await saveDraft(manager, {
+      accountId,
+      to: ['half-typed@'],
+      cc: [],
+      bcc: [],
+      subject: 'Draft subject',
+      doc: [],
+      attachments: [],
+    });
+    expect((await listDrafts(manager)).map((draft) => draft.id)).toContain(saved.id);
+    // Nobody else sees it: not the owner of the business, not another business.
+    expect(await getDraft(owner, saved.id)).toBeNull();
+    expect((await listDrafts(owner)).map((draft) => draft.id)).not.toContain(saved.id);
+    const seen = (await withRls(owner, (tx) =>
+      tx.execute(sql`select count(*)::int as n from email_drafts where id = ${saved.id}`),
+    )) as unknown as { n: number }[];
+    expect(seen[0]!.n).toBe(0);
+    await expectCode(
+      () =>
+        saveDraft(owner, {
+          id: saved.id,
+          accountId,
+          to: [],
+          cc: [],
+          bcc: [],
+          subject: 'Taken over',
+          doc: [],
+          attachments: [],
+        }),
+      'NOT_FOUND',
+    );
+    const { conversationId } = await startEmailConversation(
+      manager,
+      compose({ to: [RECIPIENT_COMPOSE], subject: 'From a draft', body: 'Hi', draftId: saved.id }),
+    );
+    expect(conversationId).toBeTruthy();
+    expect(await getDraft(manager, saved.id)).toBeNull();
+  });
+
+  it('a draft cannot name another person’s file, and discarding removes its own', async () => {
+    const theirs = await put(owner, 'theirs.pdf', PDF, 'application/pdf');
+    const file = { fileName: 'x.pdf', mimeType: 'application/pdf', size: PDF.byteLength };
+    const base = { accountId, to: [], cc: [], bcc: [], subject: '', doc: [] };
+    await expectCode(
+      () => saveDraft(manager, { ...base, attachments: [{ ...file, path: theirs }] }),
+      'VALIDATION',
+    );
+    const mine = await put(manager, 'mine.pdf', PDF, 'application/pdf');
+    const saved = await saveDraft(manager, { ...base, attachments: [{ ...file, path: mine }] });
+    expect(await exists(mine)).toBe(true);
+    await deleteDraft(manager, saved.id, { removeFiles: true });
+    expect(await exists(mine)).toBe(false);
+  });
+
+  it('a signature is its owner’s alone; an empty one is removed', async () => {
+    const doc: EmailDoc = [
+      { type: 'paragraph', content: [{ text: 'Morgan, Harbour Cafe', b: true }] },
+    ];
+    await saveSignature(manager, { doc, useOnNew: true, useOnReplies: false });
+    expect(await getSignature(manager)).toEqual({ doc, useOnNew: true, useOnReplies: false });
+    expect(await getSignature(owner)).toBeNull();
+    const seen = (await withRls(owner, (tx) =>
+      tx.execute(
+        sql`select count(*)::int as n from email_signatures where user_id = ${manager.userId}`,
+      ),
+    )) as unknown as { n: number }[];
+    expect(seen[0]!.n).toBe(0);
+    await saveSignature(manager, { doc: [], useOnNew: true, useOnReplies: true });
+    expect(await getSignature(manager)).toBeNull();
+  });
+
+  it('suggests contacts the person may see, and nothing from another business', async () => {
+    expect(await suggestAddresses(owner, 'kim')).toContainEqual({
+      name: 'Kim',
+      email: KNOWN,
+    });
+    expect(await suggestAddresses(owner, 'k')).toEqual([]);
+    expect(await suggestAddresses(outsider, 'kim')).toEqual([]);
+    // "%" is searched for, not a wildcard that matches everyone.
+    expect(await suggestAddresses(owner, '%%')).toEqual([]);
+  });
+
+  it('a formatted reply carries Cc, files and an embedded picture', async () => {
+    const [thread] = await rows<{ id: string }>(sql`
+      select id from social_conversations
+      where account_id = ${accountId} and participant_email = ${KNOWN} order by created_at limit 1`);
+    const picture = await put(manager, 'logo.png', PNG, 'image/png');
+    const pdf = await put(manager, 'menu.pdf', PDF, 'application/pdf');
+    const { messageId } = await replyWithEmail(manager, {
+      conversationId: thread!.id,
+      cc: [`boss-${stamp}@example.com`, KNOWN],
+      bcc: [],
+      doc: [
+        { type: 'paragraph', content: [{ text: 'Here you go' }] },
+        { type: 'image', path: picture, alt: 'Logo' },
+      ],
+      attachments: [{ path: pdf, fileName: 'menu.pdf', mimeType: 'application/pdf' }],
+    });
+    const sent = sends.at(-1)!;
+    expect(sent.body.to).toEqual([KNOWN]);
+    // The thread's person is already the recipient: not copied again.
+    expect(sent.body.cc).toEqual([`boss-${stamp}@example.com`]);
+    const files = sent.body.attachments as { filename: string; content_id?: string }[];
+    const inline = files.find((file) => file.content_id);
+    expect(files.map((file) => file.filename)).toEqual(['menu.pdf', 'picture-1.png']);
+    expect(String(sent.body.html)).toContain(`src="cid:${inline!.content_id}"`);
+    const [stored] = await rows<{ attachments: { inline?: boolean }[] }>(
+      sql`select attachments from social_messages where id = ${messageId}`,
+    );
+    expect(stored!.attachments.map((file) => Boolean(file.inline))).toEqual([false, true]);
+  });
+
+  it('a picture must be the sender’s own upload', async () => {
+    const theirs = await put(owner, 'theirs.png', PNG, 'image/png');
+    await expectCode(
+      () =>
+        startEmailConversation(
+          manager,
+          compose({
+            to: [RECIPIENT_COMPOSE],
+            subject: 'x',
+            doc: [{ type: 'image', path: theirs, alt: '' }],
+          }),
+        ),
+      'VALIDATION',
+    );
+  });
+
+  it('forwarding copies the email and its files into the forwarder’s own folder', async () => {
+    const pdf = await put(manager, 'quote.pdf', PDF, 'application/pdf');
+    const { messageId } = await startEmailConversation(
+      manager,
+      compose({
+        to: [RECIPIENT_COMPOSE],
+        subject: 'Re: The quote',
+        doc: [{ type: 'paragraph', content: [{ text: 'Attached', i: true }] }],
+        attachments: [{ path: pdf, fileName: 'quote.pdf', mimeType: 'application/pdf' }],
+      }),
+    );
+    // The owner forwards the manager's email (earlier tests used up the owner's daily sends).
+    const forward = await prepareForward(owner, messageId);
+    expect(forward?.subject).toBe('Fwd: The quote');
+    expect(forward?.doc).toContainEqual({
+      type: 'paragraph',
+      content: [{ text: 'Attached', i: true }],
+    });
+    const copy = forward!.attachments[0]!;
+    expect(copy.fileName).toBe('quote.pdf');
+    expect(copy.path.startsWith(`${tenantId}/social/compose/${owner.userId}/`)).toBe(true);
+    expect(copy.path).not.toBe(pdf);
+    expect(await exists(pdf)).toBe(true);
+    expect(await prepareForward(outsider, messageId)).toBeNull();
+  });
+});
+
 describe('the email feature switch', () => {
   it('hides email threads, but not social ones, while only email is off', async () => {
     const [social] = await rows<{ id: string }>(sql`
@@ -544,7 +1079,7 @@ describe('the email feature switch', () => {
       expect(ctx.grants.has('social.view')).toBe(true);
       // Email is its own area (ADR-073): every folder holds email only, the Social inbox nothing.
       const platforms = new Set<string>();
-      for (const folder of ['customers', 'review', 'filtered'] as const) {
+      for (const folder of ['customers', 'review', 'filtered', 'sent'] as const) {
         const { rows } = await listConversations(ctx, { view: 'all', folder }, 'email');
         for (const row of rows) platforms.add(row.platform);
       }
@@ -574,6 +1109,12 @@ describe('erasing a person', () => {
       where c.contact_id = ${knownContactId} and m.direction = 'inbound'
         and (m.email_meta is not null or m.body <> 'Erased on request')`);
     expect(leftovers).toHaveLength(0);
+    // Who the business's composed emails went to is erased too (ADR-090); its words stay.
+    const recipients = await rows(sql`
+      select 1 from social_messages m join social_conversations c on c.id = m.conversation_id
+      where c.contact_id = ${knownContactId} and m.email_outbound is not null
+        and (m.email_outbound ? 'to' or m.email_outbound ? 'cc' or m.email_outbound ? 'bcc')`);
+    expect(recipients).toHaveLength(0);
     // The thread page still opens.
     const conversationId = (
       await rows<{ id: string }>(

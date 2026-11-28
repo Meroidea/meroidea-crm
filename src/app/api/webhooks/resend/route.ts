@@ -1,4 +1,5 @@
 import { resendEventSchema, verifyResendSignature } from '@/modules/social/providers/resend';
+import { ProviderError } from '@/modules/social/providers/types';
 import { applyResendDelivery, ingestReceivedEmail } from '@/modules/social/webhooks';
 import { serverEnv } from '@/server/env';
 import { PayloadTooLargeError, readBodyWithLimit } from '@/server/request';
@@ -55,8 +56,12 @@ export async function POST(request: Request) {
     if (event.type === 'email.received') await ingestReceivedEmail(event);
     else if (DELIVERY_EVENTS.has(event.type)) await applyResendDelivery(event);
   } catch (error) {
-    // Never the payload: it names people and addresses.
-    console.error('[email] webhook not stored', error instanceof Error ? error.name : typeof error);
+    // Never the payload or a message: they name people and addresses. Resend's error code
+    // ("restricted_api_key", 401) says what to fix: a key without full access cannot read mail.
+    console.error('[email] webhook not stored', {
+      name: error instanceof Error ? error.name : typeof error,
+      ...(error instanceof ProviderError && error.code !== null ? { code: error.code } : {}),
+    });
     return new Response('Try again', { status: 500 });
   }
   return new Response('OK', { status: 200 });

@@ -1819,7 +1819,8 @@ whether plus-addressing works.
 - Replies come from the inbox address, not the business's own domain (later).
 - A forwarded email whose DKIM did not survive forwarding stays "not verified" until a person
   links it.
-- No new email to someone who has not written first; the received HTML is not kept.
+- No new email to someone who has not written first (changed by ADR-089); the received HTML is
+  not kept.
 - Rate-limited mail is dropped, not queued.
 
 
@@ -2612,6 +2613,249 @@ which are service and sales as much as marketing.
   renamed: they are not shown to anyone, and renaming them would only churn migrations and tests.
 - Lead sources named "Marketing", "Marketing consent" and WhatsApp's "Marketing" template category
   are different things and keep their names.
+
+## ADR-089 — Email: write a new email to anyone from an inbox address
+
+**Status.** Accepted (2026-11-28). Changes ADR-070's "no new email to someone who has not written
+first" and adds a folder to ADR-073's and ADR-087's Email area.
+
+**Context.** The owner asked, on 28 November 2026, that an admin or user be able to send an email
+to any address from the Email area, not only answer emails that came in. Every business sends from
+the same platform inbox domain, so one business's misuse would hurt how every business's email is
+delivered.
+
+**Decision.**
+1. *Who and from where.* **New email** on the Email area (`social.reply`, the same people who can
+   reply) sends from one of the business's live inbox addresses to one recipient, with a subject
+   and a text body (up to 20,000 characters). Each new email opens its own thread, assigned to the
+   writer, so the person's reply comes back to it exactly as a customer's would (ADR-070: the
+   thread's own reply address, then In-Reply-To and References).
+2. *Sent like a reply.* `startEmailConversation` stores the thread and the message as "sending" in
+   one transaction under RLS, runs the same checks as a reply, and goes through the same delivery,
+   failure and Retry path. The first email keeps its subject as written; anything after a message
+   in the thread is "Re: …". Email has no reply window, so a follow-up can go before any answer.
+3. *Limits.* A person can start at most 100 new emails a day, and an inbox 300. Replies are not
+   limited. The counters store only a keyed hash (`enforceRateLimit`). An address at the inbox
+   domain is refused, since it would only loop back into Meroidea.
+4. *Contacts.* The thread is not linked to a contact when sent: under RLS the writer may see only
+   some of the contacts with that address, so "exactly one match" (ADR-068) cannot be told. The
+   person's answer links it from the webhook, verified, as for any received email.
+5. *A Sent folder.* A thread with nothing received sits in **Sent**. Without it, ADR-073's rule
+   ("no customer-written message" means machine mail) would have put every email the business
+   started in Filtered. The first answer moves the thread to Customers, To review or Filtered by
+   the usual rules, so every thread is still in exactly one folder.
+6. *The audit row* names the thread, never the address or the words.
+
+**Consequences.**
+- This is for one-to-one business email. The compose sheet says that marketing to many people
+  belongs in campaigns, with consent (Spam Act 2003), which are still to be built.
+- Not built: several recipients, Cc or Bcc, attachments on a new email (replies can attach one
+  file), drafts, and sending from a business's own domain.
+
+## ADR-090 — Compose: a mail client's new email in the Email area, with formatting, Cc, Bcc and files
+
+**Status.** Accepted (2026-11-28). Changes ADR-089's side panel to a Compose page and widens what
+a new email can carry.
+
+**Context.** The owner asked, on 28 November 2026, for a **Compose** button in the Email area that
+opens the new email inside it, like the compose screen of a desktop mail client (they named
+Outlook), with To, Cc and Bcc, a subject, text formatting, links and files, instead of a side
+panel.
+
+**Decision.**
+1. *Where.* **Compose** heads the folder pane (and the header on a phone) for people with
+   `social.reply`. It opens `/email/compose` in the reading pane, with the folders and list beside
+   it, as ADR-087 laid out. The page has Send, Attach and Discard at the top, then From (a choice
+   when the business has several inbox addresses), To with Cc and Bcc switches, the subject, a
+   formatting toolbar and the text, with attached files below. Leaving with an unsent email asks
+   first.
+2. *Formatting without trusting HTML.* The editor is the browser's own editing surface with a
+   toolbar: undo and redo, style (normal, three headings, quote), size (four), bold, italic,
+   underline, strikethrough, text colour and highlight (fixed palettes), bulleted and numbered
+   lists, alignment, links, a horizontal line and clear formatting. What is typed is read back
+   into an **email document** (`email-doc.ts`, `email-editor-dom.ts`): paragraphs, headings,
+   quotes, one-level lists and lines, with only those formats. The server checks the document with
+   Zod and builds the HTML and the text part itself, escaping everything, so no markup, script,
+   picture or form typed or pasted can reach an email. Pasting keeps the words only. Links must be
+   `https://`, `http://` or `mailto:`. Sent emails show in the thread as React elements from the
+   same document, never as HTML.
+3. *Recipients.* Up to 50 people across To, Cc and Bcc, each address once. The first To address
+   is the thread's person: their answer joins the thread. Anyone else who answers starts a thread
+   of their own, because a message joins a thread only from that thread's person (ADR-070). Bcc is
+   shown to colleagues in the thread, as a sender's mail program shows it.
+4. *Files.* Up to 10 images, PDFs or Office files, 10 MB each and 25 MB together, the types email
+   replies take. Each uploads as soon as it is chosen, by a ticket for a path the server picks
+   under the writer's own `{tenant}/social/compose/{user}/` folder. On Send every file is read
+   back, its leading bytes matched to its type, and its size checked again; a file from anyone
+   else's folder is refused. Resend fetches each by a ten-minute link.
+5. *Limits.* The daily limits now count recipients: 200 a day per person and 500 per inbox,
+   so Bcc cannot get round them (`consumeRateLimit` gained a weight). Replies are not limited.
+6. *A refused send* is returned with its thread rather than thrown, so Compose opens the thread,
+   where Retry sends the same email (recipients, formatting and files), instead of leaving the
+   writer to send a second copy.
+7. *Security fix found on the way.* The table-wide insert grant on `social_messages` let a
+   signed-in person set `email_meta` (with `verified`) and `email_message_id` through the REST
+   API, so someone in a business could plant a "verified" customer email in its own inbox. A
+   restrictive policy now refuses both from sessions; only the verified webhook writes them.
+
+**Consequences.**
+- No new dependency: the editor uses the browser's editing commands, which are old but supported
+  everywhere. A richer editor library would be a separate decision with the owner's approval.
+- Erasing a person removes the addresses from the composed emails in their threads; the business's
+  own words stay, as for replies.
+- Files attached and then abandoned (a closed tab) stay in the Compose folder until a sweep is
+  added.
+- Not built: drafts, signatures, pictures inside the text, tables, fonts, nested lists, address
+  suggestions from contacts, scheduled sending, Reply all and Forward, and formatting in the reply
+  box (replies stay plain text).
+
+## ADR-091 — Email like a mail client: drafts, signatures, fonts, tables, pictures, suggestions, Reply all, Forward and formatted replies
+
+**Status.** Accepted (2026-11-28). Completes ADR-090's "not built" list.
+
+**Context.** The owner asked, on 28 November 2026, for the rest of a desktop mail client's
+writing tools: drafts, signatures, pictures inside the text, tables, fonts, address suggestions
+from contacts, Reply all and Forward, and formatting in the reply box.
+
+**Decision.**
+1. *Fonts, tables and pictures* join the email document (ADR-090), which stays the only thing
+   the HTML is built from.
+   - Fonts are the email-safe families (Arial, Verdana, Tahoma, Trebuchet MS, Georgia, Times New
+     Roman, Courier New), with fallbacks, since mail programs drop web fonts.
+   - Tables: up to 50 rows of 10 cells, an optional header row, rows and columns added or deleted
+     from the caret's cell.
+   - A picture block holds only a path in the writer's own Compose folder (`COMPOSE_PATH`). The
+     editor shows it through `/api/social/compose-file/<file>`: only the name comes from the
+     address, and the folder is always the signed-in person's.
+   - On send each picture is read back, must be an image of the sender's own, and goes as an
+     embedded attachment with a Content-ID (`cid:`). Nothing loads from the web, so pictures show
+     without prompts and cannot track opens. At most 20 pictures; files and pictures together at
+     most 25 MB.
+2. *Drafts* (`email_drafts`): Compose saves a moment after each change.
+   - Private to the writer, by RLS (`email_drafts_own`) and in every query.
+   - A Drafts folder lists them; one reopens in Compose.
+   - Sending deletes the draft in the same transaction; its files become the email's.
+   - Discarding deletes it with its files, except a picture the signature still uses.
+   - Autosaves are not audited: a draft is the writer's working copy, not a business record.
+3. *Signatures* (`email_signatures`): one per person per business, private like a draft, written
+   with the same editor (pictures included, such as a logo).
+   - Added below two empty lines to new emails and, as chosen, to replies and forwards.
+   - Saving is audited without the words.
+4. *Address suggestions*: contacts whose name or email starts with what is typed in To, Cc or
+   Bcc. Only within `contacts.view` and its record scope (`scopeFilter`), at most eight.
+5. *Formatted replies*: the email thread's Reply tab is the same editor (`EmailReplyBox`), with
+   Cc, Bcc, files, pictures, the signature, saved replies and help article links.
+   `replyWithEmail` checks files and pictures as Compose does. Cc and Bcc count against the daily
+   recipient limits, so replies cannot get round them; the thread's person does not count.
+6. *Reply all* copies in everyone an email went to, less the thread's person and the business's
+   own inbox addresses. Their answers start their own threads (ADR-070).
+7. *Forward* opens Compose with "Fwd:", who the email was from and to, and its text and
+   formatting.
+   - Only a message the person may read, never a private note.
+   - Its files and pictures are copied into the forwarder's own Compose folder, so the forward
+     passes the same ownership checks and the original never changes.
+   - Files Compose cannot send are named in a notice.
+
+**Consequences.**
+- Migration `0088` creates both tables with RLS, grants, the `email_channel` feature switch and
+  the `inbox_channel` rule. `deleteBusiness` finds them through their foreign keys.
+- Abandoned uploads (a closed tab before a draft saved) still wait for a sweep.
+- Not built: several signatures, draft sharing, scheduled sending, read receipts, nested lists,
+  and pasting formatted text (pasting keeps the words only, by design).
+
+## ADR-092 — MeroAI in Email: write, reply, rewrite, summarise and answer questions
+
+**Status.** Accepted (2026-11-28).
+
+**Context.** The owner asked, on 28 November 2026, for MeroAI to help in the Email area: write
+new emails, reply, summarise, and answer questions about any email, and whatever else is useful
+there. Email is written by outsiders, so anything it says may try to steer a model (a prompt
+injection), and threads carry personal details.
+
+**Decision.**
+1. *Where.* Only with `ai.use` and `social.view` (and `social.reply` to write), the
+   `ai_assistant` feature and a Gemini key (`meroAIEmailAvailable`, `loadInboxArea().meroAI`).
+   - Compose: "Write with MeroAI" (what to say and a tone gives a subject and a body) and
+     "Rewrite…" (improve, shorter, friendlier, more formal, fix spelling and grammar, translate).
+   - The reply box: "Reply with MeroAI" (answer, say yes, decline politely, ask for details, thank
+     them, plus optional instructions) and the same rewrites.
+   - An email thread: "Ask MeroAI about this email", with a summary (what it is about, what the
+     customer asks, key points, dates, a sentiment, the next step, follow-ups) and questions
+     answered only from the thread, with up to four earlier questions for follow-ups.
+   - The folders: "Ask MeroAI" (`/email/meroai`), questions about the 40 most recent threads the
+     person can see ("which emails need a reply?"), with links to the threads it names.
+2. *MeroAI writes, people act.* Writing goes into the editor with Undo, never out. The model
+   answers with paragraphs and lists of plain text only; `blocksToEmailDoc` builds the email
+   document and checks it with `emailDocDraftSchema`, so a model answer cannot carry a link, a
+   picture, a style or markup. A summary becomes a private note (`noteAction`), a follow-up a
+   task (`createTaskAction`), and a next step a drafted reply, each only on the person's click and
+   with those actions' own permissions.
+3. *What the model sees.*
+   - Email text goes only inside `dataBlock` fences with `DATA_RULE`: at worst an injected email
+     produces a draft or summary the person reads.
+   - Private notes are never sent. Email addresses are blanked (`withoutAddresses`) in names,
+     subjects and text; inbox and contact addresses are never sent at all.
+   - A thread sends at most its last 20 emails (12 for a reply), each up to 4,000 characters,
+     dropping the oldest until it fits 14,000; the inbox sends each thread's last customer words
+     up to 400 characters.
+   - Threads reach the model as T1..Tn. Links are built in code from those refs; a ref the model
+     invents is dropped, never linked.
+   - The thread and the inbox are read through `getConversation` and `listEmailThreadsForAssistant`
+     under RLS, so MeroAI sees only what the person can.
+4. *Models.* The fast model writes, replies and rewrites; the reasoning model (low thinking)
+   summarises and answers.
+5. *Signature.* The editor's words are split at the person's signature (`splitAtSignature`):
+   MeroAI writes above it and keeps it, and anything after it (a forwarded email), unchanged. When
+   a signature follows, the model writes a closing line without a name.
+6. *Limits and audit.* Every request counts against MeroAI's limits (`enforceLimits`) and writes
+   an `ai_assist` row with `surface: 'email'`, the action and counts or ids only.
+
+**Consequences.**
+- On Google's unpaid Gemini tier, Google may use prompts to improve its products (ADR-074). Email
+  text is sent to Google when someone uses these tools; a business that cannot accept that should
+  use a paid key or leave `ai_assistant` off.
+- Rewriting keeps words only: pictures and tables in the rewritten part are not kept (Undo brings
+  them back), and formatting becomes plain paragraphs and lists.
+- The inbox answers cover the 40 most recent threads, not a search of everything; older questions
+  need the email list's search.
+- Not built: answers grounded in the business's own knowledge base or price list, scheduled
+  digests, and automatic triage or replies without a person.
+
+## ADR-093 — Email Bin and Important
+
+**Status.** Accepted (2026-11-28).
+
+**Context.** The owner asked, on 28 November 2026, to delete any email from the list into a Bin
+that empties itself after 30 days, and to mark any email important.
+
+**Decision.**
+1. *What is deleted.* The email thread, the list's unit, for the whole team (the inbox is
+   shared). `social_conversations.deleted_at` marks it; Social media and live chat are not
+   affected.
+2. *The Bin.* A folder of its own; every other folder, the unread counts and MeroAI leave binned
+   threads out.
+   - Deleting from a row or the open thread needs `social.reply`; so does Restore. A thread in the
+     Bin opens read-only with the date it will be deleted forever.
+   - A new email from the customer takes the thread out of the Bin, so nothing they send is hidden.
+   - The database sets the Bin time (`social_conversations_bin_guard`): a session cannot backdate
+     it, or bin anything but an email thread.
+3. *Deleting forever.*
+   - "Delete forever" and "Empty Bin" need `social.manage` and ask first; they work only on
+     threads already in the Bin.
+   - A daily sweep (`/api/cron/email-bin`, 17:10 UTC, Vercel cron with `CRON_SECRET`) deletes
+     threads binned more than 30 days ago.
+   - Both use `app.email_delete_thread_rows`: messages and the thread go, tickets and tracked help
+     links made from it stay unlinked, and its files are removed from storage after the commit,
+     except a picture a signature or draft still uses.
+   - Every step writes an audit row (`delete` with `bin` or `permanent`, `restore`; the sweep as
+     `system`), with ids only.
+4. *Important.* `social_conversations.important`, a star on each row and in the thread header,
+   for the whole team. An Important folder lists them; they stay in their own folder too.
+
+**Consequences.**
+- The Bin works on whole threads; a single message inside a thread cannot be deleted on its own.
+- The sweep handles 500 threads a run; a larger backlog clears over the following days.
+- Importance is shared by the team, not personal; a personal flag would need its own table.
 
 ## ADR-094 — Electronic signatures for library PDFs, modelled on OpenSign and stamped on the server
 

@@ -607,15 +607,50 @@
     {
       "idx": 86,
       "version": "7",
-      "when": 1795814235053,
-      "tag": "0086_esign",
+      "when": 1795828066224,
+      "tag": "0086_email_compose",
       "breakpoints": true
     },
     {
       "idx": 87,
       "version": "7",
-      "when": 1795814236810,
-      "tag": "0087_esign_rls",
+      "when": 1795828067466,
+      "tag": "0087_email_compose_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795832021337,
+      "tag": "0088_email_drafts_signatures",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795842923275,
+      "tag": "0089_email_bin_important",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1795842959885,
+      "tag": "0090_email_bin_functions",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1795855278967,
+      "tag": "0091_esign",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1795855280425,
+      "tag": "0092_esign_rls",
       "breakpoints": true
     }
   ]

@@ -1,6 +1,7 @@
 'use server';
 
 import { cookies } from 'next/headers';
+import { z } from 'zod';
 
 import { AppError } from '@/lib/errors';
 import { authedAction } from '@/server/action';
@@ -10,6 +11,8 @@ import { createOAuthState, OAUTH_COOKIE } from './oauth-state';
 import { metaAuthorizeUrl, metaConfigured } from './providers/meta';
 import { tiktokAuthorizeUrl, tiktokConfigured } from './providers/tiktok';
 import {
+  emailImportantSchema,
+  emailThreadsSchema,
   accountIdSchema,
   accountSettingsInputSchema,
   assignSchema,
@@ -24,6 +27,14 @@ import {
   mediaReplySchema,
   mediaUploadSchema,
   messageIdSchema,
+  composeEmailSchema,
+  composeUploadPathSchema,
+  addressQuerySchema,
+  composeUploadSchema,
+  draftIdSchema,
+  emailDraftSchema,
+  emailReplySchema,
+  emailSignatureSchema,
   noteSchema,
   replySchema,
   senderRuleSchema,
@@ -32,6 +43,8 @@ import {
   templateIdSchema,
   templateReplySchema,
 } from './schemas';
+import * as bin from './bin-service';
+import * as compose from './compose-service';
 import * as email from './email-service';
 import * as triage from './email-triage';
 import { chatWidgetSchema } from './livechat-schemas';
@@ -84,6 +97,54 @@ export const disconnectAccountAction = authedAction(
 export const replyAction = authedAction(
   { permission: 'social.reply', input: replySchema, revalidate: paths },
   (ctx, input) => social.replyToConversation(ctx, input),
+);
+
+/** An email written in Compose (ADR-089, ADR-090); opens its own thread. */
+export const sendComposedEmailAction = authedAction(
+  { permission: 'social.reply', input: composeEmailSchema, revalidate: paths },
+  (ctx, input) => social.startEmailConversation(ctx, input),
+);
+
+/** Saves the email being written as a draft (ADR-091): the writer's own, autosaved. */
+export const saveDraftAction = authedAction(
+  { permission: 'social.reply', input: emailDraftSchema },
+  (ctx, input) => compose.saveDraft(ctx, input),
+);
+
+/** Discards a draft and the files it held. */
+export const discardDraftAction = authedAction(
+  { permission: 'social.reply', input: draftIdSchema, revalidate: paths },
+  (ctx, input) => compose.deleteDraft(ctx, input.id, { removeFiles: true }),
+);
+
+/** Contacts matching what is typed in To, Cc or Bcc (ADR-091); within the person's scope. */
+export const suggestAddressesAction = authedAction(
+  { permission: 'social.reply', input: addressQuerySchema },
+  (ctx, input) => compose.suggestAddresses(ctx, input.q),
+);
+
+/** A formatted email reply, with Cc, Bcc, files and pictures (ADR-091). */
+export const emailReplyAction = authedAction(
+  { permission: 'social.reply', input: emailReplySchema, revalidate: paths },
+  (ctx, input) => social.replyWithEmail(ctx, input),
+);
+
+/** Saves the person's own email signature (ADR-091). */
+export const saveSignatureAction = authedAction(
+  { permission: 'social.reply', input: emailSignatureSchema, revalidate: paths },
+  (ctx, input) => compose.saveSignature(ctx, input),
+);
+
+/** A ticket to upload one file for an email being composed (ADR-090). */
+export const startComposeUploadAction = authedAction(
+  { permission: 'social.reply', input: composeUploadSchema },
+  (ctx, input) => social.startComposeUpload(ctx, input),
+);
+
+/** Takes a file off an email being composed, before it is sent. */
+export const removeComposeUploadAction = authedAction(
+  { permission: 'social.reply', input: composeUploadPathSchema },
+  (ctx, input) => social.removeComposeUpload(ctx, input.path),
 );
 
 export const retryReplyAction = authedAction(
@@ -215,4 +276,33 @@ export const markNotCustomerAction = authedAction(
 export const moveSenderBackAction = authedAction(
   { permission: 'social.reply', input: senderRuleSchema, revalidate: paths },
   (ctx, input) => triage.moveSenderBack(ctx, input.conversationId),
+);
+
+/* Bin and Important (ADR-093). */
+
+/** Deletes email threads to the Bin, where they stay restorable for 30 days. */
+export const binEmailAction = authedAction(
+  { permission: 'social.reply', input: emailThreadsSchema, revalidate: paths },
+  (ctx, input) => bin.binEmailThreads(ctx, input),
+);
+
+export const restoreEmailAction = authedAction(
+  { permission: 'social.reply', input: emailThreadsSchema, revalidate: paths },
+  (ctx, input) => bin.restoreEmailThreads(ctx, input),
+);
+
+export const importantEmailAction = authedAction(
+  { permission: 'social.reply', input: emailImportantSchema, revalidate: paths },
+  (ctx, input) => bin.setEmailImportant(ctx, input),
+);
+
+/** Deletes email threads in the Bin for good, now. Cannot be undone. */
+export const purgeEmailAction = authedAction(
+  { permission: 'social.manage', input: emailThreadsSchema, revalidate: paths },
+  (ctx, input) => bin.purgeEmailThreads(ctx, input),
+);
+
+export const emptyEmailBinAction = authedAction(
+  { permission: 'social.manage', input: z.object({}), revalidate: paths },
+  (ctx) => bin.emptyEmailBin(ctx),
 );

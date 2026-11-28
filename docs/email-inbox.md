@@ -49,6 +49,27 @@ five minutes.
 
 Without all three, the Email card says "Not available yet" and nothing is received.
 
+A **sending-only** key is not enough: it sends Meroidea's own emails, but Resend refuses it when
+the inbox reads a received email, so every email is refused and retried. Redeploy after changing
+any of the three.
+
+## Checking it works
+
+- `POST https://<your domain>/api/webhooks/resend` with no signature answers `403` once
+  `RESEND_WEBHOOK_SECRET` is set (`404` means it is not set in the running deployment).
+- Send a test email to an inbox address. In Resend → Webhooks, its `email.received` event should
+  show *Succeeded*.
+- If it shows `500`, the production log has `[email] webhook not stored` with Resend's error code:
+  - `restricted_api_key` or `401`: the key lacks full access;
+  - `unexpected_response`: Resend's reply changed shape; compare it with `receivedSchema` in
+    `src/modules/social/providers/resend.ts`.
+
+Setup traps seen in practice:
+- Resend plans limit how many domains an account has. Remove an unused one or upgrade before
+  adding the inbox domain.
+- Some DNS hosts (GoDaddy) save a new MX record with priority 0. Set the priorities Resend shows
+  (10), or its SPF check stays *pending*.
+
 ## 5. Switch it on for a business
 
 In `/platform`, open the business and tick **Email inbox**. Its Admin then opens
@@ -89,10 +110,30 @@ In `/platform`, open the business and tick **Email inbox**. Its Admin then opens
   most 2,000 an hour; anything beyond is dropped.
 - **Tickets.** An email conversation can become a helpdesk ticket like any other (ADR-069).
   Replies written on the ticket are emailed on the thread.
+- **Compose (ADR-089, ADR-090).** **Compose**, at the top of the folders, writes a new email from
+  one of the business's inbox addresses (needs `social.reply`).
+  - To, Cc and Bcc (up to 50 people), a subject, formatted text (styles, sizes, bold, italic,
+    underline, colours, lists, alignment, links) and up to 10 files (images, PDF, Word, Excel,
+    PowerPoint; 10 MB each, 25 MB together).
+  - It opens its own thread, assigned to the writer, with the first To address as the thread's
+    person; it waits in **Sent** until they answer. Others who answer start their own threads.
+  - The first email keeps its subject as written; follow-ups and replies are "Re: …".
+  - A person can email at most 200 people a day from Compose, and an inbox 500; replies are not
+    limited. Addresses at the inbox domain are refused.
+  - It is for one-to-one email. Marketing to many people belongs in campaigns, with consent.
+- **Writing like a mail client (ADR-091).**
+  - Fonts (email-safe families), tables, and pictures inside the text, sent as embedded pictures
+    that show without loading anything from the web.
+  - **Drafts** save as you write and wait in the Drafts folder; only you see yours.
+  - **My signature** (in Email's settings menu) is added to new emails and, if you choose,
+    replies and forwards; only you see and use yours.
+  - To, Cc and Bcc suggest contacts you may see as you type.
+  - The reply box has the same formatting, files, pictures, Cc and Bcc. **Reply all** copies in
+    everyone else the email went to; **Forward** opens Compose with the email and its files.
 
 ## 7. Not done yet
 
 - Sending from a business's own domain (e.g. `support@harbourcafe.com.au`). That needs the
   business's domain verified in Resend; replies come from the inbox address for now.
-- Starting a new email to someone who has not written in first.
+- Several signatures per person, scheduled sending, read receipts.
 - Keeping the original HTML of a received email.
