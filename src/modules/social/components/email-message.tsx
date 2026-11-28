@@ -135,7 +135,15 @@ export function EmailMessage({
           </p>
         )}
         {composed ? (
-          <EmailDocView doc={composed.doc} />
+          <EmailDocView
+            doc={composed.doc}
+            imageSrc={(path) => {
+              const index = message.attachments.findIndex(
+                (file) => file.inline && file.storagePath === path,
+              );
+              return index >= 0 ? `/api/social/media/${message.id}/${index}` : null;
+            }}
+          />
         ) : (
           message.body && (
             <div className="text-sm leading-relaxed break-words whitespace-pre-wrap" data-sensitive>
@@ -143,17 +151,20 @@ export function EmailMessage({
             </div>
           )
         )}
-        {message.attachments.length > 0 && (
+        {message.attachments.some((file) => !file.inline) && (
           <div className="flex flex-wrap gap-3 border-t pt-3 text-sm">
-            {message.attachments.map((attachment, index) => (
-              <Attachment
-                key={index}
-                messageId={message.id}
-                index={index}
-                attachment={attachment}
-                platformLabel="Email"
-              />
-            ))}
+            {message.attachments.map((attachment, index) =>
+              // Pictures in the text are shown there, not as files (ADR-091).
+              attachment.inline ? null : (
+                <Attachment
+                  key={index}
+                  messageId={message.id}
+                  index={index}
+                  attachment={attachment}
+                  platformLabel="Email"
+                />
+              ),
+            )}
           </div>
         )}
         {message.status === 'failed' && (

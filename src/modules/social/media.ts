@@ -223,6 +223,10 @@ export type StoredAttachment = {
   size?: number;
   /** The name the file was attached with, for files sent from Compose (ADR-090). */
   fileName?: string;
+  /** A picture shown in a composed email's text, not listed as a file (ADR-091). */
+  inline?: boolean;
+  /** That picture's Content-ID in the email's HTML. */
+  contentId?: string;
   url?: string;
   mediaId?: string;
 };

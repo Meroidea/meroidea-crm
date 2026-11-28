@@ -106,3 +106,45 @@ describe('reading the editor', () => {
     ]);
   });
 });
+
+describe('reading fonts, tables and pictures (ADR-091)', () => {
+  const path =
+    '11111111-1111-4111-8111-111111111111/social/compose/22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333.png';
+
+  it('reads a font, a table and a picture the editor put in', () => {
+    const doc = domToEmailDoc(
+      root(
+        el('P', [el('FONT', [text('Georgia text')], { attrs: { face: 'Georgia' } })]),
+        el('TABLE', [
+          el('TBODY', [
+            el('TR', [el('TH', [text('Dish')]), el('TH', [text('Price')])]),
+            el('TR', [el('TD', [text('Soup')]), el('TD', [text('$9')])]),
+          ]),
+        ]),
+        el('P', [el('IMG', [], { attrs: { 'data-path': path, alt: 'logo', width: '200' } })]),
+      ),
+    );
+    expect(doc).toEqual([
+      { type: 'paragraph', content: [{ text: 'Georgia text', font: 'georgia' }] },
+      {
+        type: 'table',
+        header: true,
+        rows: [
+          [[{ text: 'Dish' }], [{ text: 'Price' }]],
+          [[{ text: 'Soup' }], [{ text: '$9' }]],
+        ],
+      },
+      { type: 'image', path, alt: 'logo', width: 200 },
+    ]);
+  });
+
+  it('drops pictures that did not come from a Compose upload', () => {
+    const doc = domToEmailDoc(
+      root(
+        el('P', [text('Hi'), el('IMG', [], { attrs: { src: 'https://tracker.example/p.gif' } })]),
+        el('IMG', [], { attrs: { 'data-path': 'https://tracker.example/p.gif' } }),
+      ),
+    );
+    expect(doc).toEqual([{ type: 'paragraph', content: [{ text: 'Hi' }] }]);
+  });
+});

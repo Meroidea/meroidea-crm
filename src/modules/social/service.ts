@@ -29,7 +29,13 @@ import {
 } from '@/server/storage';
 
 import { readCredentials, storeCredentials, usableToken, type Credentials } from './credentials';
-import { emailDocText, readStoredCompose } from './email-doc';
+import {
+  COMPOSE_PATH,
+  emailDocImagePaths,
+  emailDocText,
+  readStoredCompose,
+  type EmailDoc,
+} from './email-doc';
 import { newReplyToken } from './email-parse';
 import { sendEmailReply, type ComposedEmail } from './email-service';
 import { emailInboxConfigured, inboxDomain } from './providers/resend';
@@ -630,6 +636,16 @@ export const NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY = 500;
 /** Where one person's Compose files wait until the email is sent: theirs alone. */
 const composePrefix = (tenantId: string, userId: string) => `${tenantId}/social/compose/${userId}/`;
 
+/**
+ * The writer's own Compose file by its name (ADR-091), for showing a picture in the editor, if
+ * it exists. Needs `social.reply`, as writing does.
+ */
+export async function composeFilePath(ctx: TenantContext, file: string): Promise<string | null> {
+  if (!hasPermission(ctx, 'social.reply')) return null;
+  const path = `${composePrefix(ctx.tenantId, ctx.userId)}${file}`;
+  return COMPOSE_PATH.test(path) ? path : null;
+}
+
 /** A live email inbox of this business, or NOT_FOUND. */
 async function liveInbox(ctx: TenantContext, accountId: string): Promise<{ id: string }> {
   const inbox = await withRls(ctx, async (tx) => {
@@ -729,6 +745,75 @@ async function checkComposeFiles(
   return checked;
 }
 
+/** A picture in a composed email's text, carried as an embedded attachment (ADR-091). */
+type InlineImage = OutboundMedia & { contentId: string };
+
+/**
+ * A composed email's files and pictures, every one re-checked from its bytes (ADR-090, ADR-091):
+ * the writer's own Compose folder, an accepted type (pictures: images only), and the sizes,
+ * files and pictures together. Each picture gets its own Content-ID for the email's HTML.
+ */
+async function prepareComposedFiles(
+  ctx: TenantContext,
+  input: { doc: EmailDoc; attachments: { path: string; fileName: string; mimeType: string }[] },
+): Promise<{ attachments: OutboundMedia[]; images: InlineImage[] }> {
+  const attachments = await checkComposeFiles(ctx, input.attachments);
+  const prefix = composePrefix(ctx.tenantId, ctx.userId);
+  const images: InlineImage[] = [];
+  let total = attachments.reduce((sum, file) => sum + file.size, 0);
+  for (const [index, path] of emailDocImagePaths(input.doc).entries()) {
+    if (!path.startsWith(prefix) || path.includes('..')) {
+      throw new AppError('VALIDATION', 'A picture in the email belongs to someone else.');
+    }
+    const bytes = await readSocialMedia(path);
+    const type = bytes ? acceptedType(null, bytes) : null;
+    if (!bytes || !type || !type.mimeType.startsWith('image/')) {
+      throw new AppError('VALIDATION', 'A picture in the email did not upload. Insert it again.');
+    }
+    const refusal = mediaRefusal('email', type.mimeType, bytes.byteLength);
+    if (refusal) throw new AppError('VALIDATION', refusal);
+    total += bytes.byteLength;
+    images.push({
+      path,
+      mimeType: type.mimeType,
+      size: bytes.byteLength,
+      fileName: `picture-${index + 1}.${type.ext}`,
+      contentId: `picture-${index + 1}-${randomUUID().slice(0, 8)}@meroidea`,
+    });
+  }
+  if (total > MAX_COMPOSE_BYTES) {
+    throw new AppError(
+      'VALIDATION',
+      `Files and pictures on one email can be at most ${MAX_COMPOSE_BYTES / 1024 / 1024} MB together.`,
+    );
+  }
+  return { attachments, images };
+}
+
+/** How a composed email's files and pictures are stored on its message. */
+function storedComposedFiles(files: { attachments: OutboundMedia[]; images: InlineImage[] }) {
+  return [
+    ...files.attachments.map((file) => ({
+      type: mediaKind(file.mimeType),
+      state: 'stored' as const,
+      storagePath: file.path,
+      mimeType: file.mimeType,
+      size: file.size,
+      fileName: file.fileName,
+    })),
+    ...files.images.map((image) => ({
+      type: 'image',
+      state: 'stored' as const,
+      storagePath: image.path,
+      mimeType: image.mimeType,
+      size: image.size,
+      fileName: image.fileName,
+      inline: true,
+      contentId: image.contentId,
+    })),
+  ];
+}
+
 /**
  * Sends an email written in Compose from one of the business's inbox addresses to anyone
  * (ADR-089, ADR-090): To, Cc and Bcc, formatted text and files. It opens its own thread with the
@@ -791,9 +876,9 @@ export async function startEmailConversation(
     },
     `This inbox has emailed ${NEW_EMAIL_RECIPIENTS_PER_INBOX_DAILY} people from Compose today, its daily limit.`,
   );
-  const attachments = await checkComposeFiles(ctx, input.attachments);
+  const files = await prepareComposedFiles(ctx, input);
   const body = emailDocText(input.doc);
-  const composed: ComposedEmail = { to, cc, bcc, doc: input.doc, attachments };
+  const composed: ComposedEmail = { to, cc, bcc, doc: input.doc, ...files };
 
   const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
     const [conversation] = await tx
@@ -817,14 +902,7 @@ export async function startEmailConversation(
         accountId: inbox.id,
         direction: 'outbound',
         body,
-        attachments: attachments.map((file) => ({
-          type: mediaKind(file.mimeType),
-          state: 'stored',
-          storagePath: file.path,
-          mimeType: file.mimeType,
-          size: file.size,
-          fileName: file.fileName,
-        })),
+        attachments: storedComposedFiles(files),
         emailOutbound: { to, cc, bcc, doc: input.doc },
         sentAt: now,
         sentByUserId: ctx.userId,
@@ -840,7 +918,8 @@ export async function startEmailConversation(
         platform: 'email',
         startedBy: 'business',
         recipients,
-        files: attachments.length,
+        files: files.attachments.length,
+        pictures: files.images.length,
       },
     });
     return {
@@ -1463,15 +1542,22 @@ async function sendReadReceipt(ctx: TenantContext, conversationId: string): Prom
 function composedOf(stored: unknown, attachments: unknown): ComposedEmail | null {
   const parsed = readStoredCompose(stored);
   if (!parsed) return null;
-  const files = (Array.isArray(attachments) ? (attachments as StoredAttachment[]) : [])
-    .filter((file) => file.state === 'stored' && file.storagePath && file.mimeType)
-    .map((file) => ({
-      path: file.storagePath!,
-      mimeType: file.mimeType!,
-      size: file.size ?? 0,
-      fileName: file.fileName ?? file.storagePath!.split('/').pop() ?? 'file',
-    }));
-  return { ...parsed, attachments: files };
+  const kept = (Array.isArray(attachments) ? (attachments as StoredAttachment[]) : []).filter(
+    (file) => file.state === 'stored' && file.storagePath && file.mimeType,
+  );
+  const fileOf = (file: StoredAttachment) => ({
+    path: file.storagePath!,
+    mimeType: file.mimeType!,
+    size: file.size ?? 0,
+    fileName: file.fileName ?? file.storagePath!.split('/').pop() ?? 'file',
+  });
+  return {
+    ...parsed,
+    attachments: kept.filter((file) => !file.inline).map(fileOf),
+    images: kept
+      .filter((file) => file.inline && file.contentId)
+      .map((file) => ({ ...fileOf(file), contentId: file.contentId! })),
+  };
 }
 
 function outboundMediaOf(attachments: unknown): OutboundMedia | null {

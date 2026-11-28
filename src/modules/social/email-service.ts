@@ -36,6 +36,8 @@ export type ComposedEmail = {
   bcc: string[];
   doc: EmailDoc;
   attachments: OutboundFile[];
+  /** Pictures in the text, sent as embedded attachments with these Content-IDs (ADR-091). */
+  images: (OutboundFile & { contentId: string })[];
 };
 
 type EmailReply = {
@@ -104,15 +106,21 @@ export async function sendEmailReply(
     ? replySubject(conversation.subject)
     : (conversation.subject ?? replySubject(null));
   const composed = reply.composed ?? null;
-  const files = composed ? composed.attachments : reply.media ? [reply.media] : [];
+  const files: (OutboundFile & { contentId?: string })[] = composed
+    ? [...composed.attachments, ...composed.images]
+    : reply.media
+      ? [reply.media]
+      : [];
   const attachments = await Promise.all(
     files.map(async (file) => ({
       filename: file.fileName.slice(0, 120),
       // Resend fetches the file while sending: a ten-minute link to that one object.
       path: await socialMediaLinkForPlatform(file.path),
       content_type: file.mimeType,
+      ...(file.contentId ? { content_id: file.contentId } : {}),
     })),
   );
+  const cid = new Map(composed?.images.map((image) => [image.path, `cid:${image.contentId}`]));
   // Its Message-ID is recorded from Resend's "sent" event (webhooks.ts): sessions never write
   // email details, so an inbound message's sender checks cannot be altered.
   return sendResendEmail({
@@ -123,7 +131,9 @@ export async function sendEmailReply(
     subject,
     text: reply.body,
     // Composed HTML is built here from the checked document, never taken from the browser.
-    html: composed ? emailDocHtml(composed.doc) : emailHtml(reply.body),
+    html: composed
+      ? emailDocHtml(composed.doc, { imageSrc: (path) => cid.get(path) ?? null })
+      : emailHtml(reply.body),
     replyTo: replyAddress(conversation.replyToken, domain),
     headers,
     attachments,

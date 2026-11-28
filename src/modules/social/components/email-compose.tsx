@@ -142,6 +142,40 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
     }
   };
 
+  /** A picture for the text (ADR-091): uploaded like a file, shown in the text, not listed. */
+  const uploadPicture = async (file: File): Promise<string | null> => {
+    touch();
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      setError('Pictures can be JPEG, PNG, GIF or WebP.');
+      return null;
+    }
+    if (file.size > MAX_COMPOSE_FILE_BYTES) {
+      setError(`Pictures can be up to ${MAX_COMPOSE_FILE_BYTES / MB} MB.`);
+      return null;
+    }
+    const ticket = await startComposeUploadAction({
+      accountId,
+      fileName: file.name,
+      mimeType: file.type,
+      size: file.size,
+    });
+    if (!ticket.ok) {
+      setError(ticket.error.message);
+      return null;
+    }
+    const uploaded = await createBrowserClient(
+      publicEnv.supabaseUrl,
+      publicEnv.supabasePublishableKey,
+    )
+      .storage.from('social-media')
+      .uploadToSignedUrl(ticket.data.path, ticket.data.token, file, { contentType: file.type });
+    if (uploaded.error) {
+      setError('The picture did not upload. Try again.');
+      return null;
+    }
+    return ticket.data.path;
+  };
+
   const removeFile = (file: ComposeFile) => {
     setFiles((list) => list.filter((item) => item.key !== file.key));
     if (file.path) void removeComposeUploadAction({ path: file.path });
@@ -352,6 +386,7 @@ export function EmailCompose({ inboxes }: { inboxes: EmailInboxOption[] }) {
         disabled={sending}
         onInput={touch}
         onFiles={(chosen) => void addFiles(chosen)}
+        onPicture={uploadPicture}
       />
 
       {files.length > 0 && (

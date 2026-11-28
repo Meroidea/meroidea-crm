@@ -1,10 +1,14 @@
 import {
+  COMPOSE_PATH,
   EMAIL_COLORS,
+  EMAIL_FONTS,
+  EMAIL_IMAGE_MAX_WIDTH,
   EMAIL_HIGHLIGHTS,
   safeHref,
   type EmailBlock,
   type EmailColor,
   type EmailDoc,
+  type EmailFont,
   type EmailHighlight,
   type EmailInline,
   type EmailSize,
@@ -37,6 +41,7 @@ export type DomLike = {
       | 'backgroundColor'
       | 'fontSize'
       | 'textAlign'
+      | 'fontFamily'
     >
   >;
 };
@@ -82,6 +87,19 @@ function sizeOf(value: string | null | undefined): EmailSize | undefined {
   return undefined;
 }
 
+/** "Georgia" or "'Trebuchet MS', sans-serif" → the email font it names, if one of ours. */
+function fontOf(value: string | null | undefined): EmailFont | undefined {
+  const first = (value ?? '')
+    .split(',')[0]
+    ?.trim()
+    .replace(/^['"]|['"]$/g, '')
+    .toLowerCase();
+  if (!first) return undefined;
+  return (Object.keys(EMAIL_FONTS) as EmailFont[]).find(
+    (key) => EMAIL_FONTS[key].label.toLowerCase() === first,
+  );
+}
+
 function marksOf(node: DomLike, base: Marks): Marks {
   const marks: Marks = { ...base };
   const tag = node.nodeName.toUpperCase();
@@ -98,6 +116,8 @@ function marksOf(node: DomLike, base: Marks): Marks {
     if (color) marks.color = color;
     const size = sizeOf(node.getAttribute?.('size'));
     if (size) marks.size = size;
+    const font = fontOf(node.getAttribute?.('face'));
+    if (font) marks.font = font;
   }
   const style = node.style;
   if (style) {
@@ -113,6 +133,8 @@ function marksOf(node: DomLike, base: Marks): Marks {
     if (bg) marks.bg = bg;
     const size = sizeOf(style.fontSize);
     if (size) marks.size = size;
+    const font = fontOf(style.fontFamily);
+    if (font) marks.font = font;
   }
   // Normal size and black are the defaults: not written as formats.
   if (marks.size === 'normal') delete marks.size;
@@ -214,6 +236,65 @@ function listItems(node: DomLike): EmailInline[][] {
   return items.length > 0 ? items : [[]];
 }
 
+/** A picture the editor put in (ADR-091): only one uploaded to a Compose folder is kept. */
+function imageBlock(node: DomLike, align?: 'center' | 'right'): EmailBlock | null {
+  const path = node.getAttribute?.('data-path') ?? '';
+  if (!COMPOSE_PATH.test(path)) return null;
+  const width = Number(node.getAttribute?.('width') ?? '');
+  return {
+    type: 'image',
+    path,
+    alt: (node.getAttribute?.('alt') ?? '').slice(0, 200),
+    ...(Number.isFinite(width) && width >= 16
+      ? { width: Math.min(EMAIL_IMAGE_MAX_WIDTH, Math.round(width)) }
+      : {}),
+    ...(align ? { align } : {}),
+  };
+}
+
+/** The pictures inside a block, in order. */
+function imagesIn(node: DomLike, align?: 'center' | 'right'): EmailBlock[] {
+  const found: EmailBlock[] = [];
+  const walk = (current: DomLike) => {
+    for (const child of Array.from(current.childNodes)) {
+      if (child.nodeType !== ELEMENT) continue;
+      if (child.nodeName === 'IMG') {
+        const block = imageBlock(child, align);
+        if (block) found.push(block);
+      } else walk(child);
+    }
+  };
+  walk(node);
+  return found;
+}
+
+/** A table's rows and cells; at most 50 rows of 10 cells, as the document allows. */
+function tableBlock(node: DomLike): EmailBlock | null {
+  const rows: DomLike[] = [];
+  const collect = (current: DomLike) => {
+    for (const child of Array.from(current.childNodes)) {
+      if (child.nodeType !== ELEMENT) continue;
+      if (child.nodeName === 'TR') rows.push(child);
+      else if (['THEAD', 'TBODY', 'TFOOT'].includes(child.nodeName)) collect(child);
+    }
+  };
+  collect(node);
+  const cellsOf = (row: DomLike) =>
+    Array.from(row.childNodes).filter(
+      (cell) => cell.nodeType === ELEMENT && (cell.nodeName === 'TD' || cell.nodeName === 'TH'),
+    );
+  const kept = rows
+    .slice(0, 50)
+    .map((row) => cellsOf(row).slice(0, 10))
+    .filter((cells) => cells.length > 0);
+  if (kept.length === 0) return null;
+  return {
+    type: 'table',
+    header: kept[0]!.every((cell) => cell.nodeName === 'TH'),
+    rows: kept.map((cells) => cells.map((cell) => inlines(cell.childNodes))),
+  };
+}
+
 /** The editable area's children → the document's blocks. */
 export function domToEmailDoc(root: DomLike): EmailDoc {
   const doc: EmailBlock[] = [];
@@ -225,6 +306,12 @@ export function domToEmailDoc(root: DomLike): EmailDoc {
     if (content.length > 0) doc.push({ type: 'paragraph', content });
   };
   for (const node of Array.from(root.childNodes)) {
+    if (node.nodeType === ELEMENT && node.nodeName === 'IMG') {
+      flush();
+      const block = imageBlock(node);
+      if (block) doc.push(block);
+      continue;
+    }
     if (!isBlock(node)) {
       if (node.nodeType === ELEMENT && node.nodeName === 'BR' && loose.length === 0) {
         doc.push({ type: 'paragraph', content: [] });
@@ -235,7 +322,10 @@ export function domToEmailDoc(root: DomLike): EmailDoc {
     const name = node.nodeName;
     const align = alignOf(node);
     if (name === 'HR') doc.push({ type: 'rule' });
-    else if (name === 'UL' || name === 'OL') {
+    else if (name === 'TABLE') {
+      const table = tableBlock(node);
+      if (table) doc.push(table);
+    } else if (name === 'UL' || name === 'OL') {
       doc.push({ type: 'list', ordered: name === 'OL', items: listItems(node) });
     } else if (name === 'BLOCKQUOTE') {
       doc.push({ type: 'quote', content: inlines(node.childNodes) });
@@ -247,9 +337,14 @@ export function domToEmailDoc(root: DomLike): EmailDoc {
         content: inlines(node.childNodes),
       });
     } else {
-      // A paragraph, or a block the editor does not make (pasted), kept as its text.
+      // A paragraph, or a block the editor does not make (pasted), kept as its text; pictures in
+      // it follow it as their own blocks.
       const content = inlines(node.childNodes);
-      doc.push({ type: 'paragraph', ...(align ? { align } : {}), content });
+      const pictures = imagesIn(node, align);
+      if (content.length > 0 || pictures.length === 0) {
+        doc.push({ type: 'paragraph', ...(align ? { align } : {}), content });
+      }
+      doc.push(...pictures);
     }
   }
   flush();

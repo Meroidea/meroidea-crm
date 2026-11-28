@@ -7,6 +7,7 @@ import {
   Baseline,
   Bold,
   Highlighter,
+  ImagePlus,
   Italic,
   Link as LinkIcon,
   List,
@@ -15,6 +16,8 @@ import {
   Redo2,
   RemoveFormatting,
   Strikethrough,
+  Table as TableIcon,
+  Trash2,
   Underline,
   Undo2,
   Unlink,
@@ -26,7 +29,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-import { EMAIL_COLORS, EMAIL_HIGHLIGHTS, safeHref, type EmailDoc } from '../email-doc';
+import {
+  EMAIL_COLORS,
+  EMAIL_FONTS,
+  EMAIL_HIGHLIGHTS,
+  EMAIL_IMAGE_MAX_WIDTH,
+  emailDocEditorHtml,
+  safeHref,
+  type EmailDoc,
+} from '../email-doc';
 import { domToEmailDoc, type DomLike } from '../email-editor-dom';
 
 /*
@@ -40,7 +51,21 @@ export type EmailEditorHandle = {
   /** The text as an email document. */
   read: () => EmailDoc;
   focus: () => void;
+  /** Replaces the text with a document (a draft, a forwarded email). */
+  load: (doc: EmailDoc) => void;
+  /** Adds a document at the end (a signature), with an empty line before it. */
+  append: (doc: EmailDoc) => void;
 };
+
+/** Where a picture in the writer's own Compose folder is shown from, in the editor. */
+export const composeFileUrl = (path: string) =>
+  `/api/social/compose-file/${encodeURIComponent(path.split('/').pop() ?? '')}`;
+
+const PICTURE_SIZES = [
+  { label: 'Small', width: 200 },
+  { label: 'Medium', width: 400 },
+  { label: 'Large', width: EMAIL_IMAGE_MAX_WIDTH },
+] as const;
 
 const STYLES = [
   { value: 'p', label: 'Normal' },
@@ -99,23 +124,60 @@ export const EmailEditor = forwardRef<
   {
     /** Called on every change, so Compose knows the email has been started. */
     onInput?: () => void;
-    /** Files dropped on the text: attached, never put into the text. */
+    /** Files dropped or pasted on the text that are not pictures: attached. */
     onFiles?: (files: File[]) => void;
+    /**
+     * Uploads a picture for the text to the writer's Compose folder and returns its path, or
+     * null when it could not be uploaded (the caller says why). Without it, no pictures.
+     */
+    onPicture?: (file: File) => Promise<string | null>;
+    /** What the editor opens with: a draft, a forwarded email, a signature. */
+    initialDoc?: EmailDoc | null;
+    /** A smaller text area, for the reply box. */
+    compact?: boolean;
     disabled?: boolean;
     'aria-labelledby'?: string;
   }
->(function EmailEditor({ onInput, onFiles, disabled, ...aria }, ref) {
+>(function EmailEditor(
+  { onInput, onFiles, onPicture, initialDoc, compact, disabled, ...aria },
+  ref,
+) {
   const area = useRef<HTMLDivElement>(null);
   const saved = useRef<Range | null>(null);
+  const pictureInput = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState<Set<Toggle>>(new Set());
-  const [menu, setMenu] = useState<'color' | 'highlight' | 'link' | null>(null);
+  const [menu, setMenu] = useState<'color' | 'highlight' | 'link' | 'table' | null>(null);
   const [link, setLink] = useState('');
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [inTable, setInTable] = useState(false);
+  const picture = useRef<HTMLImageElement | null>(null);
+  /** The selected picture's width, or null when no picture is selected. */
+  const [pictureWidth, setPictureWidth] = useState<number | null>(null);
+  const [tableSize, setTableSize] = useState({ rows: 3, cols: 3, header: true });
 
   useImperativeHandle(ref, () => ({
     read: () => (area.current ? domToEmailDoc(area.current as unknown as DomLike) : []),
     focus: () => area.current?.focus(),
+    load: (doc) => {
+      // Markup built here from a checked document, every character escaped (email-doc.ts).
+      if (area.current) area.current.innerHTML = emailDocEditorHtml(doc, composeFileUrl);
+    },
+    append: (doc) => {
+      if (!area.current || doc.length === 0) return;
+      area.current.insertAdjacentHTML(
+        'beforeend',
+        `<p><br></p>${emailDocEditorHtml(doc, composeFileUrl)}`,
+      );
+    },
   }));
+
+  useEffect(() => {
+    if (initialDoc && area.current && !area.current.hasChildNodes()) {
+      area.current.innerHTML = emailDocEditorHtml(initialDoc, composeFileUrl);
+    }
+    // Only what it opens with: later changes come through `load` and `append`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // Tags (<b>, <font color>) rather than inline CSS where the browser offers the choice, and
@@ -126,6 +188,9 @@ export const EmailEditor = forwardRef<
       const selection = document.getSelection();
       if (!selection?.anchorNode || !area.current?.contains(selection.anchorNode)) return;
       setActive(new Set(TOGGLES.filter((command) => document.queryCommandState(command))));
+      const node = selection.anchorNode;
+      const element = node.nodeType === 1 ? (node as Element) : node.parentElement;
+      setInTable(Boolean(element?.closest('td, th')));
     };
     document.addEventListener('selectionchange', onSelection);
     return () => document.removeEventListener('selectionchange', onSelection);
@@ -189,6 +254,126 @@ export const EmailEditor = forwardRef<
     }
     setMenu(null);
     setLink('');
+    onInput?.();
+  };
+
+  /** The block under the editable area that holds the caret (a paragraph, list, table…). */
+  const caretBlock = (): Element | null => {
+    const node = saved.current?.startContainer ?? null;
+    let element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+    while (element && element.parentElement !== area.current) element = element.parentElement;
+    return element && area.current?.contains(element) ? element : null;
+  };
+
+  /** Puts a block after the caret's block (or at the end), followed by an empty line to type on. */
+  const insertBlock = (block: HTMLElement) => {
+    if (!area.current) return;
+    restoreSelection();
+    const after = caretBlock();
+    const line = document.createElement('p');
+    line.appendChild(document.createElement('br'));
+    if (after) after.after(block, line);
+    else area.current.append(block, line);
+    const selection = document.getSelection();
+    const range = document.createRange();
+    range.setStart(line, 0);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    keepSelection();
+    onInput?.();
+  };
+
+  const insertTable = () => {
+    const table = document.createElement('table');
+    const body = document.createElement('tbody');
+    for (let row = 0; row < tableSize.rows; row += 1) {
+      const tr = document.createElement('tr');
+      for (let col = 0; col < tableSize.cols; col += 1) {
+        const cell = document.createElement(tableSize.header && row === 0 ? 'th' : 'td');
+        cell.appendChild(document.createElement('br'));
+        tr.appendChild(cell);
+      }
+      body.appendChild(tr);
+    }
+    table.appendChild(body);
+    setMenu(null);
+    insertBlock(table);
+  };
+
+  /** The cell the caret is in, if any. */
+  const currentCell = (): HTMLTableCellElement | null => {
+    const node = saved.current?.startContainer ?? document.getSelection()?.anchorNode ?? null;
+    const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+    const cell = element?.closest('td, th') as HTMLTableCellElement | null;
+    return cell && area.current?.contains(cell) ? cell : null;
+  };
+
+  const editTable = (action: 'row' | 'col' | 'delete-row' | 'delete-col' | 'delete') => {
+    const cell = currentCell();
+    const row = cell?.parentElement as HTMLTableRowElement | null;
+    const table = cell?.closest('table');
+    if (!cell || !row || !table) return;
+    const rows = Array.from(table.querySelectorAll('tr'));
+    const column = Array.from(row.children).indexOf(cell);
+    if (action === 'row' && rows.length < 50) {
+      const copy = document.createElement('tr');
+      for (let index = 0; index < row.children.length; index += 1) {
+        copy.appendChild(document.createElement('td')).appendChild(document.createElement('br'));
+      }
+      row.after(copy);
+    } else if (action === 'col' && row.children.length < 10) {
+      for (const each of rows) {
+        const reference = each.children[column];
+        const fresh = document.createElement(reference?.tagName === 'TH' ? 'th' : 'td');
+        fresh.appendChild(document.createElement('br'));
+        if (reference) reference.after(fresh);
+        else each.appendChild(fresh);
+      }
+    } else if (action === 'delete-row') {
+      if (rows.length <= 1) table.remove();
+      else row.remove();
+    } else if (action === 'delete-col') {
+      if (row.children.length <= 1) table.remove();
+      else for (const each of rows) each.children[column]?.remove();
+    } else if (action === 'delete') {
+      table.remove();
+    }
+    if (!table.isConnected) setInTable(false);
+    onInput?.();
+  };
+
+  const addPictures = async (files: File[]) => {
+    if (!onPicture) return;
+    for (const file of files) {
+      const path = await onPicture(file);
+      if (!path) continue;
+      const image = document.createElement('img');
+      image.src = composeFileUrl(path);
+      image.dataset.path = path;
+      image.alt = file.name.replace(/\.[^.]+$/, '').slice(0, 200);
+      image.width = 400;
+      const holder = document.createElement('p');
+      holder.appendChild(image);
+      insertBlock(holder);
+    }
+  };
+
+  /** Pictures go into the text (when the editor takes them); other files are attached. */
+  const takeFiles = (files: File[]) => {
+    const pictures = onPicture ? files.filter((file) => file.type.startsWith('image/')) : [];
+    const others = files.filter((file) => !pictures.includes(file));
+    if (pictures.length > 0) {
+      keepSelection();
+      void addPictures(pictures);
+    }
+    if (others.length > 0) onFiles?.(others);
+  };
+
+  const sizePicture = (width: number) => {
+    if (!picture.current) return;
+    picture.current.width = width;
+    setPictureWidth(width);
     onInput?.();
   };
 
@@ -257,6 +442,27 @@ export const EmailEditor = forwardRef<
           {SIZES.map((size) => (
             <option key={size.value} value={size.value}>
               {size.label}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Font"
+          className={selectClass}
+          disabled={disabled}
+          defaultValue=""
+          onMouseDown={keepSelection}
+          onChange={(event) => {
+            const value = event.target.value;
+            event.target.value = '';
+            if (value) run('fontName', value);
+          }}
+        >
+          <option value="" disabled>
+            Font
+          </option>
+          {Object.values(EMAIL_FONTS).map((font) => (
+            <option key={font.label} value={font.label} style={{ fontFamily: font.stack }}>
+              {font.label}
             </option>
           ))}
         </select>
@@ -397,6 +603,94 @@ export const EmailEditor = forwardRef<
           onClick={() => run('insertHorizontalRule')}
           disabled={disabled}
         />
+        <span className="relative inline-flex">
+          <ToolButton
+            label="Insert table"
+            icon={TableIcon}
+            onClick={() => {
+              keepSelection();
+              setMenu(menu === 'table' ? null : 'table');
+            }}
+            disabled={disabled}
+          />
+          {menu === 'table' && (
+            <div
+              role="dialog"
+              aria-label="Insert table"
+              className="absolute top-9 right-0 z-20 flex w-56 flex-col gap-2 rounded-lg border bg-popover p-3 text-sm shadow-md sm:right-auto sm:left-0"
+            >
+              <label className="flex items-center justify-between gap-2">
+                Rows
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="h-8 w-20"
+                  value={tableSize.rows}
+                  onChange={(event) =>
+                    setTableSize({
+                      ...tableSize,
+                      rows: Math.min(50, Math.max(1, Number(event.target.value) || 1)),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between gap-2">
+                Columns
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  className="h-8 w-20"
+                  value={tableSize.cols}
+                  onChange={(event) =>
+                    setTableSize({
+                      ...tableSize,
+                      cols: Math.min(10, Math.max(1, Number(event.target.value) || 1)),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={tableSize.header}
+                  onChange={(event) => setTableSize({ ...tableSize, header: event.target.checked })}
+                />
+                First row is a header
+              </label>
+              <Button type="button" size="sm" onClick={insertTable}>
+                Insert
+              </Button>
+            </div>
+          )}
+        </span>
+        {onPicture && (
+          <>
+            <ToolButton
+              label="Insert picture"
+              icon={ImagePlus}
+              onClick={() => {
+                keepSelection();
+                pictureInput.current?.click();
+              }}
+              disabled={disabled}
+            />
+            <input
+              ref={pictureInput}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              hidden
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                event.target.value = '';
+                if (files.length > 0) void addPictures(files);
+              }}
+            />
+          </>
+        )}
         <ToolButton
           label={'Clear formatting'}
           icon={RemoveFormatting}
@@ -407,6 +701,78 @@ export const EmailEditor = forwardRef<
           disabled={disabled}
         />
       </div>
+
+      {(inTable || pictureWidth !== null) && !disabled && (
+        <div
+          role="toolbar"
+          aria-label={pictureWidth !== null ? 'Picture' : 'Table'}
+          className="flex flex-wrap items-center gap-1 border-b bg-muted/40 px-2 py-1 text-sm"
+        >
+          {pictureWidth !== null ? (
+            <>
+              <span className="px-1 text-muted-foreground">Picture size</span>
+              {PICTURE_SIZES.map((size) => (
+                <Button
+                  key={size.width}
+                  type="button"
+                  size="sm"
+                  variant={pictureWidth === size.width ? 'secondary' : 'ghost'}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => sizePicture(size.width)}
+                >
+                  {size.label}
+                </Button>
+              ))}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  const element = picture.current;
+                  if (element) {
+                    const holder = element.closest('p');
+                    if (holder && holder.textContent?.trim() === '') holder.remove();
+                    else element.remove();
+                  }
+                  picture.current = null;
+                  setPictureWidth(null);
+                  onInput?.();
+                }}
+              >
+                <Trash2 aria-hidden /> Remove picture
+              </Button>
+            </>
+          ) : (
+            <>
+              <span className="px-1 text-muted-foreground">Table</span>
+              {(
+                [
+                  ['row', 'Add row'],
+                  ['col', 'Add column'],
+                  ['delete-row', 'Delete row'],
+                  ['delete-col', 'Delete column'],
+                  ['delete', 'Delete table'],
+                ] as const
+              ).map(([action, label]) => (
+                <Button
+                  key={action}
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    keepSelection();
+                  }}
+                  onClick={() => editTable(action)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
 
       {menu === 'link' && (
         <form
@@ -454,7 +820,8 @@ export const EmailEditor = forwardRef<
         data-placeholder="Write your email"
         data-sensitive
         className={cn(
-          'email-rich min-h-64 flex-1 overflow-y-auto px-4 py-3 text-[15px] leading-relaxed outline-none',
+          'email-rich flex-1 overflow-y-auto px-4 py-3 text-[15px] leading-relaxed outline-none',
+          compact ? 'max-h-80 min-h-28' : 'min-h-64',
           disabled && 'opacity-60',
         )}
         onInput={() => onInput?.()}
@@ -480,12 +847,26 @@ export const EmailEditor = forwardRef<
           const plain = event.clipboardData.getData('text/plain');
           if (plain) document.execCommand('insertText', false, plain);
           const files = Array.from(event.clipboardData.files);
-          if (files.length > 0) onFiles?.(files);
+          if (files.length > 0) takeFiles(files);
         }}
         onDrop={(event) => {
           event.preventDefault();
           const files = Array.from(event.dataTransfer.files);
-          if (files.length > 0) onFiles?.(files);
+          if (files.length > 0) takeFiles(files);
+        }}
+        onClick={(event) => {
+          // Clicking a picture selects it, for its size and removal.
+          const target = event.target as HTMLElement;
+          picture.current?.classList.remove('is-selected');
+          if (target.tagName === 'IMG' && area.current?.contains(target)) {
+            const image = target as HTMLImageElement;
+            image.classList.add('is-selected');
+            picture.current = image;
+            setPictureWidth(image.width);
+          } else {
+            picture.current = null;
+            setPictureWidth(null);
+          }
         }}
         onBlur={keepSelection}
       />

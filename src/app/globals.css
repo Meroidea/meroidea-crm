@@ -533,3 +533,30 @@
     pointer-events: none;
   }
 }
+
+/* Tables and pictures in formatted email (ADR-091). */
+@layer components {
+  .email-rich table {
+    margin: 0 0 0.75rem;
+    border-collapse: collapse;
+  }
+  .email-rich th,
+  .email-rich td {
+    min-width: 3rem;
+    padding: 0.375rem 0.625rem;
+    border: 1px solid var(--border);
+    vertical-align: top;
+    text-align: left;
+  }
+  .email-rich th {
+    background: var(--muted);
+    font-weight: 600;
+  }
+  .email-rich img {
+    max-width: 100%;
+    height: auto;
+  }
+  .email-rich img.is-selected {
+    outline: 2px solid var(--primary);
+  }
+}

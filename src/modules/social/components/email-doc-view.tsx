@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from 'react';
 
 import {
   EMAIL_COLORS,
+  EMAIL_FONTS,
   EMAIL_HIGHLIGHTS,
   EMAIL_SIZES,
   safeHref,
@@ -26,13 +27,14 @@ function Inline({ item }: { item: EmailInline }) {
   if (item.i) node = <em>{node}</em>;
   if (item.u) node = <u>{node}</u>;
   if (item.s) node = <s>{node}</s>;
-  if (item.color || item.bg || (item.size && item.size !== 'normal')) {
+  if (item.color || item.bg || item.font || (item.size && item.size !== 'normal')) {
     node = (
       <span
         style={{
           color: item.color ? EMAIL_COLORS[item.color] : undefined,
           backgroundColor: item.bg ? EMAIL_HIGHLIGHTS[item.bg] : undefined,
           fontSize: item.size && item.size !== 'normal' ? EMAIL_SIZES[item.size] : undefined,
+          fontFamily: item.font ? EMAIL_FONTS[item.font].stack : undefined,
         }}
       >
         {node}
@@ -53,7 +55,14 @@ function Inline({ item }: { item: EmailInline }) {
 const Inlines = ({ items }: { items: EmailInline[] }) =>
   items.map((item, index) => <Inline key={index} item={item} />);
 
-export function EmailDocView({ doc }: { doc: EmailDoc }) {
+export function EmailDocView({
+  doc,
+  imageSrc,
+}: {
+  doc: EmailDoc;
+  /** Where a picture is served from: the message's own file, through the permission check. */
+  imageSrc?: (path: string) => string | null;
+}) {
   return (
     <div className="email-rich text-sm leading-relaxed break-words" data-sensitive>
       {doc.map((block, index) => {
@@ -96,6 +105,46 @@ export function EmailDocView({ doc }: { doc: EmailDoc }) {
           }
           case 'rule':
             return <hr key={index} />;
+          case 'table':
+            return (
+              <div key={index} className="overflow-x-auto">
+                <table>
+                  <tbody>
+                    {block.rows.map((row, rowIndex) => (
+                      <tr key={rowIndex}>
+                        {row.map((cell, cellIndex) =>
+                          block.header && rowIndex === 0 ? (
+                            <th key={cellIndex}>
+                              <Inlines items={cell} />
+                            </th>
+                          ) : (
+                            <td key={cellIndex}>
+                              <Inlines items={cell} />
+                            </td>
+                          ),
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          case 'image': {
+            const src = imageSrc?.(block.path);
+            if (!src) return null;
+            return (
+              <p key={index} style={align}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- a private, permission-checked file */}
+                <img
+                  src={src}
+                  alt={block.alt}
+                  width={block.width}
+                  referrerPolicy="no-referrer"
+                  className="inline-block h-auto max-w-full"
+                />
+              </p>
+            );
+          }
         }
       })}
     </div>
