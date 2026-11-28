@@ -168,6 +168,11 @@ describe('reply windows', () => {
 
   it('no reply before the customer has written', () => {
     expect(replyWindow('instagram', null, now)).toMatchObject({ ok: false });
+    expect(replyWindow('whatsapp', null, now)).toMatchObject({ ok: false });
+  });
+
+  it('an email thread the business started takes a follow-up before any answer (ADR-089)', () => {
+    expect(replyWindow('email', null, now)).toEqual({ ok: true, humanAgent: false });
   });
 });
 

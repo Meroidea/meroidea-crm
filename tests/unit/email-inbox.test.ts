@@ -4,6 +4,7 @@ import {
   htmlToText,
   isAutomated,
   messageIds,
+  newReplyToken,
   parseAddress,
   replyAddress,
   replySubject,
@@ -13,6 +14,7 @@ import {
 } from '@/modules/social/email-parse';
 import { emailHtml } from '@/modules/social/email-service';
 import { verifyResendSignature } from '@/modules/social/providers/resend';
+import { newEmailSchema } from '@/modules/social/schemas';
 
 describe('Resend webhook signatures (Svix scheme)', () => {
   // Svix's own published example (docs.svix.com, manual verification).
@@ -105,6 +107,14 @@ describe('threading', () => {
     expect(replyTokenIn([`r-short@${domain}`], domain)).toBeNull();
   });
 
+  it('makes reply tokens of 24 lower-case letters and digits, each one new', () => {
+    const tokens = new Set(Array.from({ length: 200 }, () => newReplyToken()));
+    expect(tokens.size).toBe(200);
+    for (const token of tokens) expect(token).toMatch(/^[a-z0-9]{24}$/);
+    // Every character can turn up: a broken alphabet or index would leave some out.
+    expect(new Set([...tokens].join('')).size).toBe(36);
+  });
+
   it('reads Message-IDs from In-Reply-To and References', () => {
     expect(messageIds('<a@x.com> <b@y.com>\n <a@x.com>')).toEqual(['<a@x.com>', '<b@y.com>']);
     expect(messageIds(undefined)).toEqual([]);
@@ -128,5 +138,31 @@ describe('inbox addresses', () => {
     expect(reservedLocalPart('r-abc')).toBe(true);
     expect(reservedLocalPart('harbour..cafe')).toBe(true);
     expect(reservedLocalPart('harbour-cafe')).toBe(false);
+  });
+});
+
+describe('a new email (ADR-089)', () => {
+  const valid = {
+    accountId: '00000000-0000-4000-8000-000000000000',
+    to: '  Kim@Example.COM ',
+    subject: ' Your quote ',
+    body: ' Hello ',
+  };
+
+  it('keeps the address in lower case and trims what was typed', () => {
+    expect(newEmailSchema.parse(valid)).toEqual({
+      accountId: valid.accountId,
+      to: 'kim@example.com',
+      subject: 'Your quote',
+      body: 'Hello',
+    });
+  });
+
+  it('needs one real address, a subject and a message', () => {
+    expect(newEmailSchema.safeParse({ ...valid, to: 'kim, lee@example.com' }).success).toBe(false);
+    expect(newEmailSchema.safeParse({ ...valid, to: 'not an address' }).success).toBe(false);
+    expect(newEmailSchema.safeParse({ ...valid, subject: '  ' }).success).toBe(false);
+    expect(newEmailSchema.safeParse({ ...valid, body: '' }).success).toBe(false);
+    expect(newEmailSchema.safeParse({ ...valid, body: 'x'.repeat(20001) }).success).toBe(false);
   });
 });

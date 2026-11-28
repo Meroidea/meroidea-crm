@@ -153,7 +153,12 @@ describe('email folders', () => {
   });
 
   it('counts unread threads per folder', async () => {
-    expect(await countEmailUnread(owner)).toEqual({ customers: 1, review: 1, filtered: 1 });
+    expect(await countEmailUnread(owner)).toEqual({
+      customers: 1,
+      review: 1,
+      filtered: 1,
+      sent: 0,
+    });
   });
 
   it('“Not a customer” moves the sender to Filtered, with later emails, until moved back', async () => {

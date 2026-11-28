@@ -24,6 +24,7 @@ import {
   mediaReplySchema,
   mediaUploadSchema,
   messageIdSchema,
+  newEmailSchema,
   noteSchema,
   replySchema,
   senderRuleSchema,
@@ -84,6 +85,12 @@ export const disconnectAccountAction = authedAction(
 export const replyAction = authedAction(
   { permission: 'social.reply', input: replySchema, revalidate: paths },
   (ctx, input) => social.replyToConversation(ctx, input),
+);
+
+/** A new email from an inbox address to anyone (ADR-089); opens its own thread. */
+export const startEmailAction = authedAction(
+  { permission: 'social.reply', input: newEmailSchema, revalidate: paths },
+  (ctx, input) => social.startEmailConversation(ctx, input),
 );
 
 export const retryReplyAction = authedAction(

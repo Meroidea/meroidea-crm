@@ -4,6 +4,17 @@
  * whether a message was sent by a machine. Pure functions, tested in tests/unit.
  */
 
+import { randomInt } from 'node:crypto';
+
+const TOKEN_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+/**
+ * A thread's secret reply-address token: 24 characters, about 124 bits, each drawn uniformly
+ * (`randomInt`, not `byte % 36`, which favours the first four characters).
+ */
+export function newReplyToken(): string {
+  return Array.from({ length: 24 }, () => TOKEN_ALPHABET[randomInt(36)]).join('');
+}
+
 const ADDRESS = /^[^\s@<>"(),;:]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 
 /** "Sam Lee <Sam@Example.com>" → { name: "Sam Lee", email: "sam@example.com" }. */

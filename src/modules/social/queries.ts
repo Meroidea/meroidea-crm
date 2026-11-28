@@ -117,18 +117,27 @@ const markedNotCustomer = sql`exists (select 1 from public.email_sender_rules r
   where r.tenant_id = social_conversations.tenant_id
     and r.email = social_conversations.participant_email and r.kind = 'not_customer')`;
 
+/** Nothing has come in yet: a thread the business started (ADR-089). */
+const nothingReceived = sql`not exists (select 1 from public.social_messages m
+  where m.tenant_id = social_conversations.tenant_id and m.conversation_id = social_conversations.id
+    and m.direction = 'inbound')`;
+
 /**
  * Which email threads a folder holds. Customers: linked to a contact. To review: not linked yet.
  * Filtered: machines' mail, and senders marked "Not a customer" who are not linked to a contact.
- * Every thread is in exactly one folder, so nothing received is ever out of sight for good.
+ * Sent: started by the business and not answered yet; the first reply moves it to one of the
+ * others. Every thread is in exactly one folder, so nothing received is ever out of sight for
+ * good. (A thread with nothing received counts as `automatedOnly`, so Customers and To review
+ * already leave it out.)
  */
 export function emailFolderCondition(folder: EmailFolder): SQL {
   const linked = sql`social_conversations.contact_id is not null`;
+  if (folder === 'sent') return nothingReceived;
   if (folder === 'customers') return sql`(${linked} and not ${automatedOnly})`;
   if (folder === 'review') {
     return sql`(not ${linked} and not ${automatedOnly} and not ${markedNotCustomer})`;
   }
-  return sql`(${automatedOnly} or (not ${linked} and ${markedNotCustomer}))`;
+  return sql`(not ${nothingReceived} and (${automatedOnly} or (not ${linked} and ${markedNotCustomer})))`;
 }
 
 /** Only the channels of one area: the Social inbox, or Email (ADR-073). */
@@ -288,7 +297,7 @@ export async function countUnread(
   return { total: rows.reduce((sum, row) => sum + row.n, 0), byPlatform };
 }
 
-/** Unread email threads per folder, for the Email area's tabs (ADR-073). */
+/** Unread email threads per folder, for the Email area's tabs (ADR-073, ADR-089). */
 export async function countEmailUnread(ctx: TenantContext): Promise<Record<EmailFolder, number>> {
   requirePermission(ctx, 'social.view');
   const [row] = await withRls(ctx, (tx) =>
@@ -314,7 +323,13 @@ export async function countEmailUnread(ctx: TenantContext): Promise<Record<Email
         ),
       ),
   );
-  return { customers: row?.customers ?? 0, review: row?.review ?? 0, filtered: row?.filtered ?? 0 };
+  return {
+    customers: row?.customers ?? 0,
+    review: row?.review ?? 0,
+    filtered: row?.filtered ?? 0,
+    // Nothing unread can be in Sent: unread messages are received ones, which move a thread out.
+    sent: 0,
+  };
 }
 
 /** Whether an email thread's sender is marked "Not a customer", for the thread's controls. */

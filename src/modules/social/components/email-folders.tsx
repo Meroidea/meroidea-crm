@@ -6,6 +6,7 @@ import {
   Layers,
   Mail,
   MailOpen,
+  Send,
   Settings2,
   User,
   UserSearch,
@@ -22,12 +23,14 @@ export const FOLDER_LABELS: Record<EmailFolder, string> = {
   customers: 'Customers',
   review: 'To review',
   filtered: 'Filtered',
+  sent: 'Sent',
 };
 
 const FOLDER_ICONS: Record<EmailFolder, LucideIcon> = {
   customers: Inbox,
   review: UserSearch,
   filtered: Filter,
+  sent: Send,
 };
 
 export const VIEW_LABELS: Record<(typeof INBOX_VIEWS)[number], string> = {
@@ -49,7 +52,7 @@ const VIEW_ICONS: Record<(typeof INBOX_VIEWS)[number], LucideIcon> = {
 };
 
 /**
- * The Email area's folder pane (ADR-087): the inbox address, its three folders with unread
+ * The Email area's folder pane (ADR-087): the inbox address, its four folders with unread
  * counts, the views, and the area's settings. A column on a wide screen; on a phone the same
  * links as a scrolling row above the list.
  */

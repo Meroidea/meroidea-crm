@@ -1,6 +1,8 @@
 import 'server-only';
 
 import type { InboxArea } from '@/modules/social/components/inbox-list';
+import type { EmailInboxOption } from '@/modules/social/components/new-email';
+import { emailInboxConfigured } from '@/modules/social/providers/resend';
 import { mailboxOf, type Mailbox } from '@/modules/social/providers/types';
 import { countEmailUnread, countUnread, listAccounts } from '@/modules/social/queries';
 import { hasPermission, type TenantContext } from '@/server/context';
@@ -9,14 +11,28 @@ import { hasPermission, type TenantContext } from '@/server/context';
 export async function loadInboxArea(
   ctx: TenantContext,
   mailbox: Mailbox,
-): Promise<{ area: InboxArea; hasAccounts: boolean; mailboxLabel: string | null }> {
+): Promise<{
+  area: InboxArea;
+  hasAccounts: boolean;
+  mailboxLabel: string | null;
+  /** The inbox addresses this person may write a new email from (ADR-089). */
+  newEmailFrom: EmailInboxOption[];
+}> {
   const { accounts } = await listAccounts(ctx);
   const own = accounts.filter((account) => mailboxOf(account.platform) === mailbox);
   if (mailbox === 'email') {
+    const canWrite = hasPermission(ctx, 'social.reply') && emailInboxConfigured();
     return {
       area: { kind: 'email', unread: await countEmailUnread(ctx) },
       hasAccounts: own.length > 0,
       mailboxLabel: own[0]?.username ?? own[0]?.name ?? null,
+      newEmailFrom: canWrite
+        ? own.map((account) => ({
+            id: account.id,
+            address: account.username ?? '',
+            name: account.name,
+          }))
+        : [],
     };
   }
   return {
@@ -27,6 +43,7 @@ export async function loadInboxArea(
     },
     hasAccounts: own.length > 0,
     mailboxLabel: null,
+    newEmailFrom: [],
   };
 }
 

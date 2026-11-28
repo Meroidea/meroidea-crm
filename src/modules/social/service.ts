@@ -20,6 +20,7 @@ import { notify } from '@/modules/notifications/service';
 import { audit } from '@/server/audit';
 import { hasPermission, requirePermission, type TenantContext } from '@/server/context';
 import { withRls, type Tx } from '@/server/db/with-rls';
+import { enforceRateLimit } from '@/server/rate-limit';
 import {
   createSocialUploadTicket,
   readSocialMedia,
@@ -28,8 +29,9 @@ import {
 } from '@/server/storage';
 
 import { readCredentials, storeCredentials, usableToken, type Credentials } from './credentials';
+import { newReplyToken } from './email-parse';
 import { sendEmailReply } from './email-service';
-import { emailInboxConfigured } from './providers/resend';
+import { emailInboxConfigured, inboxDomain } from './providers/resend';
 import { recordImportedConversation } from './ingest';
 import {
   acceptedType,
@@ -75,6 +77,7 @@ import {
 import type {
   AssignInput,
   MediaReplyInput,
+  NewEmailInput,
   ReplyInput,
   SnoozeInput,
   TemplateReplyInput,
@@ -113,6 +116,9 @@ export function replyWindow(
   now = new Date(),
 ): { ok: true; humanAgent: boolean } | { ok: false; reason: string } {
   if (!lastInboundAt) {
+    // Email has no reply window, and a thread the business started may take a follow-up before
+    // anyone answers (ADR-089). The other channels only allow replies.
+    if (platform === 'email') return { ok: true, humanAgent: false };
     return { ok: false, reason: 'You can reply once the customer has written to you.' };
   }
   const rules = REPLY_RULES[platform];
@@ -608,6 +614,116 @@ export async function replyToConversation(
     return { ...checked, messageId: pending!.id, body: input.body, template: null, media: null };
   });
   return deliver(ctx, prepared, now, 'create');
+}
+
+/** New emails one person may start in a day, and one inbox may send in a day (ADR-089). */
+export const NEW_EMAILS_PER_PERSON_DAILY = 100;
+export const NEW_EMAILS_PER_INBOX_DAILY = 300;
+
+/**
+ * Starts a new email thread from one of the business's inbox addresses to anyone (ADR-089). The
+ * email goes out like a reply: stored as "sending", sent through Resend with the thread's own
+ * reply address, then sent or failed, and a failure can be retried. The thread is assigned to
+ * whoever wrote it, and sits in Sent until the person answers.
+ *
+ * The contact is not linked here: under RLS a person may see only some of the contacts with that
+ * address, so "exactly one match" cannot be told. The answer links it, from the webhook, as for
+ * any received email (ADR-070).
+ */
+export async function startEmailConversation(
+  ctx: TenantContext,
+  input: NewEmailInput,
+  now = new Date(),
+): Promise<{ conversationId: string; messageId: string }> {
+  requirePermission(ctx, 'social.reply');
+  const domain = inboxDomain();
+  if (!domain || !emailInboxConfigured()) {
+    throw new AppError('CONFLICT', 'Email is not set up on this platform yet.');
+  }
+  // Every address at the inbox domain is a Meroidea inbox or a thread's reply address: writing
+  // to one from here would only loop back into Meroidea.
+  if (input.to.endsWith(`@${domain}`)) {
+    throw new AppError('VALIDATION', 'Choose an address outside the inbox.', {
+      to: ['Choose an address outside the inbox.'],
+    });
+  }
+  // The inbox must be a live one of this business before anything is counted against it, so
+  // nobody outside the business can use up its daily limit.
+  const inbox = await withRls(ctx, async (tx) => {
+    const [row] = await tx
+      .select({ id: socialAccounts.id })
+      .from(socialAccounts)
+      .where(
+        and(
+          eq(socialAccounts.tenantId, ctx.tenantId),
+          eq(socialAccounts.id, input.accountId),
+          eq(socialAccounts.platform, 'email'),
+          isNull(socialAccounts.disconnectedAt),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  });
+  if (!inbox) throw new AppError('NOT_FOUND', 'That inbox was not found.');
+  // A brake on misuse that also protects the shared inbox domain's reputation, which every
+  // business's email depends on. The counters store only a keyed hash of who they count.
+  await enforceRateLimit(
+    {
+      bucket: 'email-new:person',
+      subject: `${ctx.tenantId}:${ctx.userId}`,
+      limit: NEW_EMAILS_PER_PERSON_DAILY,
+      windowSeconds: 86_400,
+    },
+    `You can start at most ${NEW_EMAILS_PER_PERSON_DAILY} new emails a day. Replies are not limited.`,
+  );
+  await enforceRateLimit(
+    {
+      bucket: 'email-new:inbox',
+      subject: inbox.id,
+      limit: NEW_EMAILS_PER_INBOX_DAILY,
+      windowSeconds: 86_400,
+    },
+    `This inbox has started ${NEW_EMAILS_PER_INBOX_DAILY} new emails today, its daily limit.`,
+  );
+
+  const prepared = await withRls(ctx, async (tx): Promise<Prepared> => {
+    const [conversation] = await tx
+      .insert(socialConversations)
+      .values({
+        tenantId: ctx.tenantId,
+        accountId: inbox.id,
+        participantId: `email:${randomUUID()}`,
+        participantEmail: input.to,
+        subject: input.subject,
+        replyToken: newReplyToken(),
+        assignedUserId: ctx.userId,
+      })
+      .returning({ id: socialConversations.id });
+    const checked = await checkReply(tx, ctx, conversation!.id, input.body, now);
+    const [pending] = await tx
+      .insert(socialMessages)
+      .values({
+        tenantId: ctx.tenantId,
+        conversationId: conversation!.id,
+        accountId: inbox.id,
+        direction: 'outbound',
+        body: input.body,
+        sentAt: now,
+        sentByUserId: ctx.userId,
+        status: 'sending',
+      })
+      .returning({ id: socialMessages.id });
+    // Never the address or the words (rules/security.md): the thread names the person.
+    await audit(tx, ctx, {
+      action: 'create',
+      entityType: 'social_conversation',
+      entityId: conversation!.id,
+      context: { platform: 'email', startedBy: 'business' },
+    });
+    return { ...checked, messageId: pending!.id, body: input.body, template: null, media: null };
+  });
+  const { messageId } = await deliver(ctx, prepared, now, 'create');
+  return { conversationId: prepared.conversation.id, messageId };
 }
 
 /** A template's body with the values in place of its placeholders, as the customer sees it. */

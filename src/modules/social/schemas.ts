@@ -6,10 +6,11 @@ import { SOCIAL_PLATFORMS } from './providers/types';
 export const INBOX_VIEWS = ['open', 'mine', 'unread', 'snoozed', 'done', 'all'] as const;
 
 /**
- * The Email area's folders (ADR-073): threads linked to a contact; people who are not contacts
- * yet; and machines' mail and senders marked "Not a customer".
+ * The Email area's folders (ADR-073, ADR-089): threads linked to a contact; people who are not
+ * contacts yet; machines' mail and senders marked "Not a customer"; and emails the business
+ * started that nobody has answered yet.
  */
-export const EMAIL_FOLDERS = ['customers', 'review', 'filtered'] as const;
+export const EMAIL_FOLDERS = ['customers', 'review', 'filtered', 'sent'] as const;
 export type EmailFolder = (typeof EMAIL_FOLDERS)[number];
 
 export const inboxFiltersSchema = z.object({
@@ -41,6 +42,23 @@ export const replySchema = z.object({
   body: z.string().trim().min(1, 'Write a reply first').max(6000, 'That reply is too long'),
 });
 export type ReplyInput = z.output<typeof replySchema>;
+
+/**
+ * A new email from one of the business's inbox addresses to anyone (ADR-089). One recipient: a
+ * thread answers one person, so their reply comes back to it.
+ */
+export const newEmailSchema = z.object({
+  accountId: z.uuid(),
+  to: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(254, 'That address is too long')
+    .pipe(z.email('Enter an email address')),
+  subject: z.string().trim().min(1, 'Add a subject').max(200, 'That subject is too long'),
+  body: z.string().trim().min(1, 'Write your email first').max(20000, 'That email is too long'),
+});
+export type NewEmailInput = z.output<typeof newEmailSchema>;
 
 export const messageIdSchema = z.object({ messageId: z.uuid() });
 
