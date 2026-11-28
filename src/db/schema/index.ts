@@ -27,3 +27,4 @@ export * from './books';
 export * from './social';
 export * from './kb';
 export * from './trading-hours';
+export * from './esign';

@@ -1229,6 +1229,109 @@ size_bytes   bigint not null
 created_at, created_by                 -- created_by is null when the editor names no member
 ```
 
+### Signature requests (ADR-094)
+
+A PDF from the library sent out for electronic signature. Staff with `files.request_signatures`
+read and write these through RLS; signers have no login and act only through
+`src/modules/esign/public.ts` on the privileged connection, starting from their link's hash. The
+request pins one stored version and, once sent, its SHA-256; stamping refuses a file that no
+longer matches. Objects live in the `documents` bucket under `{tenant_id}/esign/{request_id}/`:
+each signer's signature and initials images, and the finished `signed-{uuid}.pdf`. All four tables
+have the restrictive `feature_switch` policy for `files` (ADR-038).
+
+#### sign_requests
+```sql
+id, tenant_id,
+document_id           uuid not null     -- fk (tenant_id, document_id) -> library_documents
+document_version      integer not null
+original_storage_path text not null     -- the pinned version's object; never changes
+title                 text not null     -- 1–200 characters
+message               text              -- shown to signers
+status                text not null default 'draft'
+                      -- check in ('draft','sent','completed','declined','voided')
+signing_order         text not null default 'parallel'   -- or 'sequential'
+verify_email          boolean not null default true      -- signers enter an emailed code
+expiry_days           integer           -- 1–365; expires_at is set from it on sending
+expires_at            timestamptz       -- a sent request past this is expired (not a status)
+page_count            integer
+original_sha256       text              -- hex; recorded on sending
+signed_storage_path   text
+signed_sha256         text              -- hex of the finished file; looked up by /verify
+sent_at, sent_by, completed_at, declined_at, voided_at, void_reason,
+created_at, updated_at, created_by, updated_by, deleted_at
+-- created_by, sent_by: fk (tenant_id, ·) -> tenant_memberships (tenant_id, user_id)
+unique (tenant_id, id)
+index (tenant_id, created_at desc) where deleted_at is null
+index (signed_sha256) where signed_sha256 is not null
+```
+Sessions may update only the drafting and voiding columns (column grants). The
+`sign_requests_guard` trigger lets a session move a request only `draft → sent` or
+`sent → voided`, refuses any change to a finished request, and freezes what was sent (title,
+message, order, code check, fingerprint). `completed`, `declined` and the `signed_*` columns are
+written on the privileged connection only, when the last signer signs, in the same transaction.
+
+#### sign_request_signers
+```sql
+id, tenant_id,
+request_id        uuid not null         -- fk (tenant_id, request_id) -> sign_requests, cascade
+position          integer not null      -- 1–20; signing order; unique (request_id, position)
+name              text not null
+email             text not null         -- lower case; unique (request_id, email)
+status            text not null default 'pending'   -- check in ('pending','signed','declined')
+token_hash        text unique           -- sha256 of the link's secret
+token_expires_at  timestamptz
+otp_hash          text                  -- keyed hash of the current emailed code
+otp_expires_at    timestamptz           -- 10 minutes
+otp_attempts      integer not null default 0         -- five wrong tries spend the code
+session_hash      text                  -- keyed hash of the browser session that passed the code
+verified_at, invited_at, viewed_at, signed_at,
+signed_ip         inet,
+signed_user_agent text,
+declined_at, decline_reason,
+created_at, updated_at
+unique (tenant_id, id)
+```
+Sessions are never granted `token_hash`, `otp_*`, `session_hash`, `signed_ip` or
+`signed_user_agent` for reading. They may insert a signer only while the request is a draft and
+only with every credential and outcome column empty (insert policy), and may update only
+`token_hash`, `token_expires_at` and `invited_at` of someone still to sign (resending a link).
+
+#### sign_request_fields
+```sql
+id, tenant_id,
+request_id  uuid not null               -- fk (tenant_id, request_id) -> sign_requests, cascade
+signer_id   uuid not null               -- fk (tenant_id, signer_id) -> sign_request_signers, cascade
+kind        text not null               -- check in ('signature','initials','name','date','text','checkbox')
+page        integer not null            -- 1-based
+x, y, width, height double precision not null
+            -- fractions (0–1) of the page as displayed (rotation applied), top-left origin
+required    boolean not null default true
+label       text                        -- hint shown to the signer
+value       text                        -- text, 'true'/'false', or the image's storage path
+filled_at   timestamptz,
+created_at
+unique (tenant_id, id)
+```
+Inserted and deleted by sessions only while the request is a draft, and only empty; `value` and
+`filled_at` are written on the privileged connection when the signer signs.
+
+#### sign_request_events
+Append-only. The trail printed on the completion certificate.
+```sql
+id, tenant_id,
+request_id    uuid not null             -- fk -> sign_requests, cascade
+signer_id     uuid                      -- fk -> sign_request_signers, cascade
+actor_user_id uuid                      -- a staff member, for events they caused
+event         text not null
+              -- check in ('created','sent','invited','code_sent','verified','viewed',
+              --           'signed','declined','voided','completed')
+ip inet, user_agent text,               -- signers' events only; never readable by sessions
+created_at
+index (tenant_id, request_id, created_at)
+```
+Sessions may add only their own `created`, `sent`, `invited` and `voided` events, without an
+address.
+
 ---
 
 ## 7g. Time off 🟢

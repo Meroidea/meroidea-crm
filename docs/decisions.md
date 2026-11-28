@@ -2856,3 +2856,80 @@ that empties itself after 30 days, and to mark any email important.
 - The Bin works on whole threads; a single message inside a thread cannot be deleted on its own.
 - The sweep handles 500 threads a run; a larger backlog clears over the following days.
 - Importance is shared by the team, not personal; a personal flag would need its own table.
+
+## ADR-094 — Electronic signatures for library PDFs, modelled on OpenSign and stamped on the server
+
+**Status.** Accepted (2026-11-27). Part of the Documents feature (ADR-030); adds two runtime
+dependencies the owner approved on 27 November 2026: `pdf-lib` (MIT) and `pdfjs-dist`
+(Apache-2.0).
+
+**Context.** The owner asked for a free e-signature feature like OpenSign (AGPL, Parse/MongoDB)
+inside Meroidea. Its model is sound and is what we follow: place fields on a PDF for each signer,
+invite them by email, optionally check them with an emailed code, sign in parallel or in order,
+let them decline with a reason, expire the request, and finish with a certificate page and a
+fingerprint anyone can check. Reading its source showed three things we must not copy:
+
+1. The browser draws the signatures into the PDF and uploads the whole file; the server then
+   seals whatever bytes arrive (`signPdf` takes `pdfFile` as base64). A signer, or anyone holding
+   the link, can change the document's words before it is sealed.
+2. The guest code is 4 digits from `Math.random`, stored in plain text, with no expiry and no
+   limit on tries: about 9,000 guesses open any guest's document.
+3. Declining without a code trusts a `userId` sent by the browser, so anyone with the document's
+   id can decline for any signer.
+
+**Decision.**
+1. *Server-side stamping.* The browser sends only what the signer typed and two PNG images
+   (signature, initials). The server reads the pinned original from storage, refuses it unless
+   its SHA-256 equals the one recorded when the request was sent, draws every value with
+   `pdf-lib`, flattens form fields, appends a completion certificate (who, how they were
+   checked, when, IP address, device, consent, their signature, and the full history) and stores
+   the result with its SHA-256. The date field always comes from the server's clock.
+2. *Last signature and finishing are one transaction.* If building the signed file fails, the
+   signature is not recorded and the signer simply tries again; uploaded images are removed. A
+   request is never left signed by everyone but unfinished, so no retry job is needed.
+3. *Signers have no login* (as ADR-026): the link's 256-bit secret is the credential, stored only
+   as a hash, in `src/modules/esign/public.ts`, the only esign code allowed `adminDb`. With "check
+   signers with an emailed code" on (the default), they also enter a 6-digit code from
+   `crypto.randomInt`, stored as an HMAC keyed from the server secret and bound to the signer,
+   valid 10 minutes, spent after 5 wrong tries, sent at most 5 times an hour per signer and 30
+   per connection. A right code sets an HttpOnly cookie for that signer whose hash must match,
+   for 12 hours; a forwarded link alone opens nothing. Declining needs the same.
+4. *Staff cannot forge outcomes.* Sessions never read link, code or session hashes, and never
+   write completion, signed values, signers' events or the signed fingerprint (column grants,
+   insert policies and the `sign_requests_guard` trigger). A link is shown to the sender only when
+   it could not be emailed (as ADR-031). `/verify` is therefore trustworthy: it only ever finds
+   files the server itself made.
+5. *Positions are fractions of the page as displayed* (rotation applied, top-left origin), so
+   fields hold at any zoom; `geometry.ts` maps them to PDF space for each rotation, tested against
+   pdf.js's own viewport maths.
+6. *pdf.js runs in a worker* started from our own origin (`pdf.worker.ts`), with `eval` and XFA
+   off. No script loads from anywhere else.
+7. *Verification sends no file.* `/verify` hashes the PDF in the browser and sends only the
+   fingerprint, rate-limited per connection.
+8. *Permission and feature.* `files.request_signatures` (Admin and Manager by default) inside the
+   `files` family, so the Documents feature switch covers it with no new `app.permission_feature`
+   entry; all four tables carry the `feature_switch` policy.
+
+**Legal basis.** Under the Electronic Transactions Act 1999 (Cth) s 10, an electronic signature
+satisfies a signature requirement when the method identifies the person and shows their intention,
+is as reliable as appropriate, and the other party consents. The identity check, the explicit
+consent box, and the certificate with history and fingerprint are what support that. Some
+documents still need wet ink or witnessing under state law (for example some deeds, wills and
+statutory declarations); the business remains responsible for choosing a suitable document.
+
+**Not done (deliberately, for now).**
+- A PKCS#7 (PAdES) signature inside the PDF, as OpenSign adds. It shows as trusted in Acrobat only
+  with a certificate from an Adobe-approved issuer; a self-signed one shows "validity unknown"
+  and adds no legal weight over the recorded fingerprint. It would need `@signpdf/*` and
+  `node-forge` and a certificate the owner buys.
+- Templates, bulk send, automatic reminders (only one daily cron is available), SMS codes,
+  attaching the signed file to emails (links only), and fonts beyond Western European for typed
+  text values (drawn and typed signatures are images and keep any script).
+- Linking a request to a contact or opportunity.
+
+**Consequences.**
+- The signed copy's fingerprint changes if anyone re-saves the PDF, so `/verify` explains that
+  only the copy downloaded from the email or the app will match.
+- Every invited, verified, viewed, signed, declined and voided step is in `sign_request_events`
+  and printed on the certificate; staff actions are also in `audit_logs`, and signers' sign and
+  decline are there with `actor_type = 'signer_link'`.

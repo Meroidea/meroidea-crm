@@ -5,7 +5,7 @@ import type { NextConfig } from 'next';
 const baseDirectives = "base-uri 'self'; form-action 'self'; object-src 'none'";
 
 // Pages whose address carries a one-time secret: never sent onward in a Referer header.
-const secretLinkPages = '/:area(offer|agreement|r|support|jobs|f)/:path*';
+const secretLinkPages = '/:area(offer|agreement|r|support|jobs|f|sign)/:path*';
 
 const nextConfig: NextConfig = {
   experimental: {
@@ -47,6 +47,10 @@ const nextConfig: NextConfig = {
         ],
       },
       { source: secretLinkPages, headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+      {
+        source: '/api/esign/sign/:path*',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
       { source: '/auth/confirm', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
     ];
   },
@@ -70,6 +74,9 @@ const nextConfig: NextConfig = {
         // A website form's key is what lets anyone post to it.
         /^\/f\//,
         /^\/api\/forms\//,
+        // A signing link is the signer's credential (ADR-094).
+        /^\/sign\//,
+        /^\/api\/esign\/sign\//,
       ],
     },
   },

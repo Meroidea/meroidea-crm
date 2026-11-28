@@ -299,6 +299,30 @@ change as touching sensitive personal data.
 - The portal's public routes keep their size caps, Zod parsing, honeypot and per-sender limits.
 - Erasing a person deletes their `kb_article_views` and `kb_article_links`.
 
+## Electronic signatures (ADR-094)
+
+- `src/modules/esign/public.ts` is the only esign code that may use `adminDb`. It starts from the
+  signer's link hash and never takes a tenant, request or signer id from the caller; field ids are
+  checked against that signer's own fields.
+- The browser never sends a PDF. Stamping reads the pinned original from storage and refuses it
+  unless its SHA-256 matches `original_sha256`. Keep the last signature and the stamping in one
+  transaction, and remove uploaded images if it fails.
+- Never grant sessions `token_hash`, `otp_*`, `session_hash`, `signed_ip` or `signed_user_agent`
+  on `sign_request_signers` for reading, or any write to `signed_*`, `completed_at`,
+  `declined_at`, field values or signers' events. Keep the insert policies that require those
+  columns empty and the `sign_requests_guard` trigger; `/verify` is only as trustworthy as they are.
+- Codes: 6 digits from `crypto.randomInt`, stored only as the keyed hash, 10 minutes, 5 tries,
+  send limits per signer and per connection. A right code opens a session only through the
+  HttpOnly `msign_*` cookie whose hash matches. Never weaken any of these or accept a code
+  without the cookie step.
+- A signing link is shown to staff only when it could not be emailed. Never log it, store it, or
+  put a signer's details in a URL; `/sign/*` and `/api/esign/sign/*` send no referrer and are kept
+  out of the request log.
+- Signature images are accepted only as PNGs (header checked, size and dimensions capped), stored
+  under `{tenant}/esign/{request}/`, and only paths under that prefix are read back for stamping.
+- pdf.js loads only through `PdfPages` (worker from our own origin, `isEvalSupported: false`, no
+  XFA). Never load it, or its worker, from a CDN.
+
 ## Location (ADR-033)
 
 - A business's coordinates are set only through the platform console. Never accept them from a

@@ -45,6 +45,8 @@ export const PERMISSIONS = {
   'files.view': { scoped: false },
   'files.edit': { scoped: false },
   'files.manage': { scoped: false },
+  /** Send library PDFs out for electronic signature and follow them (ADR-094). */
+  'files.request_signatures': { scoped: false },
   'invoices.manage': { scoped: false },
   'payroll.manage': { scoped: false },
   /** Bookkeeping (ADR-060): accounts, entries and reports. */
@@ -184,6 +186,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       'files.view': true,
       'files.edit': true,
       'files.manage': true,
+      'files.request_signatures': true,
       'inventory.view': true,
       'inventory.manage': true,
       'rosters.view': true,
