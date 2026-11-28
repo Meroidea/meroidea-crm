@@ -364,7 +364,8 @@ export function ThreadView({
                   parties={email}
                   // A long thread opens at its last three emails; older ones start folded.
                   folded={index < shown.length - 3}
-                  canReply={canReply}
+                  // No reply box (a thread in the Bin, email not set up): nothing to reply with.
+                  canReply={canReply && Boolean(emailReply)}
                   busy={isPending}
                   onReply={focusReply}
                   onReplyAll={
@@ -488,7 +489,13 @@ export function ThreadView({
 
       {canReply && <PresenceNote others={others} members={presence?.members ?? []} />}
       {canReply && (
-        <div className="flex flex-col gap-2 rounded-xl border bg-card p-3">
+        <div
+          className={cn(
+            'flex flex-col gap-2 rounded-xl border bg-card p-3',
+            // A long reply (MeroAI open, Cc, files) scrolls inside its box, not over the page.
+            email && 'lg:min-h-0 lg:overflow-y-auto',
+          )}
+        >
           <div role="tablist" aria-label="What to write" className="flex gap-1">
             <Button
               type="button"

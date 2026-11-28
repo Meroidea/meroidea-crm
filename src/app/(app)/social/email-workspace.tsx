@@ -23,6 +23,8 @@ export function EmailWorkspace({
   canCompose = false,
   drafts = null,
   inDrafts = false,
+  meroAI = false,
+  inMeroAI = false,
   children,
 }: {
   filters: InboxFilters;
@@ -39,6 +41,10 @@ export function EmailWorkspace({
   drafts?: number | null;
   /** The Drafts list is open. */
   inDrafts?: boolean;
+  /** MeroAI may be offered (ADR-092): "Ask MeroAI" joins the folders. */
+  meroAI?: boolean;
+  /** The Ask MeroAI page is open. */
+  inMeroAI?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -66,6 +72,8 @@ export function EmailWorkspace({
           canCompose={canCompose}
           drafts={drafts}
           inDrafts={inDrafts}
+          meroAI={meroAI}
+          inMeroAI={inMeroAI}
         />
         <div
           className={

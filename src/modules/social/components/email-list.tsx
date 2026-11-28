@@ -14,6 +14,7 @@ import { customerLabel } from '../format';
 import type { InboxRow } from '../queries';
 import { INBOX_VIEWS, type InboxFilters } from '../schemas';
 import { FOLDER_LABELS, VIEW_LABELS } from './email-folders';
+import { EmailRowActions, EmptyBinButton } from './email-bin-controls';
 import { CustomerAvatar } from './platform-badge';
 
 /**
@@ -27,6 +28,7 @@ export function EmailList({
   activeId,
   hasAccounts,
   canManage,
+  canReply = false,
   timeZone,
 }: {
   rows: InboxRow[];
@@ -35,6 +37,8 @@ export function EmailList({
   activeId?: string;
   hasAccounts: boolean;
   canManage: boolean;
+  /** May delete, restore and mark important (ADR-093). */
+  canReply?: boolean;
   timeZone: string;
 }) {
   const folder = filters.folder ?? 'customers';
@@ -69,8 +73,21 @@ export function EmailList({
         <h2 className="border-b-2 border-primary pb-2 text-sm font-semibold">
           {FOLDER_LABELS[folder]}
         </h2>
-        <span className="pb-2 text-sm text-muted-foreground">{VIEW_LABELS[view]}</span>
+        <span className="pb-2 text-sm text-muted-foreground">
+          {folder === 'bin' ? 'All' : VIEW_LABELS[view]}
+        </span>
+        {folder === 'bin' && canManage && rows.length > 0 && (
+          <span className="ml-auto pb-1">
+            <EmptyBinButton />
+          </span>
+        )}
       </div>
+      {folder === 'bin' && (
+        <p className="border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Emails in the Bin are deleted forever 30 days after they were deleted. A new email from
+          the customer brings a thread back.
+        </p>
+      )}
       <nav aria-label="Show" className="flex gap-1.5 overflow-x-auto border-b px-3 py-2 lg:hidden">
         {INBOX_VIEWS.map((key) => (
           <Link
@@ -101,11 +118,15 @@ export function EmailList({
                     ? 'Auto-replies, bounces, mailing lists and senders marked “Not a customer” go here.'
                     : folder === 'sent'
                       ? 'Emails you start wait here until the person answers.'
-                      : view === 'open'
-                        ? 'Emails from your customers appear here the moment they arrive.'
-                        : view === 'mine'
-                          ? 'Threads given to you appear here.'
-                          : 'Try another view.'
+                      : folder === 'bin'
+                        ? 'Deleted emails wait here for 30 days, then are deleted forever.'
+                        : folder === 'important'
+                          ? 'Mark an email important with its star to keep it here.'
+                          : view === 'open'
+                            ? 'Emails from your customers appear here the moment they arrive.'
+                            : view === 'mine'
+                              ? 'Threads given to you appear here.'
+                              : 'Try another view.'
               : 'Create your email inbox address to receive customers’ emails here.'
           }
           action={
@@ -129,7 +150,7 @@ export function EmailList({
                   const active = row.id === activeId;
                   const unread = row.unreadCount > 0;
                   return (
-                    <li key={row.id}>
+                    <li key={row.id} className="group relative">
                       <Link
                         href={withParams(`/email/${row.id}`, current, {})}
                         aria-current={active ? 'page' : undefined}
@@ -180,7 +201,7 @@ export function EmailList({
                               {listTime(row.lastMessageAt, timeZone, now)}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 pr-16">
                             <p
                               className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
                               data-sensitive
@@ -205,6 +226,15 @@ export function EmailList({
                           </div>
                         </div>
                       </Link>
+                      <div className="absolute right-2 bottom-1.5">
+                        <EmailRowActions
+                          conversationId={row.id}
+                          important={row.important}
+                          inBin={row.deletedAt !== null}
+                          canReply={canReply}
+                          canManage={canManage}
+                        />
+                      </div>
                     </li>
                   );
                 })}

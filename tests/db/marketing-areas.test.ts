@@ -158,6 +158,8 @@ describe('email folders', () => {
       review: 1,
       filtered: 1,
       sent: 0,
+      important: 0,
+      bin: 0,
     });
   });
 

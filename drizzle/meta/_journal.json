@@ -624,6 +624,20 @@
       "when": 1795832021337,
       "tag": "0088_email_drafts_signatures",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795842923275,
+      "tag": "0089_email_bin_important",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1795842959885,
+      "tag": "0090_email_bin_functions",
+      "breakpoints": true
     }
   ]
 }

@@ -71,6 +71,8 @@ const eslintConfig = defineConfig([
       // Social inbox webhooks: Meta's verified by signature, TikTok's only trigger a read through
       // TikTok's API with the account's own token; no session (ADR-064).
       'src/modules/social/webhooks.ts',
+      // The daily Bin sweep, run only by the scheduler's route (ADR-093).
+      'src/modules/social/bin-sweep.ts',
       // Re-sealing account tokens onto a new key with the payroll numbers (ADR-040, ADR-064).
       'src/modules/social/key-rotation.ts',
       // The public help portal: no session; starts from the business's slug, reads published

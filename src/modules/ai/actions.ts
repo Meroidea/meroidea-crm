@@ -6,6 +6,14 @@ import { saveInvoiceSchema } from '@/modules/invoices/schemas';
 import { authedAction } from '@/server/action';
 
 import { runAssistant } from './agent';
+import {
+  askInboxWithMeroAI,
+  askThreadWithMeroAI,
+  draftReplyWithMeroAI,
+  rewriteEmailWithMeroAI,
+  summariseThreadWithMeroAI,
+  writeEmailWithMeroAI,
+} from './meroai-email';
 import { chaseOverdueInvoices, draftInvoiceWithMeroAI } from './meroai-invoices';
 import { buildRosterWithMeroAI } from './meroai-roster';
 import { authoriseRosterTimesheets, runPayrollWithMeroAI } from './meroai-payroll';
@@ -22,6 +30,12 @@ import {
   approveNoteSchema,
   approveRosterSchema,
   assistantRequestSchema,
+  meroAIAskInboxSchema,
+  meroAIAskThreadSchema,
+  meroAIDraftReplySchema,
+  meroAIRewriteEmailSchema,
+  meroAIThreadSchema,
+  meroAIWriteEmailSchema,
   meroAIInvoiceDraftSchema,
   meroAIRosterSchema,
   rosterAgentBuildSchema,
@@ -151,4 +165,36 @@ export const runPayrollAction = authedAction(
     revalidate: ['/timesheets', '/payroll', '/roster', '/payslips'],
   },
   (ctx, input) => runPayrollWithMeroAI(ctx, input),
+);
+
+/* MeroAI in Email (ADR-092): drafts for the editor and answers on the screen; nothing is sent. */
+
+export const writeEmailWithMeroAIAction = authedAction(
+  { permission: 'social.reply', input: meroAIWriteEmailSchema },
+  (ctx, input) => writeEmailWithMeroAI(ctx, input),
+);
+
+export const rewriteEmailWithMeroAIAction = authedAction(
+  { permission: 'social.reply', input: meroAIRewriteEmailSchema },
+  (ctx, input) => rewriteEmailWithMeroAI(ctx, input),
+);
+
+export const draftReplyWithMeroAIAction = authedAction(
+  { permission: 'social.reply', input: meroAIDraftReplySchema },
+  (ctx, input) => draftReplyWithMeroAI(ctx, input),
+);
+
+export const summariseEmailThreadAction = authedAction(
+  { permission: 'social.view', input: meroAIThreadSchema },
+  (ctx, input) => summariseThreadWithMeroAI(ctx, input.conversationId),
+);
+
+export const askEmailThreadAction = authedAction(
+  { permission: 'social.view', input: meroAIAskThreadSchema },
+  (ctx, input) => askThreadWithMeroAI(ctx, input),
+);
+
+export const askEmailInboxAction = authedAction(
+  { permission: 'social.view', input: meroAIAskInboxSchema },
+  (ctx, input) => askInboxWithMeroAI(ctx, input.question),
 );

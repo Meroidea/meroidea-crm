@@ -20,6 +20,8 @@ const FOLDER_LABELS: Record<EmailFolder, string> = {
   review: 'To review',
   filtered: 'Filtered',
   sent: 'Sent',
+  important: 'Important',
+  bin: 'Bin',
 };
 
 /** What the list shows above the conversations: channels (Social inbox) or folders (Email). */

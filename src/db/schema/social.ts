@@ -177,6 +177,13 @@ export const socialConversations = pgTable(
     status: text().notNull().default('open'),
     /** Until when it is set aside (ADR-067); a customer writing again reopens it at once. */
     snoozedUntil: timestamp({ withTimezone: true }),
+    /**
+     * Email only (ADR-093): put in the Bin at this moment. Restorable; permanently deleted with its
+     * messages and files 30 days later. A new email from the customer takes it out of the Bin.
+     */
+    deletedAt: timestamp({ withTimezone: true }),
+    /** Email only (ADR-093): marked important, for the whole team. */
+    important: boolean().notNull().default(false),
     /** The colleague looking after it (ADR-067); empty for the whole team. */
     assignedUserId: uuid(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -202,6 +209,9 @@ export const socialConversations = pgTable(
     }),
     index('social_conversations_inbox_idx').on(table.tenantId, table.lastMessageAt, table.id),
     index('social_conversations_assignee_idx').on(table.tenantId, table.assignedUserId),
+    index('social_conversations_bin_idx')
+      .on(table.tenantId, table.deletedAt)
+      .where(sql`${table.deletedAt} is not null`),
     uniqueIndex('social_conversations_reply_token_key')
       .on(table.replyToken)
       .where(sql`${table.replyToken} is not null`),

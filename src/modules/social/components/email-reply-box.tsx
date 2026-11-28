@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { MeroAIWriter } from '@/modules/ai/components/meroai-email';
 import { ArticlePicker } from '@/modules/kb/components/article-picker';
 import { cn } from '@/lib/utils';
 import { emailReplyAction, removeComposeUploadAction } from '@/modules/social/actions';
@@ -46,6 +47,7 @@ export function EmailReplyBox({
   signature,
   canned = [],
   articles = false,
+  meroAI = false,
 }: {
   conversationId: string;
   /** The thread's inbox, which files and pictures are uploaded for. */
@@ -55,6 +57,8 @@ export function EmailReplyBox({
   canned?: { id: string; title: string; body: string }[];
   /** Whether help articles can be linked (ADR-071). */
   articles?: boolean;
+  /** MeroAI may help write the reply (ADR-092). */
+  meroAI?: boolean;
 }) {
   const router = useRouter();
   const editor = useRef<EmailEditorHandle>(null);
@@ -158,7 +162,7 @@ export function EmailReplyBox({
   };
 
   return (
-    <div ref={box} className="flex flex-col overflow-hidden rounded-lg border">
+    <div ref={box} className="flex shrink-0 flex-col overflow-hidden rounded-lg border">
       {(showCc || showBcc) && (
         <div>
           {showCc && (
@@ -180,6 +184,16 @@ export function EmailReplyBox({
             />
           )}
         </div>
+      )}
+      {meroAI && (
+        <MeroAIWriter
+          mode="reply"
+          conversationId={conversationId}
+          editor={editor}
+          signature={signature}
+          disabled={sending}
+          onChange={() => setError(null)}
+        />
       )}
       <span id={`reply-label-${conversationId}`} className="sr-only">
         Reply
