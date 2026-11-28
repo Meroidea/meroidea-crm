@@ -14,7 +14,7 @@ import {
 } from '@/modules/social/email-parse';
 import { emailHtml } from '@/modules/social/email-service';
 import { verifyResendSignature } from '@/modules/social/providers/resend';
-import { newEmailSchema } from '@/modules/social/schemas';
+import { composeEmailSchema } from '@/modules/social/schemas';
 
 describe('Resend webhook signatures (Svix scheme)', () => {
   // Svix's own published example (docs.svix.com, manual verification).
@@ -141,28 +141,49 @@ describe('inbox addresses', () => {
   });
 });
 
-describe('a new email (ADR-089)', () => {
+describe('a composed email (ADR-089, ADR-090)', () => {
+  const doc = [{ type: 'paragraph', content: [{ text: 'Hello' }] }];
   const valid = {
     accountId: '00000000-0000-4000-8000-000000000000',
-    to: '  Kim@Example.COM ',
+    to: ['  Kim@Example.COM '],
+    cc: ['lee@example.com'],
     subject: ' Your quote ',
-    body: ' Hello ',
+    doc,
   };
 
-  it('keeps the address in lower case and trims what was typed', () => {
-    expect(newEmailSchema.parse(valid)).toEqual({
+  it('keeps addresses in lower case, trims what was typed, and defaults Bcc and files', () => {
+    expect(composeEmailSchema.parse(valid)).toEqual({
       accountId: valid.accountId,
-      to: 'kim@example.com',
+      to: ['kim@example.com'],
+      cc: ['lee@example.com'],
+      bcc: [],
       subject: 'Your quote',
-      body: 'Hello',
+      doc,
+      attachments: [],
     });
   });
 
-  it('needs one real address, a subject and a message', () => {
-    expect(newEmailSchema.safeParse({ ...valid, to: 'kim, lee@example.com' }).success).toBe(false);
-    expect(newEmailSchema.safeParse({ ...valid, to: 'not an address' }).success).toBe(false);
-    expect(newEmailSchema.safeParse({ ...valid, subject: '  ' }).success).toBe(false);
-    expect(newEmailSchema.safeParse({ ...valid, body: '' }).success).toBe(false);
-    expect(newEmailSchema.safeParse({ ...valid, body: 'x'.repeat(20001) }).success).toBe(false);
+  it('needs a real address to send to, a subject and some words', () => {
+    expect(composeEmailSchema.safeParse({ ...valid, to: [] }).success).toBe(false);
+    expect(composeEmailSchema.safeParse({ ...valid, to: ['not an address'] }).success).toBe(false);
+    expect(composeEmailSchema.safeParse({ ...valid, bcc: ['kim@'] }).success).toBe(false);
+    expect(composeEmailSchema.safeParse({ ...valid, subject: '  ' }).success).toBe(false);
+    expect(
+      composeEmailSchema.safeParse({
+        ...valid,
+        doc: [{ type: 'paragraph', content: [{ text: ' ' }] }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('goes to at most 50 people, and carries at most 10 files', () => {
+    const many = Array.from({ length: 30 }, (_, index) => `p${index}@example.com`);
+    expect(composeEmailSchema.safeParse({ ...valid, to: many, cc: many }).success).toBe(true);
+    const more = Array.from({ length: 21 }, (_, index) => `q${index}@example.com`);
+    expect(composeEmailSchema.safeParse({ ...valid, to: many, cc: more }).success).toBe(false);
+    const file = { path: 'x', fileName: 'a.pdf', mimeType: 'application/pdf' };
+    expect(
+      composeEmailSchema.safeParse({ ...valid, attachments: Array(11).fill(file) }).success,
+    ).toBe(false);
   });
 });

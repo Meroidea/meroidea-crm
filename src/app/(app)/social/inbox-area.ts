@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { InboxArea } from '@/modules/social/components/inbox-list';
-import type { EmailInboxOption } from '@/modules/social/components/new-email';
+import type { EmailInboxOption } from '@/modules/social/components/email-compose';
 import { emailInboxConfigured } from '@/modules/social/providers/resend';
 import { mailboxOf, type Mailbox } from '@/modules/social/providers/types';
 import { countEmailUnread, countUnread, listAccounts } from '@/modules/social/queries';

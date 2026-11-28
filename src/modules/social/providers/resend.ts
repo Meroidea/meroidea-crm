@@ -202,7 +202,9 @@ export async function listReceivedAttachments(id: string): Promise<ReceivedAttac
 
 export type OutgoingEmail = {
   from: string;
-  to: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
   subject: string;
   text: string;
   html: string;
@@ -223,6 +225,8 @@ export async function sendResendEmail(email: OutgoingEmail): Promise<string> {
     body: JSON.stringify({
       from: email.from,
       to: email.to,
+      ...(email.cc.length > 0 ? { cc: email.cc } : {}),
+      ...(email.bcc.length > 0 ? { bcc: email.bcc } : {}),
       subject: email.subject,
       text: email.text,
       html: email.html,

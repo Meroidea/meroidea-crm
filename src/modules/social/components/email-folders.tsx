@@ -8,6 +8,7 @@ import {
   MailOpen,
   Send,
   Settings2,
+  SquarePen,
   User,
   UserSearch,
   type LucideIcon,
@@ -15,6 +16,7 @@ import {
 import Link from 'next/link';
 
 import { withParams } from '@/components/data/url';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { EMAIL_FOLDERS, INBOX_VIEWS, type EmailFolder, type InboxFilters } from '../schemas';
@@ -52,7 +54,7 @@ const VIEW_ICONS: Record<(typeof INBOX_VIEWS)[number], LucideIcon> = {
 };
 
 /**
- * The Email area's folder pane (ADR-087): the inbox address, its four folders with unread
+ * The Email area's folder pane (ADR-087): Compose (ADR-090), the inbox address, its four folders with unread
  * counts, the views, and the area's settings. A column on a wide screen; on a phone the same
  * links as a scrolling row above the list.
  */
@@ -62,6 +64,7 @@ export function EmailFolders({
   mailboxLabel,
   settings,
   phoneRow = true,
+  canCompose = false,
 }: {
   filters: InboxFilters;
   unread: Record<EmailFolder, number>;
@@ -70,6 +73,8 @@ export function EmailFolders({
   settings: { href: string; label: string }[];
   /** Show the folders as a row on a phone (the list page, not an open email). */
   phoneRow?: boolean;
+  /** The person may write a new email (ADR-090): Compose heads the folders. */
+  canCompose?: boolean;
 }) {
   const folder = filters.folder ?? 'customers';
   const view = filters.view ?? 'open';
@@ -86,6 +91,13 @@ export function EmailFolders({
         aria-label="Email folders"
         className="hidden min-h-0 flex-col gap-4 overflow-y-auto rounded-xl border bg-card p-2 lg:flex"
       >
+        {canCompose && (
+          <Button asChild className="w-full justify-start">
+            <Link href="/email/compose">
+              <SquarePen aria-hidden /> Compose
+            </Link>
+          </Button>
+        )}
         <div className="flex flex-col gap-0.5">
           <p
             className="truncate px-2.5 pt-1 pb-1.5 text-xs font-semibold"

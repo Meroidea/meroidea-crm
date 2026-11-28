@@ -21,6 +21,7 @@ import { ErrorNote } from '@/components/forms/use-action-runner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { publicEnv } from '@/lib/env.public';
+import type { StoredCompose } from '@/modules/social/email-doc';
 import { cn } from '@/lib/utils';
 import {
   mediaReplyAction,
@@ -56,6 +57,8 @@ export type ThreadItem = {
   unverified?: boolean;
   /** Email: sent by a machine (an auto-reply or a bounce). */
   automated?: boolean;
+  /** Email written in Compose (ADR-090): recipients and formatting. */
+  composed?: StoredCompose | null;
 };
 
 const STATUS_ICONS: Record<string, typeof Check> = {

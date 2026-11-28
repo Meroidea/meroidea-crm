@@ -1,0 +1,1 @@
+ALTER TABLE "social_messages" ADD COLUMN "email_outbound" jsonb;

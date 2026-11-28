@@ -221,6 +221,8 @@ export type StoredAttachment = {
   storagePath?: string;
   mimeType?: string;
   size?: number;
+  /** The name the file was attached with, for files sent from Compose (ADR-090). */
+  fileName?: string;
   url?: string;
   mediaId?: string;
 };

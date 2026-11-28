@@ -13,7 +13,6 @@ import { EmailList } from '@/modules/social/components/email-list';
 import { EmailSenderControls } from '@/modules/social/components/email-sender-controls';
 import { InboxList } from '@/modules/social/components/inbox-list';
 import { InboxRealtime } from '@/modules/social/components/inbox-realtime';
-import { NewEmail } from '@/modules/social/components/new-email';
 import {
   CHANNEL_BORDER,
   CustomerAvatar,
@@ -200,6 +199,7 @@ export async function ConversationScreen({
     sentByName: message.sentByName,
     unverified: message.direction === 'inbound' && message.emailMeta?.verified === false,
     automated: message.emailMeta?.automated === true,
+    composed: message.composed,
   }));
 
   if (mailbox === 'email' && area.area.kind === 'email') {
@@ -210,12 +210,8 @@ export async function ConversationScreen({
         mailboxLabel={area.mailboxLabel}
         settings={areaSettings(ctx, mailbox, area.area)}
         reading
-        actions={
-          <>
-            <InboxRealtime tenantId={ctx.tenantId} />
-            <NewEmail inboxes={area.newEmailFrom} />
-          </>
-        }
+        actions={<InboxRealtime tenantId={ctx.tenantId} />}
+        canCompose={area.newEmailFrom.length > 0}
         list={
           <EmailList
             rows={list.rows}

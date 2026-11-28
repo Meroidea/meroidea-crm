@@ -268,6 +268,12 @@ export const socialMessages = pgTable(
      * `verified` is whether the sender passed DKIM or DMARC when it was received.
      */
     emailMeta: jsonb(),
+    /**
+     * Email the business wrote in Compose (ADR-090): `{ to: [], cc: [], bcc: [], doc }`, where
+     * `doc` is the checked formatted document the HTML is built from. Written by the sender's
+     * own session; `emailMeta` and `emailMessageId` never are.
+     */
+    emailOutbound: jsonb(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

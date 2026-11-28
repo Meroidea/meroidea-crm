@@ -478,3 +478,58 @@
     }
   }
 }
+
+/* Formatted email (ADR-090), in Compose's editing area and in sent emails: shown as it is sent.
+   Tailwind's base styles reset lists and headings, so they are put back here. */
+@layer components {
+  .email-rich p {
+    margin: 0 0 0.75rem;
+  }
+  .email-rich h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: 1.625rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .email-rich h2 {
+    margin: 1rem 0 0.5rem;
+    font-size: 1.3125rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .email-rich h3 {
+    margin: 1rem 0 0.5rem;
+    font-size: 1.0625rem;
+    font-weight: 600;
+  }
+  .email-rich ul {
+    margin: 0 0 0.75rem;
+    padding-left: 1.5rem;
+    list-style: disc;
+  }
+  .email-rich ol {
+    margin: 0 0 0.75rem;
+    padding-left: 1.5rem;
+    list-style: decimal;
+  }
+  .email-rich blockquote {
+    margin: 0 0 0.75rem;
+    padding: 0.25rem 0 0.25rem 0.75rem;
+    border-left: 3px solid var(--border);
+    color: var(--muted-foreground);
+  }
+  .email-rich a {
+    color: var(--primary);
+    text-decoration: underline;
+  }
+  .email-rich hr {
+    margin: 1rem 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+  .email-rich:empty::before {
+    content: attr(data-placeholder);
+    color: var(--muted-foreground);
+    pointer-events: none;
+  }
+}

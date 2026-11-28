@@ -5,6 +5,7 @@ import { initials } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { receiptLabel } from '../channel-conventions';
+import { EmailDocView } from './email-doc-view';
 import { Attachment } from './message-attachment';
 import type { ThreadItem } from './thread-view';
 
@@ -42,9 +43,13 @@ export function EmailMessage({
   const outbound = message.direction === 'outbound';
   const fromName = outbound ? (message.sentByName ?? parties.accountName) : parties.customerName;
   const fromAddress = outbound ? parties.accountAddress : parties.customerEmail;
-  const to = outbound
-    ? (parties.customerEmail ?? parties.customerName)
-    : (parties.accountAddress ?? parties.accountName);
+  const composed = outbound ? (message.composed ?? null) : null;
+  const to =
+    composed && composed.to.length > 0
+      ? composed.to.join(', ')
+      : outbound
+        ? (parties.customerEmail ?? parties.customerName)
+        : (parties.accountAddress ?? parties.accountName);
   const status = outbound ? receiptLabel('email', message.status) : null;
   const preview = (message.body ?? '').replace(/\s+/g, ' ').trim();
 
@@ -86,6 +91,22 @@ export function EmailMessage({
           >
             To: {to}
           </span>
+          {composed && composed.cc.length > 0 && (
+            <span
+              className="hidden truncate text-xs text-muted-foreground group-open:block"
+              data-sensitive
+            >
+              Cc: {composed.cc.join(', ')}
+            </span>
+          )}
+          {composed && composed.bcc.length > 0 && (
+            <span
+              className="hidden truncate text-xs text-muted-foreground group-open:block"
+              data-sensitive
+            >
+              Bcc: {composed.bcc.join(', ')}
+            </span>
+          )}
           <span className="block text-xs text-muted-foreground tabular-nums sm:hidden">
             {message.sentAtLabel}
             {status ? ` · ${status}` : ''}
@@ -113,10 +134,14 @@ export function EmailMessage({
             An automatic message: an auto-reply or a bounce.
           </p>
         )}
-        {message.body && (
-          <div className="text-sm leading-relaxed break-words whitespace-pre-wrap" data-sensitive>
-            {message.body}
-          </div>
+        {composed ? (
+          <EmailDocView doc={composed.doc} />
+        ) : (
+          message.body && (
+            <div className="text-sm leading-relaxed break-words whitespace-pre-wrap" data-sensitive>
+              {message.body}
+            </div>
+          )
         )}
         {message.attachments.length > 0 && (
           <div className="flex flex-wrap gap-3 border-t pt-3 text-sm">

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { emailDocSchema } from './email-doc';
 import { OAUTH_PROVIDERS } from './oauth-state-keys';
 import { SOCIAL_PLATFORMS } from './providers/types';
 
@@ -43,22 +44,75 @@ export const replySchema = z.object({
 });
 export type ReplyInput = z.output<typeof replySchema>;
 
+/** One email address as typed: trimmed and in lower case. */
+const emailAddress = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254, 'That address is too long')
+  .pipe(z.email('Check the email addresses'));
+
+/** Recipients one email can have, To, Cc and Bcc together (Resend takes up to 50 in each). */
+export const MAX_EMAIL_RECIPIENTS = 50;
+/** Files one composed email can carry, and their total size. */
+export const MAX_COMPOSE_FILES = 10;
+export const MAX_COMPOSE_BYTES = 25 * 1024 * 1024;
+/** The files Compose takes, as email replies do (MEDIA_RULES.email): up to 10 MB each. */
+export const COMPOSE_FILE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+] as const;
+export const MAX_COMPOSE_FILE_BYTES = 10 * 1024 * 1024;
+
 /**
- * A new email from one of the business's inbox addresses to anyone (ADR-089). One recipient: a
- * thread answers one person, so their reply comes back to it.
+ * An email written in Compose (ADR-089, ADR-090), from one of the business's inbox addresses to
+ * anyone. The first To address is the thread's person: their reply comes back to the thread.
+ * Everyone else gets the email too, and their replies start threads of their own (ADR-070: a
+ * message joins a thread only from that thread's person).
  */
-export const newEmailSchema = z.object({
+export const composeEmailSchema = z
+  .object({
+    accountId: z.uuid(),
+    to: z.array(emailAddress).min(1, 'Add someone to send it to').max(MAX_EMAIL_RECIPIENTS),
+    cc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+    bcc: z.array(emailAddress).max(MAX_EMAIL_RECIPIENTS).default([]),
+    subject: z.string().trim().min(1, 'Add a subject').max(200, 'That subject is too long'),
+    doc: emailDocSchema,
+    attachments: z
+      .array(
+        z.object({
+          path: z.string().min(1).max(500),
+          fileName: z.string().trim().min(1).max(200),
+          mimeType: z.string().max(200),
+        }),
+      )
+      .max(MAX_COMPOSE_FILES, `Attach at most ${MAX_COMPOSE_FILES} files`)
+      .default([]),
+  })
+  .refine(
+    (value) => new Set([...value.to, ...value.cc, ...value.bcc]).size <= MAX_EMAIL_RECIPIENTS,
+    {
+      message: `An email can go to at most ${MAX_EMAIL_RECIPIENTS} people`,
+      path: ['to'],
+    },
+  );
+export type ComposeEmailInput = z.output<typeof composeEmailSchema>;
+
+/** A file chosen in Compose, before the email exists: checked again when it is sent. */
+export const composeUploadSchema = z.object({
   accountId: z.uuid(),
-  to: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .max(254, 'That address is too long')
-    .pipe(z.email('Enter an email address')),
-  subject: z.string().trim().min(1, 'Add a subject').max(200, 'That subject is too long'),
-  body: z.string().trim().min(1, 'Write your email first').max(20000, 'That email is too long'),
+  fileName: z.string().trim().min(1).max(200),
+  mimeType: z.string().max(200),
+  size: z.number().int().positive().max(MAX_COMPOSE_BYTES, 'That file is too large'),
 });
-export type NewEmailInput = z.output<typeof newEmailSchema>;
+
+export const composeUploadPathSchema = z.object({ path: z.string().min(1).max(500) });
 
 export const messageIdSchema = z.object({ messageId: z.uuid() });
 
