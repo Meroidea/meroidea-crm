@@ -49,6 +49,27 @@ five minutes.
 
 Without all three, the Email card says "Not available yet" and nothing is received.
 
+A **sending-only** key is not enough: it sends Meroidea's own emails, but Resend refuses it when
+the inbox reads a received email, so every email is refused and retried. Redeploy after changing
+any of the three.
+
+## Checking it works
+
+- `POST https://<your domain>/api/webhooks/resend` with no signature answers `403` once
+  `RESEND_WEBHOOK_SECRET` is set (`404` means it is not set in the running deployment).
+- Send a test email to an inbox address. In Resend → Webhooks, its `email.received` event should
+  show *Succeeded*.
+- If it shows `500`, the production log has `[email] webhook not stored` with Resend's error code:
+  - `restricted_api_key` or `401`: the key lacks full access;
+  - `unexpected_response`: Resend's reply changed shape; compare it with `receivedSchema` in
+    `src/modules/social/providers/resend.ts`.
+
+Setup traps seen in practice:
+- Resend plans limit how many domains an account has. Remove an unused one or upgrade before
+  adding the inbox domain.
+- Some DNS hosts (GoDaddy) save a new MX record with priority 0. Set the priorities Resend shows
+  (10), or its SPF check stays *pending*.
+
 ## 5. Switch it on for a business
 
 In `/platform`, open the business and tick **Email inbox**. Its Admin then opens
